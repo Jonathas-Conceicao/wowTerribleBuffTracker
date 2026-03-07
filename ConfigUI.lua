@@ -50,7 +50,7 @@ local function CreateConfigFrame()
     -- Add section: Spell ID
     local idLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     idLabel:SetPoint("BOTTOMLEFT", 12, 82)
-    idLabel:SetText("Spell/Item ID:")
+    idLabel:SetText("Spell ID:")
 
     local idBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     idBox:SetSize(80, 20)

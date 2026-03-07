@@ -4,6 +4,7 @@ ns.activeTimers = {}
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
@@ -24,10 +25,16 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         end
 
         ns:InitBuffEngine()
-        ns:InitDisplay()
 
         print("|cff00ccffTerribleBuffTracker|r loaded. Type |cff00ff00/tbt|r to configure.")
         self:UnregisterEvent("ADDON_LOADED")
+
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        if not ns.displayInitialized then
+            ns.displayInitialized = true
+            ns:InitDisplay()
+        end
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
 
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellID = ...

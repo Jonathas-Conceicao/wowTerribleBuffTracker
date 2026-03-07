@@ -72,13 +72,126 @@ end
 
 local function GetBar(index)
     if not barPool[index] then
-        barPool[index] = CreateTimerBar(ns.anchorFrame)
+        barPool[index] = CreateTimerBar(ns.anchorFrame or UIParent)
     end
     return barPool[index]
 end
 
+-- Find the bottommost active bar in BuffBarCooldownViewer
+local function GetCDMBottomBar(viewer)
+    local bottomBar = nil
+    local bottomY = math.huge
+
+    for frame in viewer.itemFramePool:EnumerateActive() do
+        if frame:IsShown() then
+            local _, _, _, _, y = frame:GetPoint()
+            -- GetPoint y is relative; use GetBottom() for screen coords
+            local screenBottom = frame:GetBottom()
+            if screenBottom and screenBottom < bottomY then
+                bottomY = screenBottom
+                bottomBar = frame
+            end
+        end
+    end
+
+    return bottomBar, bottomY
+end
+
+-- Get the width of CDM bars by checking an active bar frame
+local function GetCDMBarWidth(viewer)
+    for frame in viewer.itemFramePool:EnumerateActive() do
+        if frame:IsShown() then
+            return frame:GetWidth()
+        end
+    end
+    return nil
+end
+
+function ns:RepositionBars()
+    if not ns.cdmMode or not ns.cdmViewer then return end
+
+    local viewer = ns.cdmViewer
+    local bottomBar = GetCDMBottomBar(viewer)
+
+    -- Match bar width to CDM bars if possible
+    local cdmWidth = GetCDMBarWidth(viewer)
+    if cdmWidth then
+        BAR_WIDTH = cdmWidth
+    end
+
+    -- Determine anchor point for our first bar
+    local anchorFrame, anchorPoint, yOffset
+    if bottomBar then
+        anchorFrame = bottomBar
+        anchorPoint = "BOTTOMLEFT"
+        yOffset = -(BAR_SPACING)
+    else
+        anchorFrame = viewer
+        anchorPoint = "BOTTOMLEFT"
+        yOffset = -(BAR_SPACING)
+    end
+
+    -- Reposition all active TBT bars
+    local timers = ns:GetActiveTimers()
+    for i, timer in ipairs(timers) do
+        local bar = GetBar(i)
+        bar:SetSize(BAR_WIDTH, BAR_HEIGHT)
+        bar.label:SetWidth(BAR_WIDTH - 50)
+        bar:ClearAllPoints()
+
+        if i == 1 then
+            bar:SetPoint("TOPLEFT", anchorFrame, anchorPoint, ICON_SIZE + 2, yOffset)
+        else
+            local prevBar = GetBar(i - 1)
+            bar:SetPoint("TOPLEFT", prevBar, "BOTTOMLEFT", 0, -(BAR_SPACING))
+        end
+    end
+end
+
 function ns:InitDisplay()
-    -- Anchor frame (draggable)
+    -- Check for CDM viewer
+    local viewer = BuffBarCooldownViewer
+    if viewer and viewer.itemFramePool then
+        ns.cdmMode = true
+        ns.cdmViewer = viewer
+
+        -- Hook layout methods to reposition our bars when CDM relayouts
+        hooksecurefunc(viewer, "Layout", function()
+            ns:RepositionBars()
+        end)
+        if viewer.UpdateLayout then
+            hooksecurefunc(viewer, "UpdateLayout", function()
+                ns:RepositionBars()
+            end)
+        end
+        if viewer.RefreshLayout then
+            hooksecurefunc(viewer, "RefreshLayout", function()
+                ns:RepositionBars()
+            end)
+        end
+
+        -- Parent bars to UIParent (same as Blizzard), no draggable anchor needed
+        -- Create a hidden update driver frame
+        local updateFrame = CreateFrame("Frame", nil, UIParent)
+        updateFrame:SetScript("OnUpdate", function(self, elapsed)
+            timeSinceUpdate = timeSinceUpdate + elapsed
+            if timeSinceUpdate < UPDATE_INTERVAL then return end
+            timeSinceUpdate = 0
+            ns:UpdateDisplay()
+        end)
+
+        -- No anchor frame in CDM mode — bars position relative to CDM
+        ns.anchorFrame = nil
+
+        print("|cff00ccffTerribleBuffTracker|r: Attached to Cooldown Manager.")
+    else
+        -- Standalone mode: draggable anchor (original behavior)
+        ns.cdmMode = false
+        ns:InitStandaloneDisplay()
+    end
+end
+
+function ns:InitStandaloneDisplay()
     local anchor = CreateFrame("Frame", "TerribleBuffTrackerAnchor", UIParent)
     anchor:SetSize(ICON_SIZE + BAR_WIDTH + 2, ANCHOR_SIZE)
     anchor:SetMovable(true)
@@ -116,32 +229,64 @@ function ns:UpdateDisplay()
     local timers = ns:GetActiveTimers()
     local now = GetTime()
 
-    -- Update/create bars for active timers
-    for i, timer in ipairs(timers) do
-        local bar = GetBar(i)
-        local remaining = timer.expiresAt - now
-        local fraction = remaining / timer.duration
+    if ns.cdmMode then
+        -- CDM mode: position relative to CDM viewer
+        local viewer = ns.cdmViewer
+        local bottomBar = GetCDMBottomBar(viewer)
+        local cdmWidth = GetCDMBarWidth(viewer)
+        if cdmWidth then
+            BAR_WIDTH = cdmWidth
+        end
 
-        -- Position below anchor
-        bar:ClearAllPoints()
-        bar:SetPoint("TOPLEFT", ns.anchorFrame, "BOTTOMLEFT", ICON_SIZE + 2, -((i - 1) * (BAR_HEIGHT + BAR_SPACING)))
+        for i, timer in ipairs(timers) do
+            local bar = GetBar(i)
+            local remaining = timer.expiresAt - now
+            local fraction = remaining / timer.duration
 
-        -- Icon
-        bar.icon:SetTexture(timer.icon)
+            bar:SetSize(BAR_WIDTH, BAR_HEIGHT)
+            bar.label:SetWidth(BAR_WIDTH - 50)
+            bar:ClearAllPoints()
 
-        -- Label
-        bar.label:SetText(timer.label)
+            if i == 1 then
+                local anchorFrame = bottomBar or viewer
+                bar:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", ICON_SIZE + 2, -(BAR_SPACING))
+            else
+                local prevBar = GetBar(i - 1)
+                bar:SetPoint("TOPLEFT", prevBar, "BOTTOMLEFT", 0, -(BAR_SPACING))
+            end
 
-        -- Fill width
-        local fillWidth = math.max(1, (BAR_WIDTH - 4) * fraction)
-        bar.fill:SetWidth(fillWidth)
-        local r, g, b = GetBarColor(fraction)
-        bar.fill:SetVertexColor(r, g, b, 0.8)
+            bar.icon:SetTexture(timer.icon)
+            bar.label:SetText(timer.label)
 
-        -- Time text
-        bar.time:SetText(FormatTime(remaining))
+            local fillWidth = math.max(1, (BAR_WIDTH - 4) * fraction)
+            bar.fill:SetWidth(fillWidth)
+            local r, g, b = GetBarColor(fraction)
+            bar.fill:SetVertexColor(r, g, b, 0.8)
 
-        bar:Show()
+            bar.time:SetText(FormatTime(remaining))
+            bar:Show()
+        end
+    else
+        -- Standalone mode: position below anchor
+        for i, timer in ipairs(timers) do
+            local bar = GetBar(i)
+            local remaining = timer.expiresAt - now
+            local fraction = remaining / timer.duration
+
+            bar:ClearAllPoints()
+            bar:SetPoint("TOPLEFT", ns.anchorFrame, "BOTTOMLEFT", ICON_SIZE + 2, -((i - 1) * (BAR_HEIGHT + BAR_SPACING)))
+
+            bar.icon:SetTexture(timer.icon)
+            bar.label:SetText(timer.label)
+
+            local fillWidth = math.max(1, (BAR_WIDTH - 4) * fraction)
+            bar.fill:SetWidth(fillWidth)
+            local r, g, b = GetBarColor(fraction)
+            bar.fill:SetVertexColor(r, g, b, 0.8)
+
+            bar.time:SetText(FormatTime(remaining))
+            bar:Show()
+        end
     end
 
     -- Hide unused bars
