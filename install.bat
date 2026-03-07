@@ -12,4 +12,3 @@ copy /Y "%SOURCE%Display.lua" "%DEST%\"
 copy /Y "%SOURCE%ConfigUI.lua" "%DEST%\"
 
 echo Done! /reload in WoW to load the addon.
-pause

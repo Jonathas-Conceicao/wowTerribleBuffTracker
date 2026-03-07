@@ -1,14 +1,22 @@
 local addonName, ns = ...
 
-local BAR_WIDTH = 200
-local BAR_HEIGHT = 20
+-- Hardcoded style matching Blizzard CDM bars
+local BAR_HEIGHT = 28
 local BAR_SPACING = 2
 local ICON_SIZE = BAR_HEIGHT
+local ICON_GAP = 0
 local UPDATE_INTERVAL = 0.05
 local ANCHOR_SIZE = 8
 
 local BUFF_ICON_SIZE = 36
 local BUFF_ICON_SPACING = 2
+
+local BAR_BACKDROP = {
+	bgFile = "Interface\\Buttons\\WHITE8X8",
+	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+	edgeSize = 18,
+	insets = { left = 3, right = 3, top = 3, bottom = 3 },
+}
 
 local barPool = {}
 local iconPool = {}
@@ -21,7 +29,7 @@ local function FormatTime(remaining)
 		local s = math.floor(remaining % 60)
 		return string.format("%d:%02d", m, s)
 	else
-		return string.format("%.1f", remaining)
+		return string.format("%d", math.floor(remaining))
 	end
 end
 
@@ -35,65 +43,76 @@ local function GetBarColor(fraction)
 	end
 end
 
-local function CreateTimerBar(parent)
-	local bar = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-	bar:SetSize(BAR_WIDTH, BAR_HEIGHT)
-	bar:SetBackdrop({
-		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-		tile = true,
-		tileSize = 16,
-		edgeSize = 8,
-		insets = { left = 2, right = 2, top = 2, bottom = 2 },
-	})
-	bar:SetBackdropColor(0, 0, 0, 0.7)
-	bar:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+---------------------------------------------------------------------
+-- Frame creation — hardcoded CDM-matching style
+---------------------------------------------------------------------
 
-	-- Progress fill
+local function CreateTimerBar(parent)
+	local bar = CreateFrame("Frame", nil, parent or UIParent, "BackdropTemplate")
+	bar:SetSize(200, BAR_HEIGHT)
+	bar:SetBackdrop(BAR_BACKDROP)
+	bar:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
+	bar:SetBackdropBorderColor(0.75, 0.75, 0.75, 0.9)
+
+	-- Progress fill (inset to stay inside border)
 	bar.fill = bar:CreateTexture(nil, "ARTWORK")
 	bar.fill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	bar.fill:SetPoint("TOPLEFT", 2, -2)
-	bar.fill:SetHeight(BAR_HEIGHT - 4)
+	bar.fill:SetPoint("TOPLEFT", 4, -4)
+	bar.fill:SetHeight(BAR_HEIGHT - 8)
 
-	-- Icon
+	-- Spark (bright line at leading edge of fill)
+	bar.spark = bar:CreateTexture(nil, "ARTWORK", nil, 1)
+	bar.spark:SetTexture("Interface\\Buttons\\WHITE8X8")
+	bar.spark:SetWidth(3)
+	bar.spark:SetPoint("TOP", bar.fill, "TOPRIGHT", 0, -1)
+	bar.spark:SetPoint("BOTTOM", bar.fill, "BOTTOMRIGHT", 0, 0)
+	bar.spark:SetBlendMode("ADD")
+
+	-- Spark glow (middle pixel that leaks over the border)
+	bar.sparkGlow = bar:CreateTexture(nil, "OVERLAY", nil, 7)
+	bar.sparkGlow:SetTexture("Interface\\Buttons\\WHITE8X8")
+	bar.sparkGlow:SetWidth(1)
+	bar.sparkGlow:SetPoint("TOP", bar.fill, "TOPRIGHT", 0, 1)
+	bar.sparkGlow:SetPoint("BOTTOM", bar.fill, "BOTTOMRIGHT", 0, -3)
+	bar.sparkGlow:SetBlendMode("ADD")
+
+	-- Icon outside bar, left side
 	bar.icon = bar:CreateTexture(nil, "OVERLAY")
 	bar.icon:SetSize(ICON_SIZE, ICON_SIZE)
-	bar.icon:SetPoint("RIGHT", bar, "LEFT", -2, 0)
+	bar.icon:SetPoint("RIGHT", bar, "LEFT", -ICON_GAP, 0)
 	bar.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
 	-- Label text
-	bar.label = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	bar.label:SetPoint("LEFT", bar, "LEFT", 4, 0)
+	bar.label = bar:CreateFontString(nil, "OVERLAY")
+	bar.label:SetFont("Fonts\\ARIALN.TTF", 13, "OUTLINE")
+	bar.label:SetPoint("LEFT", bar, "LEFT", 8, 0)
 	bar.label:SetJustifyH("LEFT")
-	bar.label:SetWidth(BAR_WIDTH - 50)
+	bar.label:SetWordWrap(false)
 
 	-- Time text
-	bar.time = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	bar.time:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
+	bar.time = bar:CreateFontString(nil, "OVERLAY")
+	bar.time:SetFont("Fonts\\ARIALN.TTF", 13, "OUTLINE")
+	bar.time:SetPoint("RIGHT", bar, "RIGHT", -6, 0)
 	bar.time:SetJustifyH("RIGHT")
+
+	-- Constrain label to not overlap time text
+	bar.label:SetPoint("RIGHT", bar.time, "LEFT", -4, 0)
 
 	bar:Hide()
 	return bar
 end
 
 local function CreateTimerIcon(parent)
-	local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+	local frame = CreateFrame("Frame", nil, parent or UIParent, "BackdropTemplate")
 	frame:SetSize(BUFF_ICON_SIZE, BUFF_ICON_SIZE)
-	frame:SetBackdrop({
-		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-		tile = true,
-		tileSize = 16,
-		edgeSize = 8,
-		insets = { left = 2, right = 2, top = 2, bottom = 2 },
-	})
+	frame:SetBackdrop(BAR_BACKDROP)
 	frame:SetBackdropColor(0, 0, 0, 0.7)
 	frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
 
 	-- Spell icon texture
 	frame.icon = frame:CreateTexture(nil, "ARTWORK")
-	frame.icon:SetPoint("TOPLEFT", 2, -2)
-	frame.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+	frame.icon:SetPoint("TOPLEFT", 1, -1)
+	frame.icon:SetPoint("BOTTOMRIGHT", -1, 1)
 	frame.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
 	-- Cooldown swipe overlay
@@ -101,10 +120,15 @@ local function CreateTimerIcon(parent)
 	frame.cooldown:SetAllPoints(frame.icon)
 	frame.cooldown:SetDrawEdge(true)
 	frame.cooldown:SetDrawSwipe(true)
+	frame.cooldown:SetReverse(true)
 
 	frame:Hide()
 	return frame
 end
+
+---------------------------------------------------------------------
+-- Pool getters
+---------------------------------------------------------------------
 
 local function GetBar(index)
 	if not barPool[index] then
@@ -120,48 +144,17 @@ local function GetIcon(index)
 	return iconPool[index]
 end
 
--- Find the bottommost active frame in a CDM viewer
-local function GetCDMBottomFrame(viewer)
-	local bottomFrame = nil
-	local bottomY = math.huge
+---------------------------------------------------------------------
+-- CDM helpers
+---------------------------------------------------------------------
 
-	for frame in viewer.itemFramePool:EnumerateActive() do
-		if frame:IsShown() then
-			local screenBottom = frame:GetBottom()
-			if screenBottom and screenBottom < bottomY then
-				bottomY = screenBottom
-				bottomFrame = frame
-			end
-		end
-	end
-
-	return bottomFrame, bottomY
-end
-
--- Find the rightmost active frame in a CDM viewer (for icon row)
-local function GetCDMRightmostFrame(viewer)
-	local rightFrame = nil
-	local rightX = -math.huge
-
-	for frame in viewer.itemFramePool:EnumerateActive() do
-		if frame:IsShown() then
-			local screenRight = frame:GetRight()
-			if screenRight and screenRight > rightX then
-				rightX = screenRight
-				rightFrame = frame
-			end
-		end
-	end
-
-	return rightFrame, rightX
-end
-
--- Get the width of CDM bars by checking an active bar frame
+-- Read the bar-only width from CDM (frame width minus icon area)
 local function GetCDMBarWidth(viewer)
 	for frame in viewer.itemFramePool:EnumerateActive() do
-		if frame:IsShown() then
-			return frame:GetWidth()
-		end
+		local frameW = frame:GetWidth()
+		local frameH = frame:GetHeight()
+		-- CDM frame includes icon; subtract icon area to get bar-only width
+		return frameW - frameH - ICON_GAP + 3
 	end
 	return nil
 end
@@ -176,6 +169,10 @@ local function HookViewerLayout(viewer, callback)
 	end
 end
 
+---------------------------------------------------------------------
+-- Init
+---------------------------------------------------------------------
+
 function ns:RepositionTimers()
 	if not ns.cdmMode then
 		return
@@ -184,7 +181,6 @@ function ns:RepositionTimers()
 end
 
 function ns:InitDisplay()
-	-- Check for CDM bar viewer
 	local barViewer = BuffBarCooldownViewer
 	local iconViewer = BuffIconCooldownViewer
 
@@ -193,7 +189,6 @@ function ns:InitDisplay()
 	ns.cdmMode = (ns.cdmBarViewer ~= nil) or (ns.cdmIconViewer ~= nil)
 
 	if ns.cdmMode then
-		-- Hook layout methods on both viewers
 		if ns.cdmBarViewer then
 			HookViewerLayout(ns.cdmBarViewer, function()
 				ns:RepositionTimers()
@@ -205,7 +200,6 @@ function ns:InitDisplay()
 			end)
 		end
 
-		-- Parent bars to UIParent (same as Blizzard), no draggable anchor needed
 		local updateFrame = CreateFrame("Frame", nil, UIParent)
 		updateFrame:SetScript("OnUpdate", function(self, elapsed)
 			timeSinceUpdate = timeSinceUpdate + elapsed
@@ -216,22 +210,19 @@ function ns:InitDisplay()
 			ns:UpdateDisplay()
 		end)
 
-		-- No anchor frames in CDM mode — positions relative to CDM viewers
 		ns.anchorFrame = nil
 		ns.iconAnchorFrame = nil
 
 		print("|cff00ccffTerribleBuffTracker|r: Attached to Cooldown Manager.")
 	else
-		-- Standalone mode: draggable anchors
 		ns.cdmMode = false
 		ns:InitStandaloneDisplay()
 	end
 end
 
 function ns:InitStandaloneDisplay()
-	-- Bar anchor
 	local anchor = CreateFrame("Frame", "TerribleBuffTrackerAnchor", UIParent)
-	anchor:SetSize(ICON_SIZE + BAR_WIDTH + 2, ANCHOR_SIZE)
+	anchor:SetSize(ICON_SIZE + ICON_GAP + 200, ANCHOR_SIZE)
 	anchor:SetMovable(true)
 	anchor:EnableMouse(true)
 	anchor:SetClampedToScreen(true)
@@ -255,7 +246,7 @@ function ns:InitStandaloneDisplay()
 	anchor:Show()
 	ns.anchorFrame = anchor
 
-	-- Icon anchor (to the right of bar anchor)
+	-- Icon anchor
 	local iconAnchor = CreateFrame("Frame", "TerribleBuffTrackerIconAnchor", UIParent)
 	iconAnchor:SetSize(BUFF_ICON_SIZE, ANCHOR_SIZE)
 	iconAnchor:SetMovable(true)
@@ -281,7 +272,6 @@ function ns:InitStandaloneDisplay()
 	iconAnchor:Show()
 	ns.iconAnchorFrame = iconAnchor
 
-	-- OnUpdate for timer ticking
 	anchor:SetScript("OnUpdate", function(self, elapsed)
 		timeSinceUpdate = timeSinceUpdate + elapsed
 		if timeSinceUpdate < UPDATE_INTERVAL then
@@ -291,6 +281,10 @@ function ns:InitStandaloneDisplay()
 		ns:UpdateDisplay()
 	end)
 end
+
+---------------------------------------------------------------------
+-- Display update
+---------------------------------------------------------------------
 
 function ns:UpdateDisplay()
 	local timers = ns:GetActiveTimers()
@@ -311,24 +305,18 @@ function ns:UpdateDisplay()
 	if ns.cdmMode then
 		local viewer = ns.cdmBarViewer
 		if viewer then
-			local bottomBar = GetCDMBottomFrame(viewer)
-			local cdmWidth = GetCDMBarWidth(viewer)
-			if cdmWidth then
-				BAR_WIDTH = cdmWidth
-			end
+			local barWidth = GetCDMBarWidth(viewer) or 186
 
 			for i, timer in ipairs(barTimers) do
 				local bar = GetBar(i)
 				local remaining = timer.expiresAt - now
 				local fraction = remaining / timer.duration
 
-				bar:SetSize(BAR_WIDTH, BAR_HEIGHT)
-				bar.label:SetWidth(BAR_WIDTH - 50)
+				bar:SetSize(barWidth, BAR_HEIGHT)
 				bar:ClearAllPoints()
 
 				if i == 1 then
-					-- Anchor to viewer frame's bottom so position is stable
-					bar:SetPoint("TOPLEFT", viewer, "BOTTOMLEFT", ICON_SIZE + 2, -BAR_SPACING)
+					bar:SetPoint("TOPLEFT", viewer, "BOTTOMLEFT", ICON_SIZE + ICON_GAP, -BAR_SPACING)
 				else
 					local prevBar = GetBar(i - 1)
 					bar:SetPoint("TOPLEFT", prevBar, "BOTTOMLEFT", 0, -BAR_SPACING)
@@ -337,10 +325,13 @@ function ns:UpdateDisplay()
 				bar.icon:SetTexture(timer.icon)
 				bar.label:SetText(timer.label)
 
-				local fillWidth = math.max(1, (BAR_WIDTH - 4) * fraction)
+				local fillWidth = math.max(1, (barWidth - 8) * fraction)
 				bar.fill:SetWidth(fillWidth)
 				local r, g, b = GetBarColor(fraction)
 				bar.fill:SetVertexColor(r, g, b, 0.8)
+				local sr, sg, sb = math.min(r + 0.4, 1), math.min(g + 0.4, 1), math.min(b + 0.4, 1)
+				bar.spark:SetVertexColor(sr, sg, sb, 1)
+				bar.sparkGlow:SetVertexColor(sr, sg, sb, 0.8)
 
 				bar.time:SetText(FormatTime(remaining))
 				bar:Show()
@@ -348,6 +339,8 @@ function ns:UpdateDisplay()
 		end
 	else
 		-- Standalone bar mode
+		local barWidth = 200
+
 		for i, timer in ipairs(barTimers) do
 			local bar = GetBar(i)
 			local remaining = timer.expiresAt - now
@@ -358,17 +351,20 @@ function ns:UpdateDisplay()
 				"TOPLEFT",
 				ns.anchorFrame,
 				"BOTTOMLEFT",
-				ICON_SIZE + 2,
+				ICON_SIZE + ICON_GAP,
 				-((i - 1) * (BAR_HEIGHT + BAR_SPACING))
 			)
 
 			bar.icon:SetTexture(timer.icon)
 			bar.label:SetText(timer.label)
 
-			local fillWidth = math.max(1, (BAR_WIDTH - 4) * fraction)
+			local fillWidth = math.max(1, (barWidth - 8) * fraction)
 			bar.fill:SetWidth(fillWidth)
 			local r, g, b = GetBarColor(fraction)
 			bar.fill:SetVertexColor(r, g, b, 0.8)
+			local sr, sg, sb = math.min(r + 0.4, 1), math.min(g + 0.4, 1), math.min(b + 0.4, 1)
+			bar.spark:SetVertexColor(sr, sg, sb, 1)
+			bar.sparkGlow:SetVertexColor(sr, sg, sb, 0.8)
 
 			bar.time:SetText(FormatTime(remaining))
 			bar:Show()
@@ -381,7 +377,6 @@ function ns:UpdateDisplay()
 	end
 
 	-- === Render icon timers (fixed horizontal slots) ===
-	-- Build sorted list of all buff-mode tracked entries for fixed slot positions
 	local buffSlots = {}
 	for spellID, entry in pairs(ns.db.trackedBuffs) do
 		if entry.displayMode == "buff" and entry.enabled ~= false then
@@ -392,7 +387,6 @@ function ns:UpdateDisplay()
 		return a.spellID < b.spellID
 	end)
 
-	-- Build lookup of active timers by spellID
 	local activeBySpell = {}
 	for _, timer in ipairs(iconTimers) do
 		activeBySpell[timer.spellID] = timer
@@ -436,7 +430,7 @@ function ns:UpdateDisplay()
 		end
 	end
 
-	-- Hide any extra icons beyond current slot count
+	-- Hide extra icons
 	for i = #buffSlots + 1, #iconPool do
 		iconPool[i]:Hide()
 	end
