@@ -1,7 +1,11 @@
 local addonName, ns = ...
 
 function ns:InitBuffEngine()
-    -- activeTimers is already initialized in Core.lua
+    -- Migration: backfill enabled/displayMode on existing entries
+    for spellID, entry in pairs(ns.db.trackedBuffs) do
+        if entry.enabled == nil then entry.enabled = true end
+        if not entry.displayMode then entry.displayMode = "bar" end
+    end
 end
 
 function ns:GetSpellIcon(spellID)
@@ -15,14 +19,17 @@ end
 function ns:OnSpellCastSucceeded(spellID)
     local entry = ns.db.trackedBuffs[spellID]
     if not entry then return end
+    if entry.enabled == false then return end
 
     local now = GetTime()
     ns.activeTimers[spellID] = {
         spellID = spellID,
         expiresAt = now + entry.duration,
+        startedAt = now,
         duration = entry.duration,
         icon = ns:GetSpellIcon(spellID),
         label = entry.label or ("Spell " .. spellID),
+        displayMode = entry.displayMode or "bar",
     }
 
     if ns.UpdateDisplay then
@@ -75,6 +82,8 @@ function ns:AddTrackedBuff(spellID, duration, label)
         spellID = spellID,
         duration = duration,
         label = displayLabel,
+        enabled = true,
+        displayMode = "bar",
     }
 
     print("|cff00ccffTerribleBuffTracker|r: Now tracking |cff00ff00" .. displayLabel .. "|r (ID: " .. spellID .. ", " .. duration .. "s).")
@@ -98,4 +107,29 @@ function ns:RemoveTrackedBuff(spellID)
         ns:UpdateDisplay()
     end
     return true
+end
+
+function ns:SetBuffEnabled(spellID, enabled)
+    local entry = ns.db.trackedBuffs[spellID]
+    if not entry then return end
+    entry.enabled = enabled
+    if not enabled then
+        ns.activeTimers[spellID] = nil
+    end
+    if ns.UpdateDisplay then
+        ns:UpdateDisplay()
+    end
+end
+
+function ns:SetBuffDisplayMode(spellID, mode)
+    local entry = ns.db.trackedBuffs[spellID]
+    if not entry then return end
+    entry.displayMode = mode
+    -- Update active timer's displayMode if running
+    if ns.activeTimers[spellID] then
+        ns.activeTimers[spellID].displayMode = mode
+    end
+    if ns.UpdateDisplay then
+        ns:UpdateDisplay()
+    end
 end

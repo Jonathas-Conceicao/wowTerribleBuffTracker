@@ -129,31 +129,41 @@ local function CreateListRow(parent, index)
         bg:SetColorTexture(0, 0, 0, 0.05)
     end
 
+    -- Checkbox (enable/disable)
+    row.checkbox = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+    row.checkbox:SetSize(20, 20)
+    row.checkbox:SetPoint("LEFT", 2, 0)
+
     -- Icon
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(ROW_HEIGHT - 4, ROW_HEIGHT - 4)
-    row.icon:SetPoint("LEFT", 2, 0)
+    row.icon:SetPoint("LEFT", row.checkbox, "RIGHT", 2, 0)
     row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
     -- Label
     row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    row.label:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-    row.label:SetWidth(140)
+    row.label:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+    row.label:SetWidth(110)
     row.label:SetJustifyH("LEFT")
 
     -- Spell ID
     row.spellIDText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     row.spellIDText:SetPoint("LEFT", row.label, "RIGHT", 4, 0)
-    row.spellIDText:SetWidth(70)
+    row.spellIDText:SetWidth(60)
     row.spellIDText:SetJustifyH("LEFT")
     row.spellIDText:SetTextColor(0.7, 0.7, 0.7)
 
     -- Duration
     row.durText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     row.durText:SetPoint("LEFT", row.spellIDText, "RIGHT", 4, 0)
-    row.durText:SetWidth(50)
+    row.durText:SetWidth(40)
     row.durText:SetJustifyH("LEFT")
     row.durText:SetTextColor(0.7, 0.7, 0.7)
+
+    -- Bar/Buff toggle button
+    row.modeBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.modeBtn:SetSize(50, 20)
+    row.modeBtn:SetPoint("LEFT", row.durText, "RIGHT", 4, 0)
 
     -- Remove button
     row.removeBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
@@ -191,14 +201,45 @@ function ns:RefreshConfigList()
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", 0, -((i - 1) * ROW_HEIGHT))
 
+        -- Checkbox
+        row.checkbox:SetChecked(entry.enabled ~= false)
+        row.checkbox:SetScript("OnClick", function(self)
+            ns:SetBuffEnabled(entry.spellID, self:GetChecked())
+            ns:RefreshConfigList()
+        end)
+
         row.icon:SetTexture(ns:GetSpellIcon(entry.spellID))
         row.label:SetText(entry.label)
         row.spellIDText:SetText("ID: " .. entry.spellID)
         row.durText:SetText(entry.duration .. "s")
+
+        -- Mode toggle button
+        local mode = entry.displayMode or "bar"
+        if mode == "buff" then
+            row.modeBtn:SetText("Buff")
+            row.modeBtn:GetFontString():SetTextColor(0.2, 1.0, 0.2)
+        else
+            row.modeBtn:SetText("Bar")
+            row.modeBtn:GetFontString():SetTextColor(1.0, 1.0, 1.0)
+        end
+        row.modeBtn:SetScript("OnClick", function()
+            local newMode = (entry.displayMode == "buff") and "bar" or "buff"
+            ns:SetBuffDisplayMode(entry.spellID, newMode)
+            ns:RefreshConfigList()
+        end)
+
         row.removeBtn:SetScript("OnClick", function()
             ns:RemoveTrackedBuff(entry.spellID)
             ns:RefreshConfigList()
         end)
+
+        -- Dim row if disabled
+        local alpha = (entry.enabled ~= false) and 1.0 or 0.4
+        row.icon:SetAlpha(alpha)
+        row.label:SetAlpha(alpha)
+        row.spellIDText:SetAlpha(alpha)
+        row.durText:SetAlpha(alpha)
+        row.modeBtn:SetAlpha(alpha)
 
         row:Show()
     end
