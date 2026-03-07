@@ -1,3 +1,5 @@
+*.zip
+
 # Claude Code settings
 .claude/
 
