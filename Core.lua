@@ -45,21 +45,6 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 end)
 
 SLASH_TERRIBLEBUFFTRACKER1 = "/tbt"
-SlashCmdList["TERRIBLEBUFFTRACKER"] = function(msg)
-	local cmd = strtrim(msg):lower()
-	if cmd == "reset" then
-		ns.db.displayPoint = nil
-		ns.db.iconDisplayPoint = nil
-		if ns.anchorFrame then
-			ns.anchorFrame:ClearAllPoints()
-			ns.anchorFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
-		end
-		if ns.iconAnchorFrame then
-			ns.iconAnchorFrame:ClearAllPoints()
-			ns.iconAnchorFrame:SetPoint("LEFT", ns.anchorFrame or UIParent, "RIGHT", 20, 0)
-		end
-		print("|cff00ccffTerribleBuffTracker|r: Display position reset.")
-	else
-		ns:ToggleConfigUI()
-	end
+SlashCmdList["TERRIBLEBUFFTRACKER"] = function()
+	ns:ToggleConfigUI()
 end

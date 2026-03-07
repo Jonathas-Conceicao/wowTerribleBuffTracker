@@ -139,6 +139,34 @@ function ns:SetBuffEnabled(spellID, enabled)
 	end
 end
 
+function ns:StartAllPreviewTimers()
+	local now = GetTime()
+	ns.activeTimers = {}
+	for spellID, entry in pairs(ns.db.trackedBuffs) do
+		if entry.enabled ~= false then
+			ns.activeTimers[spellID] = {
+				spellID = spellID,
+				expiresAt = now + entry.duration,
+				startedAt = now,
+				duration = entry.duration,
+				icon = ns:GetSpellIcon(spellID),
+				label = entry.label or ("Spell " .. spellID),
+				displayMode = entry.displayMode or "bar",
+			}
+		end
+	end
+	if ns.UpdateDisplay then
+		ns:UpdateDisplay()
+	end
+end
+
+function ns:ClearAllTimers()
+	ns.activeTimers = {}
+	if ns.UpdateDisplay then
+		ns:UpdateDisplay()
+	end
+end
+
 function ns:SetBuffDisplayMode(spellID, mode)
 	local entry = ns.db.trackedBuffs[spellID]
 	if not entry then

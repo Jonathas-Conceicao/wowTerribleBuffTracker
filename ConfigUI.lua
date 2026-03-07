@@ -4,7 +4,7 @@ local configFrame = nil
 local scrollContent = nil
 local ROW_HEIGHT = 24
 local CONFIG_WIDTH = 420
-local CONFIG_HEIGHT = 400
+local CONFIG_HEIGHT = 370
 
 local function CreateConfigFrame()
 	local frame = CreateFrame("Frame", "TerribleBuffTrackerConfig", UIParent, "BackdropTemplate")
@@ -47,7 +47,21 @@ local function CreateConfigFrame()
 	-- Scroll area for tracked buff list
 	local scrollFrame = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
 	scrollFrame:SetPoint("TOPLEFT", 12, -40)
-	scrollFrame:SetPoint("BOTTOMRIGHT", -30, 110)
+	scrollFrame:SetPoint("BOTTOMRIGHT", -30, 48)
+
+	-- Sunken background behind scroll list
+	local scrollBg = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+	scrollBg:SetPoint("TOPLEFT", scrollFrame, -2, 2)
+	scrollBg:SetPoint("BOTTOMRIGHT", scrollFrame, 22, -2)
+	scrollBg:SetBackdrop({
+		bgFile = "Interface\\BUTTONS\\WHITE8X8",
+		edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+		edgeSize = 1,
+	})
+	scrollBg:SetBackdropColor(0.05, 0.05, 0.05, 0.6)
+	scrollBg:SetBackdropBorderColor(0, 0, 0, 0.8)
+	scrollBg:SetFrameLevel(frame:GetFrameLevel() + 1)
+	scrollFrame:SetFrameLevel(scrollBg:GetFrameLevel() + 1)
 
 	scrollContent = CreateFrame("Frame", nil, scrollFrame)
 	scrollContent:SetSize(CONFIG_WIDTH - 44, 1)
@@ -55,56 +69,40 @@ local function CreateConfigFrame()
 
 	-- Add section: Spell ID
 	local idLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	idLabel:SetPoint("BOTTOMLEFT", 12, 82)
+	idLabel:SetPoint("BOTTOMLEFT", 12, 24)
 	idLabel:SetText("Spell ID:")
 
 	local idBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
 	idBox:SetSize(80, 20)
-	idBox:SetPoint("BOTTOMLEFT", 100, 80)
+	idBox:SetPoint("BOTTOMLEFT", 100, 22)
 	idBox:SetAutoFocus(false)
 	idBox:SetNumeric(true)
 	frame.idBox = idBox
 
 	-- Duration
 	local durLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	durLabel:SetPoint("BOTTOMLEFT", 190, 82)
+	durLabel:SetPoint("BOTTOMLEFT", 190, 24)
 	durLabel:SetText("Duration (s):")
 
 	local durBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
 	durBox:SetSize(60, 20)
-	durBox:SetPoint("BOTTOMLEFT", 270, 80)
+	durBox:SetPoint("BOTTOMLEFT", 270, 22)
 	durBox:SetAutoFocus(false)
 	durBox:SetNumeric(true)
 	frame.durBox = durBox
 
-	-- Label
-	local lblLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	lblLabel:SetPoint("BOTTOMLEFT", 12, 54)
-	lblLabel:SetText("Label (optional):")
-
-	local lblBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-	lblBox:SetSize(200, 20)
-	lblBox:SetPoint("BOTTOMLEFT", 100, 52)
-	lblBox:SetAutoFocus(false)
-	frame.lblBox = lblBox
-
 	-- Add button
 	local addBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	addBtn:SetSize(80, 22)
-	addBtn:SetPoint("BOTTOMLEFT", 310, 50)
+	addBtn:SetSize(60, 22)
+	addBtn:SetPoint("BOTTOMLEFT", 340, 22)
 	addBtn:SetText("Add")
 	addBtn:SetScript("OnClick", function()
 		local spellID = tonumber(idBox:GetText())
 		local duration = tonumber(durBox:GetText())
-		local label = strtrim(lblBox:GetText() or "")
-		if label == "" then
-			label = nil
-		end
 
-		if ns:AddTrackedBuff(spellID, duration, label) then
+		if ns:AddTrackedBuff(spellID, duration, nil) then
 			idBox:SetText("")
 			durBox:SetText("")
-			lblBox:SetText("")
 			ns:RefreshConfigList()
 		end
 	end)
@@ -114,16 +112,12 @@ local function CreateConfigFrame()
 		durBox:SetFocus()
 	end)
 	durBox:SetScript("OnEnterPressed", function()
-		lblBox:SetFocus()
-	end)
-	lblBox:SetScript("OnEnterPressed", function()
 		addBtn:Click()
 	end)
 
-	-- Help text
-	local helpText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	helpText:SetPoint("BOTTOM", 0, 14)
-	helpText:SetText("|cff888888/tbt reset - Reset display position|r")
+	frame:SetScript("OnHide", function()
+		ns:ClearAllTimers()
+	end)
 
 	frame:Hide()
 	return frame
@@ -137,7 +131,7 @@ local function CreateListRow(parent, index)
 	-- Alternating background
 	local bg = row:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints()
-	if index % 2 == 0 then
+	if index % 2 == 1 then
 		bg:SetColorTexture(1, 1, 1, 0.05)
 	else
 		bg:SetColorTexture(0, 0, 0, 0.05)
@@ -264,6 +258,9 @@ function ns:RefreshConfigList()
 
 	-- Update scroll content height
 	scrollContent:SetHeight(math.max(1, #sorted * ROW_HEIGHT))
+
+	-- Preview all tracked timers while config is open
+	ns:StartAllPreviewTimers()
 end
 
 function ns:ToggleConfigUI()
