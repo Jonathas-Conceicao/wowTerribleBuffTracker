@@ -1,0 +1,11 @@
+## Interface: 120000
+## Title: TerribleBuffTracker
+## Notes: Manual buff/cooldown timer tracking for WoW Midnight
+## Author: TerribleTeam
+## Version: 1.0.0
+## SavedVariables: TerribleBuffTrackerDB
+
+Core.lua
+BuffEngine.lua
+Display.lua
+ConfigUI.lua
