@@ -8,58 +8,58 @@ eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
-    if event == "ADDON_LOADED" then
-        local name = ...
-        if name ~= addonName then return end
+	if event == "ADDON_LOADED" then
+		local name = ...
+		if name ~= addonName then
+			return
+		end
 
-        if not TerribleBuffTrackerDB then
-            TerribleBuffTrackerDB = {
-                trackedBuffs = {},
-                displayPoint = nil,
-            }
-        end
-        ns.db = TerribleBuffTrackerDB
+		if not TerribleBuffTrackerDB then
+			TerribleBuffTrackerDB = {
+				trackedBuffs = {},
+				displayPoint = nil,
+			}
+		end
+		ns.db = TerribleBuffTrackerDB
 
-        if not ns.db.trackedBuffs then
-            ns.db.trackedBuffs = {}
-        end
+		if not ns.db.trackedBuffs then
+			ns.db.trackedBuffs = {}
+		end
 
-        ns:InitBuffEngine()
+		ns:InitBuffEngine()
 
-        print("|cff00ccffTerribleBuffTracker|r loaded. Type |cff00ff00/tbt|r to configure.")
-        self:UnregisterEvent("ADDON_LOADED")
-
-    elseif event == "PLAYER_ENTERING_WORLD" then
-        if not ns.displayInitialized then
-            ns.displayInitialized = true
-            ns:InitDisplay()
-        end
-        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-
-    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-        local unit, _, spellID = ...
-        if unit == "player" then
-            ns:OnSpellCastSucceeded(spellID)
-        end
-    end
+		print("|cff00ccffTerribleBuffTracker|r loaded. Type |cff00ff00/tbt|r to configure.")
+		self:UnregisterEvent("ADDON_LOADED")
+	elseif event == "PLAYER_ENTERING_WORLD" then
+		if not ns.displayInitialized then
+			ns.displayInitialized = true
+			ns:InitDisplay()
+		end
+		self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+	elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+		local unit, _, spellID = ...
+		if unit == "player" then
+			ns:OnSpellCastSucceeded(spellID)
+		end
+	end
 end)
 
 SLASH_TERRIBLEBUFFTRACKER1 = "/tbt"
 SlashCmdList["TERRIBLEBUFFTRACKER"] = function(msg)
-    local cmd = strtrim(msg):lower()
-    if cmd == "reset" then
-        ns.db.displayPoint = nil
-        ns.db.iconDisplayPoint = nil
-        if ns.anchorFrame then
-            ns.anchorFrame:ClearAllPoints()
-            ns.anchorFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
-        end
-        if ns.iconAnchorFrame then
-            ns.iconAnchorFrame:ClearAllPoints()
-            ns.iconAnchorFrame:SetPoint("LEFT", ns.anchorFrame or UIParent, "RIGHT", 20, 0)
-        end
-        print("|cff00ccffTerribleBuffTracker|r: Display position reset.")
-    else
-        ns:ToggleConfigUI()
-    end
+	local cmd = strtrim(msg):lower()
+	if cmd == "reset" then
+		ns.db.displayPoint = nil
+		ns.db.iconDisplayPoint = nil
+		if ns.anchorFrame then
+			ns.anchorFrame:ClearAllPoints()
+			ns.anchorFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+		end
+		if ns.iconAnchorFrame then
+			ns.iconAnchorFrame:ClearAllPoints()
+			ns.iconAnchorFrame:SetPoint("LEFT", ns.anchorFrame or UIParent, "RIGHT", 20, 0)
+		end
+		print("|cff00ccffTerribleBuffTracker|r: Display position reset.")
+	else
+		ns:ToggleConfigUI()
+	end
 end
