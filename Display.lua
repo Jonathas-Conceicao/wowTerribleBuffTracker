@@ -3,13 +3,8 @@ local addonName, ns = ...
 -- Hardcoded style matching Blizzard CDM bars
 local BAR_HEIGHT = 28
 local BAR_SPACING = 2
-local ICON_SIZE = BAR_HEIGHT
-local ICON_GAP = 0
 local UPDATE_INTERVAL = 0.05
-local ANCHOR_SIZE = 8
-
 local BUFF_ICON_SIZE = 36
-local BUFF_ICON_SPACING = 2
 
 local BAR_BACKDROP = {
 	bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -20,7 +15,6 @@ local BAR_BACKDROP = {
 
 local barPool = {}
 local iconPool = {}
-local activeBars = {}
 local timeSinceUpdate = 0
 
 local function FormatTime(remaining)
@@ -78,8 +72,8 @@ local function CreateTimerBar(parent)
 
 	-- Icon outside bar, left side
 	bar.icon = bar:CreateTexture(nil, "OVERLAY")
-	bar.icon:SetSize(ICON_SIZE, ICON_SIZE)
-	bar.icon:SetPoint("RIGHT", bar, "LEFT", -ICON_GAP, 0)
+	bar.icon:SetSize(BAR_HEIGHT, BAR_HEIGHT)
+	bar.icon:SetPoint("RIGHT", bar, "LEFT", 0, 0)
 	bar.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
 	-- Label text
@@ -132,14 +126,14 @@ end
 
 local function GetBar(index)
 	if not barPool[index] then
-		barPool[index] = CreateTimerBar(ns.anchorFrame or UIParent)
+		barPool[index] = CreateTimerBar(ns.cdmBarViewer)
 	end
 	return barPool[index]
 end
 
 local function GetIcon(index)
 	if not iconPool[index] then
-		iconPool[index] = CreateTimerIcon(ns.iconAnchorFrame or UIParent)
+		iconPool[index] = CreateTimerIcon(ns.cdmIconViewer)
 	end
 	return iconPool[index]
 end
@@ -151,10 +145,8 @@ end
 -- Read the bar-only width from CDM (frame width minus icon area)
 local function GetCDMBarWidth(viewer)
 	for frame in viewer.itemFramePool:EnumerateActive() do
-		local frameW = frame:GetWidth()
-		local frameH = frame:GetHeight()
 		-- CDM frame includes icon; subtract icon area to get bar-only width
-		return frameW - frameH - ICON_GAP + 3
+		return frame:GetWidth() - frame:GetHeight() + 3
 	end
 	return nil
 end
@@ -173,106 +165,31 @@ end
 -- Init
 ---------------------------------------------------------------------
 
-function ns:RepositionTimers()
-	if not ns.cdmMode then
-		return
-	end
-	ns:UpdateDisplay()
-end
-
 function ns:InitDisplay()
 	local barViewer = BuffBarCooldownViewer
 	local iconViewer = BuffIconCooldownViewer
 
 	ns.cdmBarViewer = (barViewer and barViewer.itemFramePool) and barViewer or nil
 	ns.cdmIconViewer = (iconViewer and iconViewer.itemFramePool) and iconViewer or nil
-	ns.cdmMode = (ns.cdmBarViewer ~= nil) or (ns.cdmIconViewer ~= nil)
 
-	if ns.cdmMode then
-		if ns.cdmBarViewer then
-			HookViewerLayout(ns.cdmBarViewer, function()
-				ns:RepositionTimers()
-			end)
-		end
-		if ns.cdmIconViewer then
-			HookViewerLayout(ns.cdmIconViewer, function()
-				ns:RepositionTimers()
-			end)
-		end
+	if not ns.cdmBarViewer and not ns.cdmIconViewer then
+		print("|cff00ccffTerribleBuffTracker|r: Cooldown Manager not found. Addon disabled.")
+		return
+	end
 
-		local updateFrame = CreateFrame("Frame", nil, UIParent)
-		updateFrame:SetScript("OnUpdate", function(self, elapsed)
-			timeSinceUpdate = timeSinceUpdate + elapsed
-			if timeSinceUpdate < UPDATE_INTERVAL then
-				return
-			end
-			timeSinceUpdate = 0
+	if ns.cdmBarViewer then
+		HookViewerLayout(ns.cdmBarViewer, function()
 			ns:UpdateDisplay()
 		end)
-
-		ns.anchorFrame = nil
-		ns.iconAnchorFrame = nil
-
-		print("|cff00ccffTerribleBuffTracker|r: Attached to Cooldown Manager.")
-	else
-		ns.cdmMode = false
-		ns:InitStandaloneDisplay()
 	end
-end
-
-function ns:InitStandaloneDisplay()
-	local anchor = CreateFrame("Frame", "TerribleBuffTrackerAnchor", UIParent)
-	anchor:SetSize(ICON_SIZE + ICON_GAP + 200, ANCHOR_SIZE)
-	anchor:SetMovable(true)
-	anchor:EnableMouse(true)
-	anchor:SetClampedToScreen(true)
-	anchor:RegisterForDrag("LeftButton")
-	anchor:SetScript("OnDragStart", function(self)
-		self:StartMoving()
-	end)
-	anchor:SetScript("OnDragStop", function(self)
-		self:StopMovingOrSizing()
-		local point, _, relPoint, x, y = self:GetPoint()
-		ns.db.displayPoint = { point = point, relPoint = relPoint, x = x, y = y }
-	end)
-
-	if ns.db.displayPoint then
-		local p = ns.db.displayPoint
-		anchor:SetPoint(p.point, UIParent, p.relPoint, p.x, p.y)
-	else
-		anchor:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+	if ns.cdmIconViewer then
+		HookViewerLayout(ns.cdmIconViewer, function()
+			ns:UpdateDisplay()
+		end)
 	end
 
-	anchor:Show()
-	ns.anchorFrame = anchor
-
-	-- Icon anchor
-	local iconAnchor = CreateFrame("Frame", "TerribleBuffTrackerIconAnchor", UIParent)
-	iconAnchor:SetSize(BUFF_ICON_SIZE, ANCHOR_SIZE)
-	iconAnchor:SetMovable(true)
-	iconAnchor:EnableMouse(true)
-	iconAnchor:SetClampedToScreen(true)
-	iconAnchor:RegisterForDrag("LeftButton")
-	iconAnchor:SetScript("OnDragStart", function(self)
-		self:StartMoving()
-	end)
-	iconAnchor:SetScript("OnDragStop", function(self)
-		self:StopMovingOrSizing()
-		local point, _, relPoint, x, y = self:GetPoint()
-		ns.db.iconDisplayPoint = { point = point, relPoint = relPoint, x = x, y = y }
-	end)
-
-	if ns.db.iconDisplayPoint then
-		local p = ns.db.iconDisplayPoint
-		iconAnchor:SetPoint(p.point, UIParent, p.relPoint, p.x, p.y)
-	else
-		iconAnchor:SetPoint("LEFT", anchor, "RIGHT", 20, 0)
-	end
-
-	iconAnchor:Show()
-	ns.iconAnchorFrame = iconAnchor
-
-	anchor:SetScript("OnUpdate", function(self, elapsed)
+	local updateFrame = CreateFrame("Frame", nil, UIParent)
+	updateFrame:SetScript("OnUpdate", function(self, elapsed)
 		timeSinceUpdate = timeSinceUpdate + elapsed
 		if timeSinceUpdate < UPDATE_INTERVAL then
 			return
@@ -280,6 +197,8 @@ function ns:InitStandaloneDisplay()
 		timeSinceUpdate = 0
 		ns:UpdateDisplay()
 	end)
+
+	print("|cff00ccffTerribleBuffTracker|r: Attached to Cooldown Manager.")
 end
 
 ---------------------------------------------------------------------
@@ -302,58 +221,23 @@ function ns:UpdateDisplay()
 	end
 
 	-- === Render bar timers ===
-	if ns.cdmMode then
-		local viewer = ns.cdmBarViewer
-		if viewer then
-			local barWidth = GetCDMBarWidth(viewer) or 186
-
-			for i, timer in ipairs(barTimers) do
-				local bar = GetBar(i)
-				local remaining = timer.expiresAt - now
-				local fraction = remaining / timer.duration
-
-				bar:SetSize(barWidth, BAR_HEIGHT)
-				bar:ClearAllPoints()
-
-				if i == 1 then
-					bar:SetPoint("TOPLEFT", viewer, "BOTTOMLEFT", ICON_SIZE + ICON_GAP, -BAR_SPACING)
-				else
-					local prevBar = GetBar(i - 1)
-					bar:SetPoint("TOPLEFT", prevBar, "BOTTOMLEFT", 0, -BAR_SPACING)
-				end
-
-				bar.icon:SetTexture(timer.icon)
-				bar.label:SetText(timer.label)
-
-				local fillWidth = math.max(1, (barWidth - 8) * fraction)
-				bar.fill:SetWidth(fillWidth)
-				local r, g, b = GetBarColor(fraction)
-				bar.fill:SetVertexColor(r, g, b, 0.8)
-				local sr, sg, sb = math.min(r + 0.4, 1), math.min(g + 0.4, 1), math.min(b + 0.4, 1)
-				bar.spark:SetVertexColor(sr, sg, sb, 1)
-				bar.sparkGlow:SetVertexColor(sr, sg, sb, 0.8)
-
-				bar.time:SetText(FormatTime(remaining))
-				bar:Show()
-			end
-		end
-	else
-		-- Standalone bar mode
-		local barWidth = 200
+	if ns.cdmBarViewer then
+		local barWidth = GetCDMBarWidth(ns.cdmBarViewer) or 186
 
 		for i, timer in ipairs(barTimers) do
 			local bar = GetBar(i)
 			local remaining = timer.expiresAt - now
 			local fraction = remaining / timer.duration
 
+			bar:SetSize(barWidth, BAR_HEIGHT)
 			bar:ClearAllPoints()
-			bar:SetPoint(
-				"TOPLEFT",
-				ns.anchorFrame,
-				"BOTTOMLEFT",
-				ICON_SIZE + ICON_GAP,
-				-((i - 1) * (BAR_HEIGHT + BAR_SPACING))
-			)
+
+			if i == 1 then
+				bar:SetPoint("TOPLEFT", ns.cdmBarViewer, "BOTTOMLEFT", BAR_HEIGHT, -BAR_SPACING)
+			else
+				local prevBar = GetBar(i - 1)
+				bar:SetPoint("TOPLEFT", prevBar, "BOTTOMLEFT", 0, -BAR_SPACING)
+			end
 
 			bar.icon:SetTexture(timer.icon)
 			bar.label:SetText(timer.label)
@@ -392,14 +276,11 @@ function ns:UpdateDisplay()
 		activeBySpell[timer.spellID] = timer
 	end
 
-	-- Determine anchor
-	local iconAnchorFrame, iconAnchorPoint
-	if ns.cdmMode and ns.cdmIconViewer then
-		iconAnchorFrame = ns.cdmIconViewer
-		iconAnchorPoint = "TOPRIGHT"
-	else
-		iconAnchorFrame = ns.iconAnchorFrame or UIParent
-		iconAnchorPoint = "BOTTOMLEFT"
+	if not ns.cdmIconViewer then
+		for i = 1, #iconPool do
+			iconPool[i]:Hide()
+		end
+		return
 	end
 
 	for slotIndex, entry in ipairs(buffSlots) do
@@ -407,13 +288,8 @@ function ns:UpdateDisplay()
 		local timer = activeBySpell[entry.spellID]
 
 		icon:ClearAllPoints()
-		local xOffset = (slotIndex - 1) * (BUFF_ICON_SIZE + BUFF_ICON_SPACING)
-
-		if iconAnchorPoint == "TOPRIGHT" then
-			icon:SetPoint("TOPLEFT", iconAnchorFrame, "TOPRIGHT", BUFF_ICON_SPACING + xOffset, 0)
-		else
-			icon:SetPoint("TOPLEFT", iconAnchorFrame, iconAnchorPoint, xOffset, 0)
-		end
+		local xOffset = (slotIndex - 1) * (BUFF_ICON_SIZE + 2)
+		icon:SetPoint("TOPLEFT", ns.cdmIconViewer, "TOPRIGHT", 2 + xOffset, 0)
 
 		if timer then
 			icon.icon:SetTexture(timer.icon)
@@ -434,6 +310,4 @@ function ns:UpdateDisplay()
 	for i = #buffSlots + 1, #iconPool do
 		iconPool[i]:Hide()
 	end
-
-	activeBars = timers
 end

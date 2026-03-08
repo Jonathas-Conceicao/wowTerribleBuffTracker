@@ -1,5 +1,5 @@
 @echo off
-set "SOURCE=%~dp0"
+set "SOURCE=%~dp0..\\"
 set "STAGING=%SOURCE%TerribleBuffTracker"
 set "ZIPFILE=%SOURCE%TerribleBuffTracker.zip"
 
@@ -14,6 +14,7 @@ copy /Y "%SOURCE%Core.lua" "%STAGING%\"
 copy /Y "%SOURCE%BuffEngine.lua" "%STAGING%\"
 copy /Y "%SOURCE%Display.lua" "%STAGING%\"
 copy /Y "%SOURCE%ConfigUI.lua" "%STAGING%\"
+copy /Y "%SOURCE%tbt_icon_64x64.blp" "%STAGING%\"
 
 powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%' -DestinationPath '%ZIPFILE%'"
 

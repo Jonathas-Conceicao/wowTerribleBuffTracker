@@ -17,7 +17,6 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		if not TerribleBuffTrackerDB then
 			TerribleBuffTrackerDB = {
 				trackedBuffs = {},
-				displayPoint = nil,
 			}
 		end
 		ns.db = TerribleBuffTrackerDB
@@ -28,7 +27,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 
 		ns:InitBuffEngine()
 
-		print("|cff00ccffTerribleBuffTracker|r loaded. Type |cff00ff00/tbt|r to configure.")
+		print(
+			"|cff00ccffTerribleBuffTracker|r loaded. Type |cff00ff00/tbt|r or |cff00ff00/terriblebufftracker|r to configure."
+		)
 		self:UnregisterEvent("ADDON_LOADED")
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		if not ns.displayInitialized then
@@ -45,6 +46,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 end)
 
 SLASH_TERRIBLEBUFFTRACKER1 = "/tbt"
+SLASH_TERRIBLEBUFFTRACKER2 = "/terriblebufftracker"
 SlashCmdList["TERRIBLEBUFFTRACKER"] = function()
 	ns:ToggleConfigUI()
 end

@@ -77,7 +77,6 @@ local function CreateConfigFrame()
 	idBox:SetPoint("BOTTOMLEFT", 100, 22)
 	idBox:SetAutoFocus(false)
 	idBox:SetNumeric(true)
-	frame.idBox = idBox
 
 	-- Duration
 	local durLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -89,7 +88,6 @@ local function CreateConfigFrame()
 	durBox:SetPoint("BOTTOMLEFT", 270, 22)
 	durBox:SetAutoFocus(false)
 	durBox:SetNumeric(true)
-	frame.durBox = durBox
 
 	-- Add button
 	local addBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
