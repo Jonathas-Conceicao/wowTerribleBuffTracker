@@ -2,7 +2,7 @@
 ## Title: TerribleBuffTracker
 ## Notes: Manual buff/cooldown timer tracking for WoW Midnight
 ## Author: Jonathas-Conceicao
-## Version: 0.1.0
+## Version: 0.1.0-dev
 ## URL: https://github.com/Jonathas-Conceicao/wowTerribleBuffTracker.git
 ## Category: Buffs & Debuffs, Combat
 ## IconTexture: Interface\AddOns\TerribleBuffTracker\tbt_icon_64x64
