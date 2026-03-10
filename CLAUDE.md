@@ -17,7 +17,9 @@ WoW Midnight addon (version 12.0 and up) for tracking buff/cooldown timers manua
 - `Display.lua` — visual timer bars and buff icons, anchored to CDM
 - `ConfigUI.lua` — config window for adding/removing tracked buffs
 - `scripts/install.bat` — copies addon to WoW retail addons folder
-- `scripts/pack.bat` — creates release zip
+- `scripts/release.bat` — tags and pushes a release (GitHub Actions handles packaging)
+- `.github/workflows/release.yml` — BigWigs Packager action for CurseForge/Wago/GitHub releases
+- `.pkgmeta` — BigWigs Packager config
 
 ## Patterns
 - Namespace: `local addonName, ns = ...` shared across all files
@@ -30,7 +32,7 @@ WoW Midnight addon (version 12.0 and up) for tracking buff/cooldown timers manua
 ## Workflow
 - Always run `stylua` on Lua files after finishing a task
 - Deploy to WoW with `./scripts/install.bat` (works on Windows)
-- Before pushing updates, also run `./scripts/pack.bat` to keep the release zip up-to-date for easy sharing
+- Release with `./scripts/release.bat <version>` — tags and pushes; GitHub Actions builds and uploads
 
 ## Testing
 - `/tbt` or `/terriblebufftracker` toggles config

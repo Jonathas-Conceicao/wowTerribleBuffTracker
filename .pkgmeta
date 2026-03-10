@@ -1,0 +1,10 @@
+package-as: TerribleBuffTracker
+
+ignore:
+  - .gitignore
+  - .pkgmeta
+  - CLAUDE.md
+  - README.md
+  - LICENSE
+  - scripts
+  - "*.png"
