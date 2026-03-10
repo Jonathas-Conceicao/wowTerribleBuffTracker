@@ -1,4 +1,4 @@
-local addonName, ns = ...
+local _, ns = ...
 
 local configFrame = nil
 local scrollContent = nil
@@ -194,7 +194,7 @@ function ns:RefreshConfigList()
 
 	-- Build sorted list of tracked buffs
 	local sorted = {}
-	for spellID, entry in pairs(ns.db.trackedBuffs) do
+	for _, entry in pairs(ns.db.trackedBuffs) do
 		table.insert(sorted, entry)
 	end
 	table.sort(sorted, function(a, b)

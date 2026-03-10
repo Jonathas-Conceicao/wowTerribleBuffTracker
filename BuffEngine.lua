@@ -1,8 +1,8 @@
-local addonName, ns = ...
+local _, ns = ...
 
 function ns:InitBuffEngine()
 	-- Migration: backfill enabled/displayMode on existing entries
-	for spellID, entry in pairs(ns.db.trackedBuffs) do
+	for _, entry in pairs(ns.db.trackedBuffs) do
 		if entry.enabled == nil then
 			entry.enabled = true
 		end

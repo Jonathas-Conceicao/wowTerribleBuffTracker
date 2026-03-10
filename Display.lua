@@ -1,4 +1,4 @@
-local addonName, ns = ...
+local _, ns = ...
 
 -- Hardcoded style matching Blizzard CDM bars
 local BAR_HEIGHT = 26
@@ -368,16 +368,14 @@ function ns:UpdateDisplay()
 	local timers = ns:GetActiveTimers()
 	local now = GetTime()
 
-	-- Split timers by display mode, skip any that have already expired
+	-- Split timers by display mode
 	local barTimers = {}
 	local iconTimers = {}
 	for _, timer in ipairs(timers) do
-		if timer.expiresAt > now then
-			if timer.displayMode == "buff" then
-				table.insert(iconTimers, timer)
-			else
-				table.insert(barTimers, timer)
-			end
+		if timer.displayMode == "buff" then
+			table.insert(iconTimers, timer)
+		else
+			table.insert(barTimers, timer)
 		end
 	end
 
@@ -482,7 +480,7 @@ function ns:UpdateDisplay()
 
 	-- === Render icon timers ===
 	local buffSlots = {}
-	for spellID, entry in pairs(ns.db.trackedBuffs) do
+	for _, entry in pairs(ns.db.trackedBuffs) do
 		if entry.displayMode == "buff" and entry.enabled ~= false then
 			table.insert(buffSlots, entry)
 		end
