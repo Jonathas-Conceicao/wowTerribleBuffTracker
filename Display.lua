@@ -1,23 +1,33 @@
 local _, ns = ...
 
--- Hardcoded style matching Blizzard CDM bars
-local BAR_HEIGHT = 26
-local BAR_ICON_SIZE = 28
+-- CDM-matching dimensions
+local BAR_HEIGHT = 30
+local BAR_ICON_SIZE = 30
+local BAR_WIDTH = 220
+local BUFF_ICON_SIZE = 40
 local UPDATE_INTERVAL = 0.05
-local BUFF_ICON_SIZE = 38
+local BAR_PADDING_OFFSET = -2
+local ICON_PADDING_OFFSET = -4
 
 local inCombat = false
 
-local BAR_BACKDROP = {
-	bgFile = "Interface\\Buttons\\WHITE8X8",
-	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-	edgeSize = 18,
-	insets = { left = 3, right = 3, top = 3, bottom = 3 },
-}
-
 local barPool = {}
 local iconPool = {}
+local barContainer = nil
+local iconContainer = nil
 local timeSinceUpdate = 0
+
+-- Settings caches (snapshotted from CDM, refreshed during edit mode)
+local cachedBarSettings = nil
+local cachedIconSettings = nil
+
+-- Reusable tables for UpdateDisplay (wiped each cycle to avoid allocations)
+local barTimers = {}
+local iconTimers = {}
+local activeBarBySpell = {}
+local barSlots = {}
+local buffSlots = {}
+local activeBySpell = {}
 
 local function FormatTime(remaining)
 	if remaining >= 60 then
@@ -40,80 +50,74 @@ local function GetBarColor(fraction)
 end
 
 ---------------------------------------------------------------------
--- Frame creation — hardcoded CDM-matching style
+-- Frame creation — CDM CooldownViewerBuffBarItemTemplate
 ---------------------------------------------------------------------
 
 local function CreateTimerBar(parent)
-	local bar = CreateFrame("Frame", nil, parent or UIParent, "BackdropTemplate")
-	bar:SetSize(200, BAR_HEIGHT)
-	bar:SetBackdrop(BAR_BACKDROP)
-	bar:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-	bar:SetBackdropBorderColor(0.75, 0.75, 0.75, 0.9)
+	local bar = CreateFrame("Frame", nil, parent or UIParent)
+	bar:SetSize(BAR_WIDTH, BAR_HEIGHT)
 
-	-- Progress fill (inset to stay inside border)
-	bar.fill = bar:CreateTexture(nil, "ARTWORK")
-	bar.fill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
-	bar.fill:SetPoint("TOPLEFT", 4, -4)
-	bar.fill:SetHeight(BAR_HEIGHT - 8)
-
-	-- Spark (bright line at leading edge of fill)
-	bar.spark = bar:CreateTexture(nil, "ARTWORK", nil, 1)
-	bar.spark:SetTexture("Interface\\Buttons\\WHITE8X8")
-	bar.spark:SetWidth(3)
-	bar.spark:SetPoint("TOP", bar.fill, "TOPRIGHT", 0, -1)
-	bar.spark:SetPoint("BOTTOM", bar.fill, "BOTTOMRIGHT", 0, 0)
-	bar.spark:SetBlendMode("ADD")
-
-	-- Spark glow (middle pixel that leaks over the border)
-	bar.sparkGlow = bar:CreateTexture(nil, "OVERLAY", nil, 7)
-	bar.sparkGlow:SetTexture("Interface\\Buttons\\WHITE8X8")
-	bar.sparkGlow:SetWidth(1)
-	bar.sparkGlow:SetPoint("TOP", bar.fill, "TOPRIGHT", 0, 1)
-	bar.sparkGlow:SetPoint("BOTTOM", bar.fill, "BOTTOMRIGHT", 0, -3)
-	bar.sparkGlow:SetBlendMode("ADD")
-
-	-- Icon frame outside bar, left side (backdrop border + rounded mask, same as buff icons)
-	bar.iconFrame = CreateFrame("Frame", nil, bar, "BackdropTemplate")
+	-- Icon inside the frame (left side, 30x30)
+	bar.iconFrame = CreateFrame("Frame", nil, bar)
 	bar.iconFrame:SetSize(BAR_ICON_SIZE, BAR_ICON_SIZE)
-	bar.iconFrame:SetPoint("RIGHT", bar, "LEFT", -1, 0)
-	bar.iconFrame:SetBackdrop(BAR_BACKDROP)
-	bar.iconFrame:SetBackdropColor(0, 0, 0, 0.7)
-	bar.iconFrame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+	bar.iconFrame:SetPoint("LEFT")
+	bar.iconFrame:SetFrameLevel(bar:GetFrameLevel() + 2)
 
 	bar.icon = bar.iconFrame:CreateTexture(nil, "ARTWORK")
-	bar.icon:SetPoint("TOPLEFT", 3, -3)
-	bar.icon:SetPoint("BOTTOMRIGHT", -3, 3)
-	bar.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	bar.icon:SetAllPoints()
 
 	bar.iconMask = bar.iconFrame:CreateMaskTexture()
-	bar.iconMask:SetTexture(
-		"Interface\\CHARACTERFRAME\\TempPortraitAlphaMask",
-		"CLAMPTOBLACKADDITIVE",
-		"CLAMPTOBLACKADDITIVE"
-	)
-	bar.iconMask:SetPoint("TOPLEFT", bar.icon, "TOPLEFT", -4, 4)
-	bar.iconMask:SetPoint("BOTTOMRIGHT", bar.icon, "BOTTOMRIGHT", 4, -4)
+	bar.iconMask:SetAtlas("UI-HUD-CoolDownManager-Mask")
+	bar.iconMask:SetAllPoints()
 	bar.icon:AddMaskTexture(bar.iconMask)
 
-	-- Label text
-	bar.label = bar:CreateFontString(nil, "OVERLAY")
-	bar.label:SetFont("Fonts\\ARIALN.TTF", 12, "OUTLINE")
-	bar.label:SetPoint("LEFT", bar, "LEFT", 9, 0)
+	bar.iconOverlay = bar.iconFrame:CreateTexture(nil, "OVERLAY")
+	bar.iconOverlay:SetAtlas("UI-HUD-CoolDownManager-IconOverlay")
+	bar.iconOverlay:SetPoint("TOPLEFT", -6, 5)
+	bar.iconOverlay:SetPoint("BOTTOMRIGHT", 6, -5)
+
+	-- StatusBar (height 19, anchored to the right of icon)
+	bar.statusBar = CreateFrame("StatusBar", nil, bar)
+	bar.statusBar:SetHeight(19)
+	bar.statusBar:SetPoint("LEFT", bar.iconFrame, "RIGHT", 2, 0)
+	bar.statusBar:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+	bar.statusBar:SetFrameLevel(bar:GetFrameLevel() + 1)
+	bar.statusBar:SetMinMaxValues(0, 1)
+	bar.statusBar:SetValue(0)
+
+	-- Status bar fill texture (atlas set on the texture object directly)
+	bar.fillTexture = bar.statusBar:CreateTexture(nil, "ARTWORK")
+	bar.fillTexture:SetAtlas("UI-HUD-CoolDownManager-Bar")
+	bar.statusBar:SetStatusBarTexture(bar.fillTexture)
+
+	-- Bar background
+	bar.barBG = bar.statusBar:CreateTexture(nil, "BACKGROUND")
+	bar.barBG:SetAtlas("UI-HUD-CoolDownManager-Bar-BG")
+	bar.barBG:SetPoint("TOPLEFT", -2, 2)
+	bar.barBG:SetPoint("BOTTOMRIGHT", 4, -7)
+
+	-- Pip at leading edge of fill
+	bar.pip = bar.statusBar:CreateTexture(nil, "OVERLAY")
+	bar.pip:SetAtlas("UI-HUD-CoolDownManager-Bar-Pip", true)
+	bar.pip:SetPoint("CENTER", bar.fillTexture, "RIGHT", 0, -1)
+
+	-- Name text (NumberFontNormal)
+	bar.label = bar.statusBar:CreateFontString(nil, "OVERLAY")
+	bar.label:SetFontObject(NumberFontNormal)
+	bar.label:SetPoint("TOPLEFT", 5, 0)
+	bar.label:SetPoint("BOTTOMRIGHT", -25, 0)
 	bar.label:SetJustifyH("LEFT")
+	bar.label:SetJustifyV("MIDDLE")
 	bar.label:SetWordWrap(false)
 
-	-- Time text
-	bar.time = bar:CreateFontString(nil, "OVERLAY")
-	bar.time:SetFont("Fonts\\ARIALN.TTF", 12, "OUTLINE")
-	bar.time:SetPoint("RIGHT", bar, "RIGHT", -5, 0)
-	bar.time:SetJustifyH("RIGHT")
+	-- Duration text (NumberFontNormal)
+	bar.time = bar.statusBar:CreateFontString(nil, "OVERLAY")
+	bar.time:SetFontObject(NumberFontNormal)
+	bar.time:SetPoint("RIGHT", -8, 0)
+	bar.time:SetJustifyH("LEFT")
 
-	-- Constrain label to not overlap time text
-	bar.label:SetPoint("RIGHT", bar.time, "LEFT", -4, 0)
-
-	-- Extend hit area left to cover the icon frame outside the bar
-	bar:SetHitRectInsets(-BAR_ICON_SIZE, 0, 0, 0)
-
+	-- Tooltips
+	bar:EnableMouse(true)
 	bar:SetScript("OnEnter", function(self)
 		if not ns.barTooltipsShown then
 			return
@@ -132,36 +136,41 @@ local function CreateTimerBar(parent)
 	return bar
 end
 
-local function CreateTimerIcon(parent)
-	local frame = CreateFrame("Frame", nil, parent or UIParent, "BackdropTemplate")
-	frame:SetSize(BUFF_ICON_SIZE, BUFF_ICON_SIZE)
-	frame:SetBackdrop(BAR_BACKDROP)
-	frame:SetBackdropColor(0, 0, 0, 0.7)
-	frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+---------------------------------------------------------------------
+-- Frame creation — CDM CooldownViewerBuffIconItemTemplate
+---------------------------------------------------------------------
 
-	-- Spell icon texture (rounded corners via oversized circular mask)
+local function CreateTimerIcon(parent)
+	local frame = CreateFrame("Frame", nil, parent or UIParent)
+	frame:SetSize(BUFF_ICON_SIZE, BUFF_ICON_SIZE)
+
+	-- Icon texture with CDM mask
 	frame.icon = frame:CreateTexture(nil, "ARTWORK")
-	frame.icon:SetPoint("TOPLEFT", 3, -3)
-	frame.icon:SetPoint("BOTTOMRIGHT", -3, 3)
-	frame.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	frame.icon:SetAllPoints()
 
 	frame.iconMask = frame:CreateMaskTexture()
-	frame.iconMask:SetTexture(
-		"Interface\\CHARACTERFRAME\\TempPortraitAlphaMask",
-		"CLAMPTOBLACKADDITIVE",
-		"CLAMPTOBLACKADDITIVE"
-	)
-	frame.iconMask:SetPoint("TOPLEFT", frame.icon, "TOPLEFT", -4, 4)
-	frame.iconMask:SetPoint("BOTTOMRIGHT", frame.icon, "BOTTOMRIGHT", 4, -4)
+	frame.iconMask:SetAtlas("UI-HUD-CoolDownManager-Mask")
+	frame.iconMask:SetAllPoints()
 	frame.icon:AddMaskTexture(frame.iconMask)
 
-	-- Cooldown swipe overlay
+	-- Overlay
+	frame.iconOverlay = frame:CreateTexture(nil, "OVERLAY")
+	frame.iconOverlay:SetAtlas("UI-HUD-CoolDownManager-IconOverlay")
+	frame.iconOverlay:SetPoint("TOPLEFT", -8, 7)
+	frame.iconOverlay:SetPoint("BOTTOMRIGHT", 8, -7)
+
+	-- Cooldown swipe
 	frame.cooldown = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
 	frame.cooldown:SetAllPoints(frame.icon)
+	frame.cooldown:SetReverse(true)
+	frame.cooldown:SetSwipeTexture("Interface\\HUD\\UI-HUD-CoolDownManager-Icon-Swipe")
+	frame.cooldown:SetSwipeColor(0, 0, 0, 0.7)
+	frame.cooldown:SetEdgeTexture("Interface\\Cooldown\\UI-HUD-ActionBar-SecondaryCooldown")
 	frame.cooldown:SetDrawEdge(true)
 	frame.cooldown:SetDrawSwipe(true)
-	frame.cooldown:SetReverse(true)
 
+	-- Tooltips
+	frame:EnableMouse(true)
 	frame:SetScript("OnEnter", function(self)
 		if not ns.iconTooltipsShown then
 			return
@@ -186,14 +195,14 @@ end
 
 local function GetBar(index)
 	if not barPool[index] then
-		barPool[index] = CreateTimerBar(ns.cdmBarViewer)
+		barPool[index] = CreateTimerBar(barContainer)
 	end
 	return barPool[index]
 end
 
 local function GetIcon(index)
 	if not iconPool[index] then
-		iconPool[index] = CreateTimerIcon(ns.cdmIconViewer)
+		iconPool[index] = CreateTimerIcon(iconContainer)
 	end
 	return iconPool[index]
 end
@@ -202,11 +211,10 @@ end
 -- CDM helpers
 ---------------------------------------------------------------------
 
--- Read the bar-only width from CDM (frame width minus icon area)
+-- Read the full CDM bar frame width (icon is now inside our frame)
 local function GetCDMBarWidth(viewer)
 	for frame in viewer.itemFramePool:EnumerateActive() do
-		-- CDM frame includes icon; subtract icon area to get bar-only width
-		return frame:GetWidth() - frame:GetHeight() + 3
+		return frame:GetWidth()
 	end
 	return nil
 end
@@ -229,9 +237,10 @@ local function ReadBarSettings()
 	local v = ns.cdmBarViewer
 	return {
 		iconScale = v.iconScale or 1,
-		iconPadding = v.iconPadding or 2,
+		iconPadding = v.iconPadding or 5,
 		baseBarWidth = v.baseBarWidth or 186,
 		barWidthScale = v.barWidthScale or 1,
+		barWidth = GetCDMBarWidth(v) or ((v.baseBarWidth or 186) * (v.barWidthScale or 1)),
 		alpha = v:GetAlpha(),
 		visibleSetting = v.visibleSetting or 0,
 		barContent = v.barContent or 0,
@@ -247,7 +256,7 @@ local function ReadIconSettings()
 		orientationSetting = v.orientationSetting or 0,
 		iconDirection = v.iconDirection or 0,
 		iconScale = v.iconScale or 1,
-		iconPadding = v.iconPadding or 2,
+		iconPadding = v.iconPadding or 5,
 		alpha = v:GetAlpha(),
 		visibleSetting = v.visibleSetting or 0,
 		hideWhenInactive = v.hideWhenInactive ~= false,
@@ -256,7 +265,27 @@ local function ReadIconSettings()
 	}
 end
 
-local function ShouldShow(visibleSetting, hasActiveTimers, hideWhenInactive)
+---------------------------------------------------------------------
+-- Settings snapshot
+---------------------------------------------------------------------
+
+local function SnapshotSettings()
+	if ns.cdmBarViewer then
+		cachedBarSettings = ReadBarSettings()
+	end
+	if ns.cdmIconViewer then
+		cachedIconSettings = ReadIconSettings()
+	end
+end
+
+---------------------------------------------------------------------
+-- Visibility
+---------------------------------------------------------------------
+
+local function ShouldShow(visibleSetting, hasActiveTimers, hideWhenInactive, viewerIsEditing)
+	if ns.configOpen or viewerIsEditing then
+		return true
+	end
 	if visibleSetting == 2 then
 		return false
 	end
@@ -273,39 +302,38 @@ end
 -- Style application helpers
 ---------------------------------------------------------------------
 
-local function ApplyBarStyle(bar, scaledHeight, barWidth, settings)
-	local scaledIconSize = BAR_ICON_SIZE * settings.iconScale
-	local fontSize = math.max(8, math.floor(12 * settings.iconScale + 0.5))
-	bar:SetSize(barWidth, scaledHeight)
-	bar.iconFrame:SetSize(scaledIconSize, scaledIconSize)
-	bar.fill:SetHeight(scaledHeight - 8)
+local function ApplyBarStyle(bar, barWidth, settings)
+	bar:SetScale(settings.iconScale)
+	bar:SetWidth(barWidth)
 	bar:SetAlpha(settings.alpha)
-	bar.label:SetFont("Fonts\\ARIALN.TTF", fontSize, "OUTLINE")
-	bar.time:SetFont("Fonts\\ARIALN.TTF", fontSize, "OUTLINE")
-	-- Update hit rect to cover icon frame; no extension in name-only mode
-	bar:SetHitRectInsets(settings.barContent == 2 and 0 or -(scaledIconSize + 1), 0, 0, 0)
 
 	local content = settings.barContent
+	bar.statusBar:ClearAllPoints()
+	bar.statusBar:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+
 	if content == 0 then
 		-- Both: show icon + label + time
 		bar.iconFrame:Show()
+		bar.statusBar:SetPoint("LEFT", bar.iconFrame, "RIGHT", 2, 0)
 		bar.label:Show()
 		bar.time:SetShown(settings.timerShown)
 	elseif content == 1 then
 		-- Icon Only: show icon, hide label + time
 		bar.iconFrame:Show()
+		bar.statusBar:SetPoint("LEFT", bar.iconFrame, "RIGHT", 2, 0)
 		bar.label:Hide()
 		bar.time:Hide()
 	elseif content == 2 then
-		-- Name Only: hide icon, show label + time
+		-- Name Only: hide icon, bar fills full width
 		bar.iconFrame:Hide()
+		bar.statusBar:SetPoint("LEFT", bar, "LEFT", 0, 0)
 		bar.label:Show()
 		bar.time:SetShown(settings.timerShown)
 	end
 end
 
-local function ApplyIconStyle(frame, scaledSize, settings)
-	frame:SetSize(scaledSize, scaledSize)
+local function ApplyIconStyle(frame, settings)
+	frame:SetScale(settings.iconScale)
 	frame:SetAlpha(settings.alpha)
 	frame.cooldown:SetDrawSwipe(settings.timerShown)
 end
@@ -326,16 +354,44 @@ function ns:InitDisplay()
 		return
 	end
 
+	-- Bar container — mirrors CDM's GridLayoutFrame approach
+	if ns.cdmBarViewer then
+		barContainer = CreateFrame("Frame", nil, ns.cdmBarViewer)
+		barContainer:SetPoint("TOPLEFT", ns.cdmBarViewer, "BOTTOMLEFT")
+		barContainer:SetPoint("TOPRIGHT", ns.cdmBarViewer, "BOTTOMRIGHT")
+		barContainer:SetHeight(1) -- resized dynamically in UpdateDisplay
+		barContainer:Show()
+	end
+
+	-- Icon container — anchored adjacent to CDM icon viewer
+	if ns.cdmIconViewer then
+		iconContainer = CreateFrame("Frame", nil, ns.cdmIconViewer)
+		iconContainer:SetAllPoints(ns.cdmIconViewer)
+		iconContainer:Show()
+	end
+
+	-- Initial settings snapshot from CDM
+	SnapshotSettings()
+
+	-- Hook CDM layout changes to re-snapshot settings
 	if ns.cdmBarViewer then
 		HookViewerLayout(ns.cdmBarViewer, function()
+			SnapshotSettings()
 			ns:UpdateDisplay()
 		end)
 	end
 	if ns.cdmIconViewer then
 		HookViewerLayout(ns.cdmIconViewer, function()
+			SnapshotSettings()
 			ns:UpdateDisplay()
 		end)
 	end
+
+	-- Edit mode exit — final snapshot after user saves
+	EventRegistry:RegisterCallback("EditMode.Exit", function()
+		SnapshotSettings()
+		ns:UpdateDisplay()
+	end, ns)
 
 	-- Combat tracking for visibility setting
 	inCombat = InCombatLockdown()
@@ -368,9 +424,9 @@ function ns:UpdateDisplay()
 	local timers = ns:GetActiveTimers()
 	local now = GetTime()
 
-	-- Split timers by display mode
-	local barTimers = {}
-	local iconTimers = {}
+	-- Split timers by display mode (reuse tables to avoid allocations)
+	wipe(barTimers)
+	wipe(iconTimers)
 	for _, timer in ipairs(timers) do
 		if timer.displayMode == "buff" then
 			table.insert(iconTimers, timer)
@@ -380,96 +436,109 @@ function ns:UpdateDisplay()
 	end
 
 	-- === Render bar timers ===
-	if ns.cdmBarViewer then
-		local settings = ReadBarSettings()
-		ns.barTooltipsShown = settings.tooltipsShown
-
-		local hasActiveTimers = #barTimers > 0
-		local visible = ShouldShow(settings.visibleSetting, hasActiveTimers, settings.hideWhenInactive)
-
-		if not visible then
-			for i = 1, #barPool do
-				barPool[i]:Hide()
-			end
+	if barContainer then
+		local settings = cachedBarSettings
+		if not settings then
+			barContainer:Hide()
 		else
-			local scaledHeight = BAR_HEIGHT * settings.iconScale
-			local scaledIconSize = BAR_ICON_SIZE * settings.iconScale
-			local baseBarWidth = (GetCDMBarWidth(ns.cdmBarViewer) or (settings.baseBarWidth * settings.barWidthScale))
-				- 1
-			local barWidth = baseBarWidth * settings.iconScale
-			local xOffset = settings.barContent == 2 and 0 or (scaledIconSize + 1)
+			ns.barTooltipsShown = settings.tooltipsShown
 
-			-- Build bar slots: all tracked bar entries if showing inactive, else active only
-			local activeBarBySpell = {}
-			for _, timer in ipairs(barTimers) do
-				activeBarBySpell[timer.spellID] = timer
-			end
+			local hasActiveTimers = #barTimers > 0
+			local barEditing = ns.cdmBarViewer.isEditing
+			local visible = ShouldShow(settings.visibleSetting, hasActiveTimers, settings.hideWhenInactive, barEditing)
 
-			local barSlots
-			if not settings.hideWhenInactive then
-				barSlots = {}
-				for _, entry in pairs(ns.db.trackedBuffs) do
-					if entry.displayMode ~= "buff" and entry.enabled ~= false then
-						table.insert(barSlots, entry)
+			if not visible then
+				barContainer:Hide()
+			else
+				barContainer:Show()
+				local barWidth = settings.barWidth
+				-- CDM applies padding in container (unscaled) space between scaled children
+				local padding = settings.iconPadding + BAR_PADDING_OFFSET
+
+				-- Build bar slots: all tracked bar entries if showing inactive, else active only
+				wipe(activeBarBySpell)
+				for _, timer in ipairs(barTimers) do
+					activeBarBySpell[timer.spellID] = timer
+				end
+
+				local showPlaceholders = not settings.hideWhenInactive or ns.configOpen or barEditing
+				if showPlaceholders then
+					wipe(barSlots)
+					for _, entry in pairs(ns.db.trackedBuffs) do
+						if entry.displayMode ~= "buff" and entry.enabled ~= false then
+							table.insert(barSlots, entry)
+						end
+					end
+					table.sort(barSlots, function(a, b)
+						return a.spellID < b.spellID
+					end)
+				else
+					wipe(barSlots)
+					for _, t in ipairs(barTimers) do
+						table.insert(barSlots, t)
 					end
 				end
-				table.sort(barSlots, function(a, b)
-					return a.spellID < b.spellID
-				end)
-			else
-				barSlots = barTimers
-			end
 
-			for i, slot in ipairs(barSlots) do
-				local bar = GetBar(i)
-				local timer = activeBarBySpell[slot.spellID]
+				-- Layout bars inside container.
+				-- Match CDM GridLayoutFrame: step = GetHeight() + padding (both
+				-- unscaled). SetScale on each bar frame scales the offset naturally.
+				local scale = settings.iconScale
+				local step = BAR_HEIGHT + padding
+				local topMargin = padding
 
-				bar:ClearAllPoints()
-				if i == 1 then
-					bar:SetPoint("TOPLEFT", ns.cdmBarViewer, "BOTTOMLEFT", xOffset, -settings.iconPadding)
-				else
-					local prevBar = GetBar(i - 1)
-					bar:SetPoint("TOPLEFT", prevBar, "BOTTOMLEFT", 0, -settings.iconPadding)
+				for i, slot in ipairs(barSlots) do
+					local bar = GetBar(i)
+					local timer = activeBarBySpell[slot.spellID]
+
+					bar:ClearAllPoints()
+					bar:SetPoint("TOPLEFT", barContainer, "TOPLEFT", 0, -(topMargin + (i - 1) * step))
+
+					ApplyBarStyle(bar, barWidth, settings)
+
+					if bar.spellID ~= slot.spellID then
+						bar.spellID = slot.spellID
+						bar.icon:SetTexture(timer and timer.icon or ns:GetSpellIcon(slot.spellID))
+						bar.label:SetText(timer and timer.label or slot.label)
+					end
+
+					if timer then
+						local remaining = timer.expiresAt - now
+						local fraction = remaining / timer.duration
+
+						if bar._lastDuration ~= timer.duration then
+							bar._lastDuration = timer.duration
+							bar.statusBar:SetMinMaxValues(0, timer.duration)
+						end
+						bar.statusBar:SetValue(remaining)
+						local r, g, b = GetBarColor(fraction)
+						bar.fillTexture:SetVertexColor(r, g, b)
+
+						bar.pip:Show()
+
+						bar.time:SetText(FormatTime(remaining))
+					else
+						-- Placeholder: empty bar, no fill, no timer
+						if bar._lastDuration ~= nil then
+							bar._lastDuration = nil
+							bar.statusBar:SetMinMaxValues(0, 1)
+						end
+						bar.statusBar:SetValue(0)
+						bar.pip:Hide()
+						bar.time:SetText("")
+					end
+
+					bar:Show()
 				end
 
-				ApplyBarStyle(bar, scaledHeight, barWidth, settings)
-				bar.spellID = slot.spellID
+				-- Size container in parent (unscaled) space.
+				local n = #barSlots
+				local totalHeight = n > 0 and topMargin * scale + (n * BAR_HEIGHT + (n - 1) * padding) * scale or 0
+				barContainer:SetHeight(math.max(1, totalHeight))
 
-				if timer then
-					local remaining = timer.expiresAt - now
-					local fraction = remaining / timer.duration
-
-					bar.icon:SetTexture(timer.icon)
-					bar.label:SetText(timer.label)
-
-					local fillWidth = math.max(1, (barWidth - 8) * fraction)
-					bar.fill:SetWidth(fillWidth)
-					bar.fill:Show()
-					local r, g, b = GetBarColor(fraction)
-					bar.fill:SetVertexColor(r, g, b, 0.8)
-					local sr, sg, sb = math.min(r + 0.4, 1), math.min(g + 0.4, 1), math.min(b + 0.4, 1)
-					bar.spark:SetVertexColor(sr, sg, sb, 1)
-					bar.sparkGlow:SetVertexColor(sr, sg, sb, 0.8)
-					bar.spark:Show()
-					bar.sparkGlow:Show()
-
-					bar.time:SetText(FormatTime(remaining))
-				else
-					-- Placeholder: empty bar, no fill, no timer
-					bar.icon:SetTexture(ns:GetSpellIcon(slot.spellID))
-					bar.label:SetText(slot.label)
-					bar.fill:Hide()
-					bar.spark:Hide()
-					bar.sparkGlow:Hide()
-					bar.time:SetText("")
+				-- Hide unused bars
+				for i = #barSlots + 1, #barPool do
+					barPool[i]:Hide()
 				end
-
-				bar:Show()
-			end
-
-			-- Hide unused bars
-			for i = #barSlots + 1, #barPool do
-				barPool[i]:Hide()
 			end
 		end
 	else
@@ -479,7 +548,34 @@ function ns:UpdateDisplay()
 	end
 
 	-- === Render icon timers ===
-	local buffSlots = {}
+	if not iconContainer then
+		for i = 1, #iconPool do
+			iconPool[i]:Hide()
+		end
+		return
+	end
+
+	local iconSettings = cachedIconSettings
+	if not iconSettings then
+		iconContainer:Hide()
+		return
+	end
+
+	ns.iconTooltipsShown = iconSettings.tooltipsShown
+
+	local hasActiveIcons = #iconTimers > 0
+	local iconEditing = ns.cdmIconViewer.isEditing
+	local iconVisible =
+		ShouldShow(iconSettings.visibleSetting, hasActiveIcons, iconSettings.hideWhenInactive, iconEditing)
+
+	if not iconVisible then
+		iconContainer:Hide()
+		return
+	end
+
+	iconContainer:Show()
+
+	wipe(buffSlots)
 	for _, entry in pairs(ns.db.trackedBuffs) do
 		if entry.displayMode == "buff" and entry.enabled ~= false then
 			table.insert(buffSlots, entry)
@@ -489,33 +585,16 @@ function ns:UpdateDisplay()
 		return a.spellID < b.spellID
 	end)
 
-	local activeBySpell = {}
+	wipe(activeBySpell)
 	for _, timer in ipairs(iconTimers) do
 		activeBySpell[timer.spellID] = timer
 	end
 
-	if not ns.cdmIconViewer then
-		for i = 1, #iconPool do
-			iconPool[i]:Hide()
-		end
-		return
-	end
-
-	local iconSettings = ReadIconSettings()
-	ns.iconTooltipsShown = iconSettings.tooltipsShown
-
-	local hasActiveIcons = #iconTimers > 0
-	local iconVisible = ShouldShow(iconSettings.visibleSetting, hasActiveIcons, iconSettings.hideWhenInactive)
-
-	if not iconVisible then
-		for i = 1, #iconPool do
-			iconPool[i]:Hide()
-		end
-		return
-	end
-
-	local scaledSize = BUFF_ICON_SIZE * iconSettings.iconScale
-	local padding = iconSettings.iconPadding
+	-- Match CDM GridLayoutFrame: step = GetSize() + padding (unscaled).
+	-- SetScale on each icon scales the offset naturally.
+	local iconPadding = iconSettings.iconPadding + ICON_PADDING_OFFSET
+	local step = BUFF_ICON_SIZE + iconPadding
+	local topMargin = iconPadding
 	local orientation = iconSettings.orientationSetting -- 0=Horizontal, 1=Vertical
 	local direction = iconSettings.iconDirection -- 0=Right/Down, 1=Left/Up
 
@@ -524,49 +603,53 @@ function ns:UpdateDisplay()
 		local timer = activeBySpell[entry.spellID]
 
 		icon:ClearAllPoints()
-		local offset = slotIndex == 1 and 0 or ((slotIndex - 1) * (scaledSize + padding))
+		local offset = topMargin + (slotIndex - 1) * step
 
 		if orientation == 0 then
-			-- Horizontal (1px closer + 1px lower to account for CDM outer margin)
+			-- Horizontal
 			if direction == 1 then
-				-- Left: show on right side of CDM, grow rightward (outward)
-				icon:SetPoint("TOPRIGHT", ns.cdmIconViewer, "TOPRIGHT", offset + scaledSize - 2, -2)
+				-- Left: show on right side of CDM, grow rightward
+				icon:SetPoint("TOPLEFT", ns.cdmIconViewer, "TOPRIGHT", offset, 0)
 			else
-				-- Right (default): show on left side of CDM, grow leftward (outward)
-				icon:SetPoint("TOPLEFT", ns.cdmIconViewer, "TOPLEFT", -(offset + scaledSize) + 2, -2)
+				-- Right (default): show on left side of CDM, grow leftward
+				icon:SetPoint("TOPRIGHT", ns.cdmIconViewer, "TOPLEFT", -offset, 0)
 			end
 		else
-			-- Vertical (2px left + 2px closer to account for CDM outer margin)
+			-- Vertical
 			if direction == 1 then
 				-- Up
-				icon:SetPoint("BOTTOMLEFT", ns.cdmIconViewer, "TOPLEFT", -2, offset - 2)
+				icon:SetPoint("BOTTOMLEFT", ns.cdmIconViewer, "TOPLEFT", 0, offset)
 			else
 				-- Down (default)
-				icon:SetPoint("TOPLEFT", ns.cdmIconViewer, "BOTTOMLEFT", -2, -offset + 2)
+				icon:SetPoint("TOPLEFT", ns.cdmIconViewer, "BOTTOMLEFT", 0, -offset)
 			end
 		end
 
 		if timer then
-			ApplyIconStyle(icon, scaledSize, iconSettings)
-			icon.spellID = timer.spellID
+			if icon.spellID ~= timer.spellID then
+				icon.spellID = timer.spellID
+				icon.icon:SetTexture(timer.icon)
+			end
+			ApplyIconStyle(icon, iconSettings)
 
-			icon.icon:SetTexture(timer.icon)
-			icon.cooldown:SetCooldown(timer.startedAt, timer.duration)
-
-			local remaining = timer.expiresAt - now
-			local fraction = remaining / timer.duration
-			local r, g, b = GetBarColor(fraction)
-			icon:SetBackdropBorderColor(r, g, b, 0.8)
+			if icon._lastStart ~= timer.startedAt then
+				icon._lastStart = timer.startedAt
+				icon.cooldown:SetCooldown(timer.startedAt, timer.duration)
+			end
 
 			icon:Show()
-		elseif not iconSettings.hideWhenInactive then
+		elseif not iconSettings.hideWhenInactive or ns.configOpen or iconEditing then
 			-- Placeholder: show icon with no timer
-			ApplyIconStyle(icon, scaledSize, iconSettings)
-			icon.spellID = entry.spellID
+			if icon.spellID ~= entry.spellID then
+				icon.spellID = entry.spellID
+				icon.icon:SetTexture(ns:GetSpellIcon(entry.spellID))
+			end
+			ApplyIconStyle(icon, iconSettings)
 
-			icon.icon:SetTexture(ns:GetSpellIcon(entry.spellID))
-			icon.cooldown:Clear()
-			icon:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+			if icon._lastStart then
+				icon._lastStart = nil
+				icon.cooldown:Clear()
+			end
 
 			icon:Show()
 		else

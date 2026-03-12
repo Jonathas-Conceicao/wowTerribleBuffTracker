@@ -113,8 +113,14 @@ local function CreateConfigFrame()
 		addBtn:Click()
 	end)
 
+	frame:SetScript("OnShow", function()
+		ns.configOpen = true
+		ns:UpdateDisplay()
+	end)
 	frame:SetScript("OnHide", function()
+		ns.configOpen = false
 		ns:ClearAllTimers()
+		ns:UpdateDisplay()
 	end)
 
 	frame:Hide()
