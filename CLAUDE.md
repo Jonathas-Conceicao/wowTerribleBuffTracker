@@ -25,12 +25,22 @@ WoW Midnight addon (version 12.0 and up) for tracking buff/cooldown timers manua
 - Namespace: `local addonName, ns = ...` shared across all files
 - SavedVariables: `TerribleBuffTrackerDB` (account-wide)
 - Active timers are runtime-only (not persisted)
-- UI uses BackdropTemplate, bars created on demand and pooled
-- Display positioning and bar width are read from CDM; all other styles are hardcoded
+- Display uses CDM atlas textures, StatusBar frames, SetScale(), and CooldownFrameTemplate — pixel-matching Blizzard's CooldownViewer templates
+- Bars and icons are parented to container frames anchored to CDM viewer frames
+- CDM settings (scale, padding, bar width, visibility, etc.) are cached via SnapshotSettings() on load, layout hooks, and EditMode.Exit — not read per-frame
+- Reusable module-level tables wiped with `wipe()` each cycle to avoid GC pressure in hot paths
 - Addon icon: `tbt_icon_64x64.blp` (BLP format required by WoW, PNG kept as source)
+
+## Style Reference
+- Blizzard UI source: `C:\Users\jonat\Repositories\wow-ui-source` (https://github.com/Gethe/wow-ui-source)
+- CDM templates: `Interface/AddOns/Blizzard_CooldownViewer/CooldownViewer.xml` and `.lua`
+- Layout system: `Interface/AddOns/Blizzard_SharedXML/LayoutFrame.lua` and `GridLayoutUtil.lua`
+- Edit mode: `Interface/AddOns/Blizzard_EditMode/Shared/EditModeSystemTemplates.lua`
+- Always consult these sources when making visual or layout changes to match CDM behavior
 
 ## Workflow
 - Always run `stylua` on Lua files after finishing a task
+- After every commit, run a performance and code cleanup review — check for hot-path allocations, redundant per-frame work, dirty-check opportunities, and dead code
 - Deploy to WoW with `./scripts/install.bat` (works on Windows)
 - Release with `./scripts/release.bat <version>` — tags and pushes; GitHub Actions builds and uploads
 
