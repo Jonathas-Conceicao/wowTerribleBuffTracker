@@ -46,3 +46,8 @@ WoW Midnight addon (version 12.0 and up) for tracking buff/cooldown timers manua
 
 ## Testing
 - `/tbt` or `/terriblebufftracker` toggles config
+
+## GSD Workflow
+- Start each new milestone on a dedicated branch
+- Merge to main by squashing with a clean commit message summarizing all changes
+- Always run a cleanup phase at the end of new milestones: clean up unused variables, definitions, unify repeated behavior into shared functions, review hot paths (especially game loop tick functions), and check release scripts
