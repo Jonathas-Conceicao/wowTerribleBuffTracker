@@ -3,6 +3,7 @@ package-as: TerribleBuffTracker
 ignore:
   - .gitignore
   - .pkgmeta
+  - CHANGELOG.md
   - CLAUDE.md
   - README.md
   - LICENSE
