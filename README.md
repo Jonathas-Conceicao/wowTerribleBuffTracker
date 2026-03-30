@@ -1,8 +1,8 @@
 # TerribleBuffTracker
 
-A proof-of-concept WoW Midnight addon for tracking buff and cooldown
-timers that Blizzard's Cooldown Manager doesn't support — such as
-active trinket procs and other effects that lack proper API exposure.
+A WoW Midnight addon for tracking buff and cooldown timers that
+Blizzard's Cooldown Manager doesn't support — such as active trinket
+procs and other effects that lack proper API exposure.
 
 Born from the player need to min-max our characters despite Blizzard's
 API pruning in Midnight, TerribleBuffTracker provides a bad way to
@@ -10,6 +10,12 @@ track extra buffs, but that's the game we play now. Since combat
 events are disabled and buff tracking are a storm of **[Secret
 Value]**, the addon uses `UNIT_SPELLCAST_SUCCEEDED` combined with
 known durations to track timers manually.
+
+TerribleBuffTracker attempts to integrate directly into Blizzard's
+Cooldown Manager, so it feels like a native part of the game's UI. You
+configure tracked buffs through a dedicated tab in CDM settings,
+drag-and-drop them between display modes, and position the timer
+containers independently using Edit Mode.
 
 ## AI Usage
 
@@ -23,20 +29,26 @@ we don't need ~~crap~~ stuff like this.
 
 ## Showcase
 
-![Lust and trinket tracked](lust_and_trinket_tracked.png)
+![Lust and trinket tracked](Assets/lust_and_trinket_tracked.png)
+![Adding buffs](Assets/adding_buffs.png)
+![Edit Mode](Assets/edit_mode.png)
 
 ## Features
 
 - Track any spell by ID with a custom duration
 - Timer bars and buff icon display modes
-- Per-buff enable/disable and display mode toggle
+- **CDM Settings tab** — "TBT Buffs" tab inside the Cooldown Manager settings window
+- **Drag-and-drop** — move buffs between sections or reorder them within a section
+- **Edit Mode integration** — two movable containers (Bars and Buffs) with full Edit Mode support
+- **Copy Blizzard CDM Config** — one-click import of CDM's current settings into TBT
 
 ## Usage
 
-- `/tbt` — Open the configuration window
-- Add buffs by entering a Spell ID and duration, then click Add
-- Toggle between Bar and Buff display modes per entry
-- Enable/disable individual entries with the checkbox
+- `/tbt` — Open CDM settings with the TBT Buffs tab selected
+- **Add buffs:** Click the "+" icon in the Suggested section, enter a Spell ID and duration
+- **Organize:** Drag buffs between Tracked Bars, Tracked Buffs, and Not Displayed sections
+- **Configure display:** Enter Edit Mode, click a TBT container, and adjust settings in the popup
+- **Quick actions:** Right-click any buff icon for Move, Hide, or Remove options
 
 ## Known Issues and Limitations
 
