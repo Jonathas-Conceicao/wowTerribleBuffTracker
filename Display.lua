@@ -13,13 +13,11 @@ local inCombat = false
 
 local barPool = {}
 local iconPool = {}
-local barContainer = nil
-local iconContainer = nil
 local timeSinceUpdate = 0
 
--- Settings caches (snapshotted from CDM, refreshed during edit mode)
-local cachedBarSettings = nil
-local cachedIconSettings = nil
+-- DB-backed display settings (populated by RefreshContainerSettings on load and settings change)
+local cachedBarSettings = {}
+local cachedIconSettings = {}
 
 -- Reusable tables for UpdateDisplay (wiped each cycle to avoid allocations)
 local barTimers = {}
@@ -28,6 +26,40 @@ local activeBarBySpell = {}
 local barSlots = {}
 local buffSlots = {}
 local activeBySpell = {}
+
+---------------------------------------------------------------------
+-- Settings refresh — reads ns.db.containerSettings into module-level cached tables
+---------------------------------------------------------------------
+
+local function RefreshContainerSettings()
+	local bs = ns.db and ns.db.containerSettings and ns.db.containerSettings.bars
+	if bs then
+		cachedBarSettings.iconScale = math.max(0.1, (bs.scale or 100) / 100)
+		cachedBarSettings.iconPadding = bs.padding or 5
+		cachedBarSettings.barWidth = BAR_WIDTH * (bs.barWidth or 100) / 100
+		cachedBarSettings.alpha = (bs.opacity or 100) / 100
+		cachedBarSettings.visibleSetting = (bs.visibility == 2) and 1 or (bs.visibility == 3) and 2 or 0
+		cachedBarSettings.barContent = 0
+		cachedBarSettings.hideWhenInactive = bs.hideWhenInactive ~= false
+		cachedBarSettings.timerShown = bs.showTimer ~= false
+		cachedBarSettings.tooltipsShown = bs.showTooltips ~= false
+	end
+
+	local is = ns.db and ns.db.containerSettings and ns.db.containerSettings.buffs
+	if is then
+		cachedIconSettings.orientationSetting = is.orientation or 0
+		cachedIconSettings.iconDirection = is.growthDirection or 0
+		cachedIconSettings.iconScale = math.max(0.1, (is.scale or 100) / 100)
+		cachedIconSettings.iconPadding = is.padding or 5
+		cachedIconSettings.alpha = (is.opacity or 100) / 100
+		cachedIconSettings.visibleSetting = (is.visibility == 2) and 1 or (is.visibility == 3) and 2 or 0
+		cachedIconSettings.hideWhenInactive = is.hideWhenInactive ~= false
+		cachedIconSettings.timerShown = is.showTimer ~= false
+		cachedIconSettings.tooltipsShown = is.showTooltips ~= false
+	end
+end
+
+ns.RefreshContainerSettings = RefreshContainerSettings
 
 local function FormatTime(remaining)
 	if remaining >= 60 then
@@ -195,87 +227,16 @@ end
 
 local function GetBar(index)
 	if not barPool[index] then
-		barPool[index] = CreateTimerBar(barContainer)
+		barPool[index] = CreateTimerBar(ns.barContainer)
 	end
 	return barPool[index]
 end
 
 local function GetIcon(index)
 	if not iconPool[index] then
-		iconPool[index] = CreateTimerIcon(iconContainer)
+		iconPool[index] = CreateTimerIcon(ns.iconContainer)
 	end
 	return iconPool[index]
-end
-
----------------------------------------------------------------------
--- CDM helpers
----------------------------------------------------------------------
-
--- Read the full CDM bar frame width (icon is now inside our frame)
-local function GetCDMBarWidth(viewer)
-	for frame in viewer.itemFramePool:EnumerateActive() do
-		return frame:GetWidth()
-	end
-	return nil
-end
-
-local function HookViewerLayout(viewer, callback)
-	hooksecurefunc(viewer, "Layout", callback)
-	if viewer.UpdateLayout then
-		hooksecurefunc(viewer, "UpdateLayout", callback)
-	end
-	if viewer.RefreshLayout then
-		hooksecurefunc(viewer, "RefreshLayout", callback)
-	end
-end
-
----------------------------------------------------------------------
--- CDM settings readers
----------------------------------------------------------------------
-
-local function ReadBarSettings()
-	local v = ns.cdmBarViewer
-	return {
-		iconScale = v.iconScale or 1,
-		iconPadding = v.iconPadding or 5,
-		baseBarWidth = v.baseBarWidth or 186,
-		barWidthScale = v.barWidthScale or 1,
-		barWidth = GetCDMBarWidth(v) or ((v.baseBarWidth or 186) * (v.barWidthScale or 1)),
-		alpha = v:GetAlpha(),
-		visibleSetting = v.visibleSetting or 0,
-		barContent = v.barContent or 0,
-		hideWhenInactive = v.hideWhenInactive ~= false,
-		timerShown = v.timerShown ~= false,
-		tooltipsShown = v.tooltipsShown ~= false,
-	}
-end
-
-local function ReadIconSettings()
-	local v = ns.cdmIconViewer
-	return {
-		orientationSetting = v.orientationSetting or 0,
-		iconDirection = v.iconDirection or 0,
-		iconScale = v.iconScale or 1,
-		iconPadding = v.iconPadding or 5,
-		alpha = v:GetAlpha(),
-		visibleSetting = v.visibleSetting or 0,
-		hideWhenInactive = v.hideWhenInactive ~= false,
-		timerShown = v.timerShown ~= false,
-		tooltipsShown = v.tooltipsShown ~= false,
-	}
-end
-
----------------------------------------------------------------------
--- Settings snapshot
----------------------------------------------------------------------
-
-local function SnapshotSettings()
-	if ns.cdmBarViewer then
-		cachedBarSettings = ReadBarSettings()
-	end
-	if ns.cdmIconViewer then
-		cachedIconSettings = ReadIconSettings()
-	end
 end
 
 ---------------------------------------------------------------------
@@ -354,45 +315,6 @@ function ns:InitDisplay()
 		return
 	end
 
-	-- Bar container — mirrors CDM's GridLayoutFrame approach
-	if ns.cdmBarViewer then
-		barContainer = CreateFrame("Frame", nil, ns.cdmBarViewer)
-		barContainer:SetPoint("TOPLEFT", ns.cdmBarViewer, "BOTTOMLEFT")
-		barContainer:SetPoint("TOPRIGHT", ns.cdmBarViewer, "BOTTOMRIGHT")
-		barContainer:SetHeight(1) -- resized dynamically in UpdateDisplay
-		barContainer:Show()
-	end
-
-	-- Icon container — anchored adjacent to CDM icon viewer
-	if ns.cdmIconViewer then
-		iconContainer = CreateFrame("Frame", nil, ns.cdmIconViewer)
-		iconContainer:SetAllPoints(ns.cdmIconViewer)
-		iconContainer:Show()
-	end
-
-	-- Initial settings snapshot from CDM
-	SnapshotSettings()
-
-	-- Hook CDM layout changes to re-snapshot settings
-	if ns.cdmBarViewer then
-		HookViewerLayout(ns.cdmBarViewer, function()
-			SnapshotSettings()
-			ns:UpdateDisplay()
-		end)
-	end
-	if ns.cdmIconViewer then
-		HookViewerLayout(ns.cdmIconViewer, function()
-			SnapshotSettings()
-			ns:UpdateDisplay()
-		end)
-	end
-
-	-- Edit mode exit — final snapshot after user saves
-	EventRegistry:RegisterCallback("EditMode.Exit", function()
-		SnapshotSettings()
-		ns:UpdateDisplay()
-	end, ns)
-
 	-- Combat tracking for visibility setting
 	inCombat = InCombatLockdown()
 	local combatFrame = CreateFrame("Frame", nil, UIParent)
@@ -413,6 +335,8 @@ function ns:InitDisplay()
 		ns:UpdateDisplay()
 	end)
 
+	RefreshContainerSettings()
+
 	print("|cff00ccffTerribleBuffTracker|r: Attached to Cooldown Manager.")
 end
 
@@ -428,7 +352,7 @@ function ns:UpdateDisplay()
 	wipe(barTimers)
 	wipe(iconTimers)
 	for _, timer in ipairs(timers) do
-		if timer.displayMode == "buff" then
+		if timer.section == "buffs" then
 			table.insert(iconTimers, timer)
 		else
 			table.insert(barTimers, timer)
@@ -436,21 +360,21 @@ function ns:UpdateDisplay()
 	end
 
 	-- === Render bar timers ===
-	if barContainer then
+	if ns.barContainer then
 		local settings = cachedBarSettings
 		if not settings then
-			barContainer:Hide()
+			ns.barContainer:Hide()
 		else
 			ns.barTooltipsShown = settings.tooltipsShown
 
 			local hasActiveTimers = #barTimers > 0
-			local barEditing = ns.cdmBarViewer.isEditing
+			local barEditing = ns.editModeActive
 			local visible = ShouldShow(settings.visibleSetting, hasActiveTimers, settings.hideWhenInactive, barEditing)
 
 			if not visible then
-				barContainer:Hide()
+				ns.barContainer:Hide()
 			else
-				barContainer:Show()
+				ns.barContainer:Show()
 				local barWidth = settings.barWidth
 				-- CDM applies padding in container (unscaled) space between scaled children
 				local padding = settings.iconPadding + BAR_PADDING_OFFSET
@@ -465,12 +389,12 @@ function ns:UpdateDisplay()
 				if showPlaceholders then
 					wipe(barSlots)
 					for _, entry in pairs(ns.db.trackedBuffs) do
-						if entry.displayMode ~= "buff" and entry.enabled ~= false then
+						if entry.section == "bars" then
 							table.insert(barSlots, entry)
 						end
 					end
 					table.sort(barSlots, function(a, b)
-						return a.spellID < b.spellID
+						return (a.layoutOrder or 0) < (b.layoutOrder or 0)
 					end)
 				else
 					wipe(barSlots)
@@ -484,14 +408,14 @@ function ns:UpdateDisplay()
 				-- unscaled). SetScale on each bar frame scales the offset naturally.
 				local scale = settings.iconScale
 				local step = BAR_HEIGHT + padding
-				local topMargin = padding
 
 				for i, slot in ipairs(barSlots) do
 					local bar = GetBar(i)
 					local timer = activeBarBySpell[slot.spellID]
 
 					bar:ClearAllPoints()
-					bar:SetPoint("TOPLEFT", barContainer, "TOPLEFT", 0, -(topMargin + (i - 1) * step))
+					-- Inter-item padding only: first bar at 0, subsequent bars offset by step
+					bar:SetPoint("TOPLEFT", ns.barContainer, "TOPLEFT", 0, -((i - 1) * step))
 
 					ApplyBarStyle(bar, barWidth, settings)
 
@@ -531,9 +455,12 @@ function ns:UpdateDisplay()
 				end
 
 				-- Size container in parent (unscaled) space.
+				-- Inter-item padding only: n items with (n-1) gaps between them
 				local n = #barSlots
-				local totalHeight = n > 0 and topMargin * scale + (n * BAR_HEIGHT + (n - 1) * padding) * scale or 0
-				barContainer:SetHeight(math.max(1, totalHeight))
+				local totalHeight = n > 0 and (n * BAR_HEIGHT + (n - 1) * padding) * scale or 0
+				ns.barContainer:SetHeight(math.max(1, totalHeight))
+				-- Width tracks barWidth setting
+				ns.barContainer:SetWidth(math.max(1, barWidth * scale))
 
 				-- Hide unused bars
 				for i = #barSlots + 1, #barPool do
@@ -548,7 +475,7 @@ function ns:UpdateDisplay()
 	end
 
 	-- === Render icon timers ===
-	if not iconContainer then
+	if not ns.iconContainer then
 		for i = 1, #iconPool do
 			iconPool[i]:Hide()
 		end
@@ -557,32 +484,32 @@ function ns:UpdateDisplay()
 
 	local iconSettings = cachedIconSettings
 	if not iconSettings then
-		iconContainer:Hide()
+		ns.iconContainer:Hide()
 		return
 	end
 
 	ns.iconTooltipsShown = iconSettings.tooltipsShown
 
 	local hasActiveIcons = #iconTimers > 0
-	local iconEditing = ns.cdmIconViewer.isEditing
+	local iconEditing = ns.editModeActive
 	local iconVisible =
 		ShouldShow(iconSettings.visibleSetting, hasActiveIcons, iconSettings.hideWhenInactive, iconEditing)
 
 	if not iconVisible then
-		iconContainer:Hide()
+		ns.iconContainer:Hide()
 		return
 	end
 
-	iconContainer:Show()
+	ns.iconContainer:Show()
 
 	wipe(buffSlots)
 	for _, entry in pairs(ns.db.trackedBuffs) do
-		if entry.displayMode == "buff" and entry.enabled ~= false then
+		if entry.section == "buffs" then
 			table.insert(buffSlots, entry)
 		end
 	end
 	table.sort(buffSlots, function(a, b)
-		return a.spellID < b.spellID
+		return (a.layoutOrder or 0) < (b.layoutOrder or 0)
 	end)
 
 	wipe(activeBySpell)
@@ -594,7 +521,6 @@ function ns:UpdateDisplay()
 	-- SetScale on each icon scales the offset naturally.
 	local iconPadding = iconSettings.iconPadding + ICON_PADDING_OFFSET
 	local step = BUFF_ICON_SIZE + iconPadding
-	local topMargin = iconPadding
 	local orientation = iconSettings.orientationSetting -- 0=Horizontal, 1=Vertical
 	local direction = iconSettings.iconDirection -- 0=Right/Down, 1=Left/Up
 
@@ -603,25 +529,26 @@ function ns:UpdateDisplay()
 		local timer = activeBySpell[entry.spellID]
 
 		icon:ClearAllPoints()
-		local offset = topMargin + (slotIndex - 1) * step
+		-- Inter-item padding only: first icon at 0, subsequent offset by step
+		local offset = (slotIndex - 1) * step
 
 		if orientation == 0 then
 			-- Horizontal
 			if direction == 1 then
-				-- Left: show on right side of CDM, grow rightward
-				icon:SetPoint("TOPLEFT", ns.cdmIconViewer, "TOPRIGHT", offset, 0)
+				-- Left: anchor from right edge of container, grow leftward
+				icon:SetPoint("TOPRIGHT", ns.iconContainer, "TOPRIGHT", -offset, 0)
 			else
-				-- Right (default): show on left side of CDM, grow leftward
-				icon:SetPoint("TOPRIGHT", ns.cdmIconViewer, "TOPLEFT", -offset, 0)
+				-- Right (default): anchor from left edge of container, grow rightward
+				icon:SetPoint("TOPLEFT", ns.iconContainer, "TOPLEFT", offset, 0)
 			end
 		else
 			-- Vertical
 			if direction == 1 then
 				-- Up
-				icon:SetPoint("BOTTOMLEFT", ns.cdmIconViewer, "TOPLEFT", 0, offset)
+				icon:SetPoint("BOTTOMLEFT", ns.iconContainer, "BOTTOMLEFT", 0, offset)
 			else
 				-- Down (default)
-				icon:SetPoint("TOPLEFT", ns.cdmIconViewer, "BOTTOMLEFT", 0, -offset)
+				icon:SetPoint("TOPLEFT", ns.iconContainer, "TOPLEFT", 0, -offset)
 			end
 		end
 
@@ -660,5 +587,20 @@ function ns:UpdateDisplay()
 	-- Hide extra icons
 	for i = #buffSlots + 1, #iconPool do
 		iconPool[i]:Hide()
+	end
+
+	-- Size the icon container to fit its visible children (inter-item padding only)
+	local visibleCount = #buffSlots
+	if visibleCount > 0 then
+		local totalSize = visibleCount * BUFF_ICON_SIZE + (visibleCount - 1) * iconPadding
+		if orientation == 0 then
+			-- Horizontal layout
+			ns.iconContainer:SetSize(math.max(1, totalSize), BUFF_ICON_SIZE)
+		else
+			-- Vertical layout
+			ns.iconContainer:SetSize(BUFF_ICON_SIZE, math.max(1, totalSize))
+		end
+	else
+		ns.iconContainer:SetSize(BUFF_ICON_SIZE, BUFF_ICON_SIZE)
 	end
 end

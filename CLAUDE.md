@@ -14,8 +14,10 @@ WoW Midnight addon (version 12.0 and up) for tracking buff/cooldown timers manua
 ## Architecture
 - `Core.lua` — namespace, init, event routing, slash commands
 - `BuffEngine.lua` — timer management, tracked buff config
-- `Display.lua` — visual timer bars and buff icons, anchored to CDM
-- `ConfigUI.lua` — config window for adding/removing tracked buffs
+- `EditModeFrames.lua` — Edit Mode containers, drag handles, position persistence, settings popup
+- `Display.lua` — visual timer bars and buff icons
+- `CDMTab.xml` — TBT tab button XML definition for CDM settings
+- `CDMTab.lua` — CDM tab integration, sections UI, drag-and-drop, add/delete dialogs
 - `scripts/install.bat` — copies addon to WoW retail addons folder
 - `scripts/release.bat` — tags and pushes a release (GitHub Actions handles packaging)
 - `.github/workflows/release.yml` — BigWigs Packager action for CurseForge/Wago/GitHub releases
@@ -26,7 +28,7 @@ WoW Midnight addon (version 12.0 and up) for tracking buff/cooldown timers manua
 - SavedVariables: `TerribleBuffTrackerDB` (account-wide)
 - Active timers are runtime-only (not persisted)
 - Display uses CDM atlas textures, StatusBar frames, SetScale(), and CooldownFrameTemplate — pixel-matching Blizzard's CooldownViewer templates
-- Bars and icons are parented to container frames anchored to CDM viewer frames
+- Bars and icons are parented to Edit Mode container frames (TBTBarContainer, TBTBuffContainer)
 - CDM settings (scale, padding, bar width, visibility, etc.) are cached via SnapshotSettings() on load, layout hooks, and EditMode.Exit — not read per-frame
 - Reusable module-level tables wiped with `wipe()` each cycle to avoid GC pressure in hot paths
 - Addon icon: `tbt_icon_64x64.blp` (BLP format required by WoW, PNG kept as source)

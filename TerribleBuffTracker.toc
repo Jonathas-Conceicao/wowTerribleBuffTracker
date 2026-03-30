@@ -12,5 +12,6 @@
 
 Core.lua
 BuffEngine.lua
+EditModeFrames.lua
 Display.lua
-ConfigUI.lua
+CDMTab.xml

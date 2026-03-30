@@ -8,8 +8,10 @@ echo Copying TerribleBuffTracker to WoW retail addons folder...
 copy /Y "%SOURCE%TerribleBuffTracker.toc" "%DEST%\"
 copy /Y "%SOURCE%Core.lua" "%DEST%\"
 copy /Y "%SOURCE%BuffEngine.lua" "%DEST%\"
+copy /Y "%SOURCE%EditModeFrames.lua" "%DEST%\"
 copy /Y "%SOURCE%Display.lua" "%DEST%\"
-copy /Y "%SOURCE%ConfigUI.lua" "%DEST%\"
+copy /Y "%SOURCE%CDMTab.xml" "%DEST%\"
+copy /Y "%SOURCE%CDMTab.lua" "%DEST%\"
 copy /Y "%SOURCE%tbt_icon_64x64.blp" "%DEST%\"
 
 echo Done! /reload in WoW to load the addon.
