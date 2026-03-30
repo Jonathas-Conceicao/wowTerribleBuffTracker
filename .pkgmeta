@@ -1,4 +1,7 @@
 package-as: TerribleBuffTracker
+manual-changelog:
+  filename: RELEASE_NOTES.md
+  markup-type: markdown
 
 ignore:
   - .gitignore
@@ -9,3 +12,4 @@ ignore:
   - LICENSE
   - scripts
   - "*.png"
+  - RELEASE_NOTES.md
