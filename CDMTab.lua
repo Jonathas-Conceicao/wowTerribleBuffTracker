@@ -28,7 +28,7 @@ local SECTION_DEFS = {
 	{ key = "bars", title = "Tracked Bars" },
 	{ key = "buffs", title = "Tracked Buffs" },
 	{ key = "hidden", title = "Not Displayed" },
-	{ key = "suggested", title = "Suggested (WIP)" },
+	{ key = "suggested", title = "Suggested" },
 }
 
 -- Valid drop targets (module-level constant — avoids per-frame table allocation in OnDragUpdate)
@@ -56,8 +56,8 @@ local function CreateIconFrame(parent)
 	f:EnableMouse(true)
 
 	f:SetScript("OnMouseDown", function(self, button)
-		if button == "LeftButton" and self.spellID and self.sectionName ~= "suggested" then
-			-- Don't drag from collapsed sections
+		if button == "LeftButton" and self.spellID then
+			-- Don't drag from collapsed sections (Suggested is never collapsed)
 			local section = ns.tbtSections and ns.tbtSections[self.sectionName]
 			if section and section.collapsed then
 				return
@@ -68,12 +68,14 @@ local function CreateIconFrame(parent)
 
 	f:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		-- Resolve the display spellID: meta-buffs use class-aware lust spell
+		local displaySpellID = ns:ResolveSuggestedSpellID(self.spellID) or self.spellID
 		-- Show the real spell tooltip if possible, then append TBT info
 		local hasSpellTooltip = false
-		if self.spellID and C_Spell and C_Spell.GetSpellInfo then
-			local info = C_Spell.GetSpellInfo(self.spellID)
+		if displaySpellID and type(displaySpellID) == "number" and C_Spell and C_Spell.GetSpellInfo then
+			local info = C_Spell.GetSpellInfo(displaySpellID)
 			if info and info.name then
-				GameTooltip:SetSpellByID(self.spellID)
+				GameTooltip:SetSpellByID(displaySpellID)
 				hasSpellTooltip = true
 			end
 		end
@@ -83,9 +85,34 @@ local function CreateIconFrame(parent)
 				GameTooltip:SetText(entry.label, 1, 1, 1)
 			end
 			GameTooltip:AddLine(" ")
-			GameTooltip:AddLine("Spell ID: " .. self.spellID, 0.8, 0.8, 0.8)
+			if type(self.spellID) == "number" then
+				GameTooltip:AddLine("Spell ID: " .. self.spellID, 0.8, 0.8, 0.8)
+			end
 			GameTooltip:AddLine("TBT Duration: " .. entry.duration .. "s", 0.8, 0.8, 0.8)
+			if entry.metaBuff then
+				GameTooltip:AddLine("Matches all Heroism/Bloodlust effects", 0.5, 0.5, 0.5)
+			end
 			GameTooltip:Show()
+		elseif not entry and self.sectionName == "suggested" then
+			-- Show tooltip from SUGGESTED_BUFFS definition (not yet in user DB)
+			for _, suggested in ipairs(ns.SUGGESTED_BUFFS) do
+				if suggested.key == self.spellID then
+					-- Show the real spell tooltip for the class-aware lust spell
+					local cdmSpellID = suggested.getCDMSpellID and suggested.getCDMSpellID()
+					if cdmSpellID then
+						GameTooltip:SetSpellByID(cdmSpellID)
+					else
+						GameTooltip:SetText(suggested.label, 1, 1, 1)
+					end
+					GameTooltip:AddLine(" ")
+					GameTooltip:AddLine("TBT Duration: " .. suggested.duration .. "s", 0.8, 0.8, 0.8)
+					if suggested.metaBuff then
+						GameTooltip:AddLine("Matches all Heroism/Bloodlust effects", 0.5, 0.5, 0.5)
+					end
+					GameTooltip:Show()
+					break
+				end
+			end
 		end
 	end)
 
@@ -97,6 +124,47 @@ local function CreateIconFrame(parent)
 		if button == "RightButton" and upInside then
 			local sectionName = self.sectionName
 			if sectionName == "suggested" then
+				-- D-08: Special menu for suggested items — Add to Bars / Add to Buffs, no Remove
+				MenuUtil.CreateContextMenu(self, function(_owner, rootDescription)
+					local function addSuggestedToSection(targetSection)
+						local key = self.spellID
+						local existing = ns.db.trackedBuffs[key]
+						if existing then
+							ns:SetBuffSection(key, targetSection)
+						else
+							for _, suggested in ipairs(ns.SUGGESTED_BUFFS) do
+								if suggested.key == key then
+									local maxOrder = 0
+									for _, e in pairs(ns.db.trackedBuffs) do
+										if e.layoutOrder and e.layoutOrder > maxOrder then
+											maxOrder = e.layoutOrder
+										end
+									end
+									ns.db.trackedBuffs[key] = {
+										key = suggested.key,
+										label = suggested.label,
+										duration = suggested.duration,
+										section = targetSection,
+										layoutOrder = maxOrder + 1,
+										metaBuff = suggested.metaBuff,
+									}
+									break
+								end
+							end
+						end
+						ns:RefreshTBTSections()
+						if ns.previewActive or ns.configOpen then
+							ns:StartAllPreviewTimers()
+						end
+					end
+					rootDescription:CreateButton("Add to Bars", function()
+						addSuggestedToSection("bars")
+					end)
+					rootDescription:CreateButton("Add to Buffs", function()
+						addSuggestedToSection("buffs")
+					end)
+					-- D-08: No "Remove" option for suggested items
+				end)
 				return
 			end
 			MenuUtil.CreateContextMenu(self, function(_owner, rootDescription)
@@ -327,10 +395,21 @@ BeginDrag = function(iconFrame)
 	tbtDragState.active = true
 	tbtDragState.spellID = iconFrame.spellID
 	tbtDragState.originalSection = iconFrame.sectionName
+	tbtDragState.isFromSuggested = (iconFrame.sectionName == "suggested")
+	if tbtDragState.isFromSuggested then
+		tbtDragState.suggestedKey = iconFrame.spellID -- string key e.g. "lust"
+	end
 
-	-- Show ghost at cursor
+	-- Show ghost at cursor; resolve class-aware icon for suggested items
 	local ghost = GetOrCreateGhostFrame()
-	ghost.Icon:SetTexture(ns:GetSpellIcon(iconFrame.spellID))
+	local ghostIconID
+	if iconFrame.sectionName == "suggested" and type(iconFrame.spellID) == "string" then
+		local resolved = ns:ResolveSuggestedSpellID(iconFrame.spellID)
+		ghostIconID = ns:GetSpellIcon(resolved or 2825)
+	else
+		ghostIconID = ns:GetSpellIcon(iconFrame.spellID)
+	end
+	ghost.Icon:SetTexture(ghostIconID)
 	ghost:Show()
 
 	-- Activate per-frame highlight tracking (nil'd in EndDrag — no idle cost)
@@ -426,10 +505,48 @@ EndDrag = function(commit)
 			PlaySound(SOUNDKIT.UI_CURSOR_DROP_OBJECT)
 			return
 		elseif result and result ~= "suggested" then
+			local targetSection = result
+			if tbtDragState.isFromSuggested then
+				-- D-05: Copy-on-drag from Suggested — create entry if not tracked, else move
+				local suggestedKey = tbtDragState.suggestedKey
+				local existing = ns.db.trackedBuffs[suggestedKey]
+				if existing then
+					-- Already tracked: move to target section
+					ns:SetBuffSection(suggestedKey, targetSection)
+				else
+					-- Not yet tracked: create entry from suggested definition
+					for _, suggested in ipairs(ns.SUGGESTED_BUFFS) do
+						if suggested.key == suggestedKey then
+							local maxOrder = 0
+							for _, e in pairs(ns.db.trackedBuffs) do
+								if e.layoutOrder and e.layoutOrder > maxOrder then
+									maxOrder = e.layoutOrder
+								end
+							end
+							ns.db.trackedBuffs[suggestedKey] = {
+								key = suggested.key,
+								label = suggested.label,
+								duration = suggested.duration,
+								section = targetSection,
+								layoutOrder = maxOrder + 1,
+								metaBuff = suggested.metaBuff,
+							}
+							break
+						end
+					end
+				end
+				-- D-07: Icon stays in Suggested (no removal)
+				wipe(tbtDragState)
+				ns:RefreshTBTSections()
+				if ns.previewActive or ns.configOpen then
+					ns:StartAllPreviewTimers()
+				end
+				PlaySound(SOUNDKIT.UI_CURSOR_DROP_OBJECT)
+				return
+			end
 			local spellID = tbtDragState.spellID
 			local entry = ns.db.trackedBuffs[spellID]
 			if entry then
-				local targetSection = result
 				local dropOrder = GetDropLayoutOrder(targetSection)
 
 				-- Move to new section if different
@@ -450,7 +567,7 @@ EndDrag = function(commit)
 					end
 					table.sort(sectionEntries, function(a, b)
 						if a.order == b.order then
-							return a.spellID < b.spellID -- stable tiebreak
+							return tostring(a.spellID) < tostring(b.spellID) -- stable tiebreak (handles mixed string/number keys)
 						end
 						return a.order < b.order
 					end)
@@ -595,7 +712,21 @@ function ns:RefreshTBTSections()
 			end
 		end
 
-		if def.key ~= "suggested" then
+		if def.key == "suggested" then
+			-- Populate from SUGGESTED_BUFFS catalog (D-04, D-09)
+			-- Add square is layoutIndex 1 (always first); catalog starts at 2
+			for i, suggested in ipairs(ns.SUGGESTED_BUFFS) do
+				local item = section.itemPool:Acquire()
+				-- Class-aware icon via getCDMSpellID (D-14)
+				local cdmSpellID = suggested.getCDMSpellID and suggested.getCDMSpellID() or 2825
+				item.spellID = suggested.key -- string key "lust"
+				item.Icon:SetTexture(ns:GetSpellIcon(cdmSpellID))
+				item.sectionName = "suggested"
+				item.suggestedIndex = i -- index into ns.SUGGESTED_BUFFS
+				item.layoutIndex = i + 1 -- +1 to leave slot 1 for the Add square
+				item:Show()
+			end
+		else
 			-- Collect and sort by layoutOrder for within-section ordering
 			local sorted = {}
 			for spellID, entry in pairs(ns.db.trackedBuffs) do
@@ -609,7 +740,14 @@ function ns:RefreshTBTSections()
 			for i, info in ipairs(sorted) do
 				local item = section.itemPool:Acquire()
 				item.spellID = info.spellID
-				item.Icon:SetTexture(ns:GetSpellIcon(info.spellID))
+				-- Resolve icon: meta-buffs use class-aware CDM spell ID (D-14)
+				local iconID
+				if type(info.spellID) == "string" then
+					iconID = ns:GetSpellIcon(ns:ResolveSuggestedSpellID(info.spellID) or 2825)
+				else
+					iconID = ns:GetSpellIcon(info.spellID)
+				end
+				item.Icon:SetTexture(iconID)
 				item.sectionName = def.key
 				item.layoutIndex = i -- sequential for GridLayoutFrame
 				item:Show()
@@ -753,7 +891,7 @@ function ns:BuildAllSections()
 	local suggestedSection = ns.tbtSections.suggested
 	local addSquare = CreateFrame("Frame", nil, suggestedSection.container)
 	addSquare:SetSize(38, 38)
-	addSquare.layoutIndex = 1
+	addSquare.layoutIndex = 1 -- Always first in Suggested section
 	addSquare:EnableMouse(true)
 
 	-- Green-tinted background
@@ -976,7 +1114,6 @@ function ns:ShowTBTPanel()
 	if CooldownViewerSettings.AurasTab then
 		CooldownViewerSettings.AurasTab:SetChecked(false)
 	end
-	ns.tbtTabActive = true
 end
 
 function ns:HideTBTPanel()
@@ -987,7 +1124,6 @@ function ns:HideTBTPanel()
 		CooldownViewerSettings.CooldownScroll:Show()
 	end
 	TBTSettingsTab:SetChecked(false)
-	ns.tbtTabActive = false
 end
 
 ---------------------------------------------------------------------

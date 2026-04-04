@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.1 — Aura-Based Timer Cancellation
+
+### New Features
+- Timers for tracked buffs cancel automatically when the buff is no longer on the player
+- Aura detection gated by secret value checks — automatically disabled in M+ and other restricted contexts
+- Lust / Heroism timers start automatically when Sated, Exhaustion, Temporal Displacement, or Evoker Exhaustion debuffs are detected
+- Class-aware lust icon: Mage sees Time Warp, Evoker sees Fury of the Aspects, others see Bloodlust
+- Drag "Lust / Heroism" from the Suggested section to activate lust tracking
+- Current-season drums (Void-touched Drums) supported as a lust trigger
+
+### Improvements
+- Preview timers no longer destroy active buff countdowns when CDM settings window is opened
+- Extracted shared spell resolution helper to reduce code duplication across display and config files
+- Removed unused code (tbtTabActive flag)
+
 ## v0.2.0 — Config & Edit Mode Rework
 
 - New "TBT Buffs" tab inside Blizzard's Cooldown Manager settings window

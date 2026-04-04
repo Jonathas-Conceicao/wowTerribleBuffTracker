@@ -41,6 +41,8 @@ we don't need ~~crap~~ stuff like this.
 - **Drag-and-drop** — move buffs between sections or reorder them within a section
 - **Edit Mode integration** — two movable containers (Bars and Buffs) with full Edit Mode support
 - **Copy Blizzard CDM Config** — one-click import of CDM's current settings into TBT
+- **Aura-based timer cancellation** — tracked buff timers automatically disappear when the buff is removed when info is not **Secret Values**
+- **Lust / Heroism tracking** — automatic detection via Sated-family debuffs
 
 ## Usage
 
@@ -50,21 +52,36 @@ we don't need ~~crap~~ stuff like this.
 - **Configure display:** Enter Edit Mode, click a TBT container, and adjust settings in the popup
 - **Quick actions:** Right-click any buff icon for Move, Hide, or Remove options
 
+## Lust / Heroism Tracking
+
+TBT includes a built-in meta-buff for tracking all Bloodlust/Heroism
+variants as a single entry. It works by detecting the **Sated-family
+debuffs** (Sated, Exhaustion, Temporal Displacement) which are
+allowlisted by Blizzard and readable even during combat and M+.
+
+**How it works:**
+- Open CDM settings (`/tbt`) and drag the "Lust / Heroism" icon from
+  the **Suggested** section into Tracked Bars or Tracked Buffs
+- When any lust is cast (by you, a party member, or via drums), the
+  Sated debuff triggers a 40-second timer automatically
+- The timer icon and name match the **actual lust used** — if a Mage
+  casts Time Warp, you see the Time Warp icon regardless of your class
+- In the CDM tab, the icon shows your **class-specific lust** (Time
+  Warp for Mages, Fury of the Aspects for Evokers, Bloodlust for
+  everyone else)
+- The timer cancels automatically if the lust buff is removed (boss
+  wipe mainly for early wipes where info is not **Secret Value**)
+
 ## Known Issues and Limitations
 
 - Only Active Buffs can be tracked:  
-Passive proc trinkets are currently not supported as blizzard's API
-hides buff behind secret values while in any relevant contexts
+Passive proc trinkets are currently not supported as Blizzard's API
+hides buffs behind secret values while in any relevant contexts
 
-- Tracking Lust:  
-Lust can only be tracked if you're the one using lust, since this
-logic relies on `UNIT_SPELLCAST_SUCCEEDED` and can't track buffs
-directly. If you use lust while with Sated or similar debuff you'll
-prorabily see a false positive track
-
-- Buff Removed:  
-The addon can't update a buff that has ended before the expected time,
-and might linger on screen longer than expected
+- Aura cancellation delay in restricted contexts:  
+In M+ and other secret-value contexts, buff cancellation detection
+only kicks in after combat drops or zone changes. There may be a few
+seconds of delay before a removed buff's timer disappears
 
 ## License
 

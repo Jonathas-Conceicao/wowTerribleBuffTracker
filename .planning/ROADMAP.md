@@ -1,130 +1,122 @@
-# Roadmap: TerribleBuffTracker v0.2.0
-
-## Overview
-
-Config & Edit Mode Rework. Replace the standalone config window with a native-feeling tab inside Blizzard's Cooldown Manager settings window, add independently movable Edit Mode containers, and implement drag-and-drop buff management across four sections. The work proceeds in strict dependency order: data migration first (everything reads the section field), Edit Mode containers second (resolves the Display.lua anchor conflict before CDM injection), CDM tab shell third (highest-risk integration step verified in isolation), static sections fourth, drag-and-drop fifth, and cleanup last per GSD workflow convention.
+# Roadmap: TerribleBuffTracker
 
 ## Milestones
 
-- **v0.2.0 Config & Edit Mode Rework** - Phases 1-6 (in progress)
+- [x] **v0.2.0 Config & Edit Mode Rework** - Phases 1-6 (shipped 2026-03-30)
+- [x] **v0.2.1 Aura-Based Timer Cancellation** - Phases 7-11 (ready for release 2026-04-04)
 
 ## Phases
 
+<details>
+<summary>v0.2.0 Config & Edit Mode Rework (Phases 1-6) — SHIPPED 2026-03-30</summary>
+
 - [x] **Phase 1: Data Migration** - Expand SavedVariables schema and backfill existing entries (completed 2026-03-28)
-- [ ] **Phase 2: Edit Mode Containers** - Two independently movable containers registered with Edit Mode
-- [ ] **Phase 3: CDM Tab Shell** - Tab button injection and content panel frame; old config UI removed
-- [ ] **Phase 4: CDM Tab Sections** - Four sections rendered from DB state with Add button and delete drop zone (static)
-- [ ] **Phase 5: Drag-and-Drop** - Buff drag between sections with ghost frame, drop zone highlighting, and delete zone
+- [x] **Phase 2: Edit Mode Containers** - Two independently movable containers registered with Edit Mode
+- [x] **Phase 3: CDM Tab Shell** - Tab button injection and content panel frame; old config UI removed
+- [x] **Phase 4: CDM Tab Sections** - Four sections rendered from DB state with Add button and delete drop zone (static)
+- [x] **Phase 5: Drag-and-Drop** - Buff drag between sections with ghost frame, drop zone highlighting, and delete zone
 - [x] **Phase 6: Cleanup** - Dead code removal, hot-path audit, stylua, release prep (completed 2026-03-30)
+
+</details>
+
+### v0.2.1 Aura-Based Timer Cancellation (In Progress)
+
+**Milestone Goal:** Timers stop automatically when tracked buffs are no longer present. Handles M+ secret value restrictions, zone transitions, and lust/heroism variants.
+
+- [x] **Phase 7: Safety Infrastructure** - Grace period, blocked flag, reset triggers, and preview guard wired before any scan logic (completed 2026-04-04)
+- [x] **Phase 8: Aura Scan and Cancellation** - UNIT_AURA handler and scan function that silently cancel timers for absent buffs (completed 2026-04-04)
+- [ ] **Phase 9: Zone Transition Handling** - Post-login and zone-exit scans to catch buffs stripped by loading screens
+- [x] **Phase 10: Lust Tracking** - Sated-family debuff detection auto-starts lust timer; class-aware meta-buff icon in CDM tab (completed 2026-04-04)
+- [x] **Phase 11: Cleanup** - Hot-path audit, stylua, recentlyCast table growth check, release prep (completed 2026-04-04)
 
 ## Phase Details
 
-### Phase 1: Data Migration
-**Goal**: Existing user data is safely expanded to support the section model without loss
-**Depends on**: Nothing (first phase)
-**Requirements**: MIG-01, MIG-02
+### Phase 7: Safety Infrastructure
+**Goal**: All prerequisite guards are in place before any aura scan logic is written
+**Depends on**: Phase 6
+**Requirements**: AURA-01, AURA-02, AURA-03, ZONE-02
 **Success Criteria** (what must be TRUE):
-  1. User's previously tracked buffs still appear after upgrading — no entries are lost
-  2. Each existing buff entry has a section value (bars, buffs, or hidden) derived from its old displayMode/enabled values
-  3. New buffs added via BuffEngine default to section = "hidden"
-  4. Upgrading a second time does not overwrite a section value the user has already set
+  1. The addon registers UNIT_AURA only for the "player" unit — no party or raid aura events are received
+  2. After casting a tracked spell, the newly created timer survives for at least 0.5 seconds regardless of what UNIT_AURA fires next
+  3. ns.auraCheckBlocked becomes true the first time auras are detected as secret, and no scan runs while it is true
+  4. ns.auraCheckBlocked resets to false after leaving a zone or combat encounter, allowing the next UNIT_AURA event to re-check
+  5. Preview mode timers are not cancelled by any aura event while preview is active
+**Plans:** 1 plan
+
+Plans:
+- [x] 07-01-PLAN.md — Event registration, guard flags, OnUnitAura stub, ClearAuraBlock, preview wiring, debug toggle
+
+### Phase 8: Aura Scan and Cancellation
+**Goal**: Active timers for tracked buffs no longer present are silently removed on every relevant UNIT_AURA event
+**Depends on**: Phase 7
+**Requirements**: AURA-04
+**Success Criteria** (what must be TRUE):
+  1. When a tracked buff is manually cancelled by the player, its timer disappears from the display without any user action in the addon
+  2. When a tracked buff falls off early (trinket proc, dispel, wipe), the timer is removed before it would have expired naturally
+  3. A timer created immediately before an isFullUpdate event is not incorrectly cancelled by that event
+  4. Display is refreshed exactly once when one or more timers are cancelled by a single scan pass
 **Plans:** 1/1 plans complete
-Plans:
-- [x] 01-01-PLAN.md — Schema migration v0->v1 and read/write path updates in BuffEngine.lua + Display.lua
 
-### Phase 2: Edit Mode Containers
-**Goal**: Users can independently reposition the bars container and buffs container via Edit Mode
-**Depends on**: Phase 1
-**Requirements**: EDM-01, EDM-02, EDM-03, EDM-04, EDM-05
+Plans:
+- [x] 08-01-PLAN.md — ScanActiveTimersForCancellation function, source="cast" origin marker, placeholder replacement
+
+### Phase 9: Zone Transition Handling
+**Goal**: Timers for buffs stripped during loading screens are cancelled when the player enters the new zone
+**Depends on**: Phase 8
+**Requirements**: ZONE-01
 **Success Criteria** (what must be TRUE):
-  1. Entering Edit Mode reveals drag handles on both the bars container and the buffs container independently
-  2. Each container can be moved to a different screen position and that position persists across /reload
-  3. Both containers appear as toggleable checkboxes in the Edit Mode sidebar dialog
-  4. On a fresh install (no saved positions), containers start at hardcoded default positions (center-right of screen)
-  5. After a user has set Edit Mode positions, CDM layout refreshes do not move the containers
-**Plans:** 2/2 plans complete
-Plans:
-- [x] 02-01-PLAN.md — Create EditModeFrames.lua with containers, drag handles, Edit Mode lifecycle, sidebar checkbox, position persistence; update Core.lua and TOC
-- [x] 02-02-PLAN.md — Restructure Display.lua to decouple from CDM, use Edit Mode containers with hardcoded settings; in-game verification
-**UI hint**: yes
+  1. After a zone transition (dungeon entry, world travel), timers for buffs that were removed during the loading screen are gone within the first second of the new area loading
+  2. Timers for buffs that survived the zone transition continue running normally
+  3. On /reload or fresh login, any timer whose buff is not currently active is cancelled before the first game frame renders
+**Plans**: TBD
 
-### Phase 3: CDM Tab Shell
-**Goal**: A working TBT tab button appears in CDM settings and switches to a TBT-owned content panel; old config UI is gone
-**Depends on**: Phase 2
-**Requirements**: TAB-01, TAB-02, TAB-07
+### Phase 10: Lust Tracking
+**Goal**: Bloodlust/Heroism and all current-season equivalents are trackable as a single meta-buff entry with a class-aware icon
+**Depends on**: Phase 9
+**Requirements**: LUST-01, LUST-02, LUST-03, LUST-04, LUST-05
 **Success Criteria** (what must be TRUE):
-  1. Opening CDM settings shows a "TBT Buffs" lateral tab button alongside the built-in CDM tabs
-  2. Clicking the TBT tab shows a TBT-owned content panel and hides the CDM scroll frame
-  3. Clicking any other CDM tab restores the CDM scroll frame and hides the TBT content panel
-  4. /tbt opens CDM settings with the TBT tab selected instead of the old standalone window
-  5. The old standalone config window is completely absent from the codebase
-**Plans:** 1 plan
-Plans:
-- [ ] 03-01-PLAN.md — CDMTab.xml/CDMTab.lua tab injection, content panel, /tbt rework, ConfigUI.lua removal
-**UI hint**: yes
-
-### Phase 4: CDM Tab Sections
-**Goal**: Users can see all four buff sections populated from their saved data and add or delete buffs through the tab UI
-**Depends on**: Phase 3
-**Requirements**: TAB-03, TAB-04, TAB-05, TAB-06
-**Success Criteria** (what must be TRUE):
-  1. Opening the TBT tab shows four labeled sections: Tracked Buffs, Tracked Bars, Not Displayed, Suggested
-  2. Each buff appears as an icon in the section that matches its current section value
-  3. Clicking Add in the Suggested section prompts for Spell ID and Duration, and the new buff appears in Not Displayed after confirming
-  4. The Not Displayed section contains a visible delete drop zone that accepts a buff and removes it from the DB
-**Plans:** 1/2 plans executed
-Plans:
-- [x] 04-01-PLAN.md — SetBuffSection API, section framework with icon grids, tooltips, context menus, and refresh
-- [ ] 04-02-PLAN.md — Add Buff dialog, delete zone visual, in-game verification
-**UI hint**: yes
-
-### Phase 5: Drag-and-Drop
-**Goal**: Users can reassign a buff's display mode by dragging its icon from one section to another
-**Depends on**: Phase 4
-**Requirements**: DND-01, DND-02, DND-03
-**Success Criteria** (what must be TRUE):
-  1. A buff icon can be dragged out of any section and dropped into any other section, changing its section value immediately
-  2. While dragging, a ghost copy of the buff icon follows the cursor across the entire screen
-  3. When the cursor enters a valid drop target, that section visually highlights; the highlight clears when the cursor leaves
-  4. Dropping a buff onto the delete zone in Not Displayed removes it from the DB
-**Plans:** 1 plan
-Plans:
-- [ ] 05-01-PLAN.md — Ghost frame, drag lifecycle (BeginDrag/EndDrag/GLOBAL_MOUSE_UP), section highlights, hit-testing, in-game verification
-**UI hint**: yes
-
-### Phase 05.1: Edit Mode Settings Popup (INSERTED)
-
-**Goal:** Clicking a TBT container in Edit Mode selects it with a yellow highlight and opens a CDM-style settings popup for orientation, growth direction, scale, padding, visibility, and bar width; settings persist and replace hardcoded display defaults
-**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-10, D-11
-**Depends on:** Phase 5
+  1. When any Sated-family debuff (Sated, Exhaustion, Temporal Displacement, etc.) appears on the player, a lust timer starts automatically without the player casting anything
+  2. The CDM tab shows exactly one "Lust / Heroism" entry regardless of which lust variant is active or what class the player is
+  3. A Shaman sees the Bloodlust icon; a Mage sees the Time Warp icon; a class with no personal lust sees the Bloodlust icon as default
+  4. The CDM tab entry shows gray subtext reading "Matches all Heroism/Bloodlust effects"
+  5. Using Drums of... (current season) also triggers the lust timer
 **Plans:** 2/2 plans complete
 
 Plans:
-- [x] 05.1-01-PLAN.md — DB schema init for containerSettings + Display.lua refactor to read from DB
-- [ ] 05.1-02-PLAN.md — Selection system with yellow NineSlice, click-vs-drag detection, CDM-style settings popup with Blizzard template controls
+- [x] 10-01-PLAN.md — Lust data tables, schema migration v3, debuff detection in OnUnitAura, StartLustTimer
+- [x] 10-02-PLAN.md — CDM tab Suggested section activation, copy-on-drag, right-click menu, class-aware icon, tooltip
+**UI hint**: yes
 
-### Phase 6: Cleanup
-**Goal**: Codebase is lean, correct, and ready for release
-**Depends on**: Phase 5
+### Phase 11: Cleanup
+**Goal**: Codebase is lean, correct, and ready for v0.2.1 release
+**Depends on**: Phase 10
 **Requirements**: none (GSD workflow cleanup phase per CLAUDE.md)
 **Success Criteria** (what must be TRUE):
-  1. No OnUpdate callbacks run when no drag is in progress
-  2. All modified Lua files pass stylua with no changes
-  3. Release script produces a clean package with no leftover ConfigUI references
-**Plans:** 1/1 plans complete
+  1. ns.recentlyCast entries are cleaned up on expiry and do not grow unbounded across a session
+  2. ScanActiveTimersForCancellation does not allocate any new tables per call
+  3. All modified Lua files pass stylua with no changes
+  4. Release script produces a clean package and changelog entry reflects v0.2.1 features
+**Plans:** 2/2 plans complete
+
 Plans:
-- [x] 06-01-PLAN.md — Dead code removal, cdmWatcher hot-path fix, documentation cleanup, stylua
+- [x] 11-01-PLAN.md — ResolveSuggestedSpellID helper extraction, preview save/restore fix, dead code removal
+- [x] 11-02-PLAN.md — stylua pass, CHANGELOG.md v0.2.1 entry, REQUIREMENTS.md status update
 
 ## Progress
 
-**Execution Order:** 1 -> 2 -> 3 -> 4 -> 5 -> 5.1 -> 6
+**Execution Order:** 7 -> 8 -> 9 -> 10 -> 11
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Data Migration | 1/1 | Complete   | 2026-03-28 |
-| 2. Edit Mode Containers | 2/2 | Complete |  |
-| 3. CDM Tab Shell | 0/1 | Not started | - |
-| 4. CDM Tab Sections | 1/2 | In Progress|  |
-| 5. Drag-and-Drop | 0/1 | Not started | - |
-| 5.1. Edit Mode Settings Popup | 0/2 | Not started | - |
-| 6. Cleanup | 1/1 | Complete   | 2026-03-30 |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Data Migration | v0.2.0 | 1/1 | Complete | 2026-03-28 |
+| 2. Edit Mode Containers | v0.2.0 | 2/2 | Complete | — |
+| 3. CDM Tab Shell | v0.2.0 | 1/1 | Complete | — |
+| 4. CDM Tab Sections | v0.2.0 | 2/2 | Complete | — |
+| 5. Drag-and-Drop | v0.2.0 | 1/1 | Complete | — |
+| 5.1. Edit Mode Settings Popup | v0.2.0 | 2/2 | Complete | — |
+| 6. Cleanup | v0.2.0 | 1/1 | Complete | 2026-03-30 |
+| 7. Safety Infrastructure | v0.2.1 | 1/1 | Complete | 2026-04-04 |
+| 8. Aura Scan and Cancellation | v0.2.1 | 1/1 | Complete   | 2026-04-04 |
+| 9. Zone Transition Handling | v0.2.1 | 1/1 | Complete | 2026-04-04 |
+| 10. Lust Tracking | v0.2.1 | 2/2 | Complete    | 2026-04-04 |
+| 11. Cleanup | v0.2.1 | 2/2 | Complete    | 2026-04-04 |

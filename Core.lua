@@ -6,6 +6,9 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
 	if event == "ADDON_LOADED" then
@@ -87,17 +90,32 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			ns:InitEditModeFrames()
 			ns:InitDisplay()
 		end
-		self:UnregisterEvent("PLAYER_ENTERING_WORLD")
 	elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
 		local unit, _, spellID = ...
 		if unit == "player" then
 			ns:OnSpellCastSucceeded(spellID)
 		end
+	elseif event == "UNIT_AURA" then
+		local unit, updateInfo = ...
+		if unit == "player" then
+			ns:OnUnitAura(updateInfo)
+		end
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		ns:ClearAuraBlock()
+	elseif event == "ZONE_CHANGED_NEW_AREA" then
+		ns:ClearAuraBlock()
 	end
 end)
 
 SLASH_TERRIBLEBUFFTRACKER1 = "/tbt"
 SLASH_TERRIBLEBUFFTRACKER2 = "/terriblebufftracker"
-SlashCmdList["TERRIBLEBUFFTRACKER"] = function()
-	ns:SelectTBTTab()
+SlashCmdList["TERRIBLEBUFFTRACKER"] = function(msg)
+	local cmd = msg and msg:lower():match("^(%S+)") or ""
+	if cmd == "debug" then
+		ns.debugLogging = not ns.debugLogging
+		local state = ns.debugLogging and "|cff00ff00ON|r" or "|cffff6600OFF|r"
+		print("|cff00ccffTBT|r: Debug logging " .. state)
+	else
+		ns:SelectTBTTab()
+	end
 end

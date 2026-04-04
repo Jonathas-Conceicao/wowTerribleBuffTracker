@@ -26,36 +26,35 @@ Players can see countdown timers for buffs/cooldowns that the game no longer sur
 - CDM tab shell: TBT Buffs tab in CDM settings, content panel, /tbt opens CDM, ConfigUI.lua removed — v0.2 Phase 3
 - CDM tab sections: 4 collapsible sections, icon grids, Add dialog, delete zone visual, right-click context menus — v0.2 Phase 4
 - Drag-and-drop: section-to-section drag, within-section reorder, CDM-style reorder marker, delete zone drag — v0.2 Phase 5
+- UNIT_AURA event registration (player-filtered), secret-value blocked flag, isFullUpdate suppression, preview guard, debug toggle — v0.2.1 Phase 7
+- Aura scan cancellation: ScanActiveTimersForCancellation removes timers for absent buffs via GetPlayerAuraBySpellID — v0.2.1 Phase 8
+- Lust meta-buff: Sated-family debuff detection auto-starts 40s timer, class-aware CDM icon, Suggested section activated as static catalog — v0.2.1 Phase 10
 
 ### Active
 
-- [ ] CDM Settings integration — TBT tab inside Cooldown Manager settings window
-- [ ] Drag-and-drop buff management across 4 sections (Tracked Buffs, Tracked Bars, Not Displayed, Suggested)
-- [ ] Add button in Suggested section (prompts Spell ID + Duration, lands in Not Displayed)
-- [ ] Delete drop zone in Not Displayed section
-- [ ] Edit Mode integration — two independent movable elements (bars container, buffs container)
-- [ ] One-time CDM settings copy for fresh installs; TBT owns positioning after
+- [ ] Register UNIT_AURA to detect buff removal when aura data is readable
+- [ ] Cache secret-value detection — block aura checks until combat drop or zone change, re-check on next event
+- [ ] Silently cancel active timers for tracked buffs no longer present in aura list
+- [ ] Zone-transition scan to catch buffs stripped during loading screens
+- [ ] Lust meta-buff: detect Sated-family debuffs to auto-start lust timer, single CDM tab icon with class-aware icon
 
 ### Out of Scope
 
-- Buff tracking engine changes — not in this milestone
-- Timer display rendering changes — not in this milestone
-- Real buff suggestions in Suggested section — placeholder only for now
-- Standalone config window — being replaced by CDM tab
+- Display rendering changes — not in this milestone
+- New buff tracking sources beyond UNIT_AURA_UPDATE — not in this milestone
+- Updating timer durations from aura data — only cancellation for now
+- Aura-based buff auto-discovery — only checks already-tracked buffs
 
-## Current Milestone: v0.2.0 Config & Edit Mode Rework
+## Current Milestone: v0.2.1 Aura-Based Timer Cancellation
 
-**Goal:** Replace standalone config UI with a CDM-integrated tab and add Edit Mode support for independent buff/bar positioning.
+**Goal:** Use UNIT_AURA_UPDATE to detect and cancel tracked buff timers when buffs are no longer present, with smart secret-value caching.
 
 **Target features:**
-- CDM Settings tab ("TBT Buffs") with lateral tab button
-- 4 sections: Tracked Buffs, Tracked Bars, Not Displayed, Suggested
-- Drag buffs between sections to change display mode or disable
-- Suggested section has Add button; new buffs land in Not Displayed
-- Not Displayed has a delete drop zone square
-- Edit Mode: two independent movable elements (bars, buffs)
-- Fresh install copies CDM settings once; TBT owns them after
-- Migration: existing tracked buffs preserved
+- Register UNIT_AURA_UPDATE event for "player" unit
+- On first event with secret values, set a "blocked" flag and skip future events
+- Clear blocked flag on PLAYER_REGEN_ENABLED (combat drop) or ZONE_CHANGED_NEW_AREA (zone change)
+- When not blocked: scan aura list for tracked buffs, silently remove timers for missing buffs
+- Handles lust on wipe, trinket procs ending early, buff cancellations
 
 ## Context
 
@@ -102,4 +101,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-29 after Phase 5 completion (drag-and-drop)*
+*Last updated: 2026-04-04 after Phase 10 completion (lust tracking)*

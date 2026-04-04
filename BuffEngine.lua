@@ -1,7 +1,53 @@
 local _, ns = ...
 
+-- Runtime-only guard flags (not persisted to SavedVariables)
+ns.auraCheckBlocked = false
+ns.previewActive = false
+ns.debugLogging = false
+
+-- Preview save/restore: stores real active timers while preview is running (D-07)
+local savedPreviewTimers = {}
+
+-- Maps Sated-family debuff spellID -> corresponding lust buff spellID (D-13)
+ns.SATED_DEBUFF_TO_LUST = {
+	[57724] = 2825, -- Sated -> Bloodlust (covers Bloodlust + Primal Rage)
+	[57723] = 32182, -- Exhaustion -> Heroism (covers Heroism + Drums)
+	[80354] = 80353, -- Temporal Displacement -> Time Warp
+	[390435] = 390386, -- Exhaustion (Evoker) -> Fury of the Aspects
+}
+
+-- Lust buffs that share a Sated debuff — ALL must be absent before cancelling the timer.
+-- Keyed by the "display" lustBuffID stored in the timer; value is a list of buff spellIDs to check.
+local SHARED_LUST_BUFFS = {
+	[32182] = { 32182, 1243972 }, -- Heroism + Void-touched Drums share Exhaustion (57723)
+	[2825] = { 2825 }, -- Bloodlust (+ Primal Rage share Sated, but same buff icon)
+	[80353] = { 80353 }, -- Time Warp
+	[390386] = { 390386 }, -- Fury of the Aspects
+}
+
+-- Maps classFilename -> class-specific lust spellID (D-14)
+ns.CLASS_LUST_SPELL = {
+	SHAMAN = 2825, -- Bloodlust
+	MAGE = 80353, -- Time Warp
+	EVOKER = 390386, -- Fury of the Aspects
+}
+
+-- Registry of suggested buff definitions for CDM tab Suggested section (D-04, D-09)
+ns.SUGGESTED_BUFFS = {
+	{
+		key = "lust",
+		label = "Lust / Heroism",
+		duration = 40,
+		metaBuff = true,
+		getCDMSpellID = function()
+			local _, classFilename = UnitClass("player")
+			return ns.CLASS_LUST_SPELL[classFilename] or 2825
+		end,
+	},
+}
+
 function ns:InitBuffEngine()
-	local CURRENT_SCHEMA_VERSION = 2
+	local CURRENT_SCHEMA_VERSION = 3
 	local ver = ns.db.schemaVersion or 0
 
 	if ver < 1 then
@@ -34,14 +80,41 @@ function ns:InitBuffEngine()
 		end
 		ns.db.schemaVersion = 2
 	end
+
+	if ver < 3 then
+		-- v2 -> v3: Remove pre-seeded lust entry if it was added by earlier migration
+		-- Lust meta-buff is now only created when user drags from Suggested (D-04/D-05)
+		if ns.db.trackedBuffs["lust"] and ns.db.trackedBuffs["lust"].section == "hidden" then
+			-- Only remove if user hasn't moved it (still in hidden = auto-seeded)
+			ns.db.trackedBuffs["lust"] = nil
+		end
+		ns.db.schemaVersion = 3
+	end
 end
 
 function ns:GetSpellIcon(spellID)
+	if not spellID or type(spellID) ~= "number" then
+		return 134400 -- Question mark icon fallback for nil/string keys
+	end
 	local info = C_Spell.GetSpellInfo(spellID)
 	if info and info.iconID then
 		return info.iconID
 	end
 	return 134400 -- Question mark icon fallback
+end
+
+-- D-06: Shared helper — returns numeric CDM spellID for a string key, or nil.
+-- For non-string keys (numeric spellIDs), returns nil (caller uses key as-is).
+function ns:ResolveSuggestedSpellID(key)
+	if type(key) ~= "string" then
+		return nil
+	end
+	for _, suggested in ipairs(ns.SUGGESTED_BUFFS) do
+		if suggested.key == key and suggested.getCDMSpellID then
+			return suggested.getCDMSpellID()
+		end
+	end
+	return nil
 end
 
 function ns:OnSpellCastSucceeded(spellID)
@@ -62,6 +135,7 @@ function ns:OnSpellCastSucceeded(spellID)
 		icon = ns:GetSpellIcon(spellID),
 		label = entry.label or ("Spell " .. spellID),
 		section = entry.section or "bars",
+		source = "cast",
 	}
 
 	if ns.UpdateDisplay then
@@ -158,6 +232,12 @@ function ns:RemoveTrackedBuff(spellID)
 end
 
 function ns:SetBuffSection(spellID, section)
+	if not spellID then
+		return
+	end
+	if type(spellID) ~= "number" and type(spellID) ~= "string" then
+		return
+	end
 	local entry = ns.db.trackedBuffs[spellID]
 	if not entry then
 		return
@@ -175,29 +255,218 @@ function ns:SetBuffSection(spellID, section)
 end
 
 function ns:StartAllPreviewTimers()
+	-- D-07: Save real timers before preview overwrites them (only on FIRST call)
+	-- Re-entry guard: if previewActive is already true, savedPreviewTimers already holds real timers.
+	if not ns.previewActive then
+		wipe(savedPreviewTimers)
+		for k, v in pairs(ns.activeTimers) do
+			savedPreviewTimers[k] = v
+		end
+	end
+
+	ns.previewActive = true
 	local now = GetTime()
-	ns.activeTimers = {}
+	wipe(ns.activeTimers)
+
 	for spellID, entry in pairs(ns.db.trackedBuffs) do
 		if entry.section ~= "hidden" then
+			-- D-06: Use shared helper to resolve icon and label for meta-buff string keys
+			local resolvedID = ns:ResolveSuggestedSpellID(spellID) or spellID
+			local timerLabel = entry.label or ("Spell " .. tostring(spellID))
+			if type(resolvedID) == "number" then
+				local info = C_Spell.GetSpellInfo(resolvedID)
+				if info and info.name then
+					timerLabel = info.name
+				end
+			end
 			ns.activeTimers[spellID] = {
 				spellID = spellID,
 				expiresAt = now + entry.duration,
 				startedAt = now,
 				duration = entry.duration,
-				icon = ns:GetSpellIcon(spellID),
-				label = entry.label or ("Spell " .. spellID),
+				icon = ns:GetSpellIcon(resolvedID),
+				label = timerLabel,
 				section = entry.section or "bars",
 			}
 		end
 	end
+
+	-- D-07: Merge real timers back on top (real timers visible and override preview for same key)
+	for k, v in pairs(savedPreviewTimers) do
+		if v.expiresAt > now then
+			ns.activeTimers[k] = v
+		end
+	end
+
 	if ns.UpdateDisplay then
 		ns:UpdateDisplay()
 	end
 end
 
 function ns:ClearAllTimers()
-	ns.activeTimers = {}
+	ns.previewActive = false
+
+	-- D-07: Restore real timers instead of wiping everything
+	wipe(ns.activeTimers)
+	local now = GetTime()
+	for k, v in pairs(savedPreviewTimers) do
+		if v.expiresAt > now then
+			ns.activeTimers[k] = v
+		end
+	end
+	wipe(savedPreviewTimers)
+
 	if ns.UpdateDisplay then
 		ns:UpdateDisplay()
+	end
+end
+
+function ns:ScanActiveTimersForCancellation()
+	local cancelledCount = 0
+	local cancelledLabels
+
+	for spellID, timer in pairs(ns.activeTimers) do
+		local shouldCancel = false
+
+		if timer.source == "cast" then
+			-- Cast-originated: check if buff aura is still present
+			local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+			if aura == nil then
+				shouldCancel = true
+			end
+		elseif timer.source == "debuff" and timer.lustBuffID then
+			-- Lust meta-buff: check ALL buffs that share the same Sated debuff.
+			-- E.g., Heroism and Drums both trigger Exhaustion — only cancel if BOTH are absent.
+			local buffsToCheck = SHARED_LUST_BUFFS[timer.lustBuffID]
+			if buffsToCheck then
+				local anyPresent = false
+				for _, buffID in ipairs(buffsToCheck) do
+					if C_UnitAuras.GetPlayerAuraBySpellID(buffID) then
+						anyPresent = true
+						break
+					end
+				end
+				if not anyPresent then
+					shouldCancel = true
+				end
+			else
+				-- Fallback: unknown lustBuffID, check directly
+				if not C_UnitAuras.GetPlayerAuraBySpellID(timer.lustBuffID) then
+					shouldCancel = true
+				end
+			end
+		end
+
+		if shouldCancel then
+			ns.activeTimers[spellID] = nil
+			cancelledCount = cancelledCount + 1
+			if ns.debugLogging then
+				if not cancelledLabels then
+					cancelledLabels = {}
+				end
+				table.insert(cancelledLabels, timer.label or tostring(spellID))
+			end
+		end
+	end
+
+	if cancelledCount > 0 then
+		if ns.debugLogging and cancelledLabels then
+			print(
+				"|cff00ccffTBT Debug|r: Cancelled "
+					.. cancelledCount
+					.. " timer(s): "
+					.. table.concat(cancelledLabels, ", ")
+			)
+		end
+		if ns.UpdateDisplay then
+			ns:UpdateDisplay()
+		end
+	end
+end
+
+function ns:StartLustTimer(lustSpellID)
+	local entry = ns.db.trackedBuffs["lust"]
+	if not entry or entry.section == "hidden" then
+		return
+	end
+	-- Don't restart if lust timer already running
+	local existing = ns.activeTimers["lust"]
+	if existing and existing.expiresAt > GetTime() then
+		return
+	end
+	local now = GetTime()
+	-- D-16: Use actual detected lust spell's icon and name
+	local lustLabel = "Lust / Heroism"
+	local lustInfo = C_Spell.GetSpellInfo(lustSpellID)
+	if lustInfo and lustInfo.name then
+		lustLabel = lustInfo.name
+	end
+	ns.activeTimers["lust"] = {
+		spellID = "lust",
+		lustBuffID = lustSpellID, -- actual lust buff spellID for cancellation check
+		expiresAt = now + 40,
+		startedAt = now,
+		duration = 40,
+		icon = ns:GetSpellIcon(lustSpellID),
+		label = lustLabel,
+		section = entry.section or "bars",
+		source = "debuff",
+	}
+	if ns.debugLogging then
+		print("|cff00ccffTBT Debug|r: Lust detected (spellID " .. lustSpellID .. "), timer started.")
+	end
+	if ns.UpdateDisplay then
+		ns:UpdateDisplay()
+	end
+end
+
+function ns:OnUnitAura(updateInfo)
+	-- LUST-01: Detect Sated-family debuffs BEFORE secret gate.
+	-- Sated debuffs are allowlisted (never secret) so this is safe even in combat/M+.
+	-- Must run before the ShouldAurasBeSecret() return to detect lust in restricted contexts.
+	if updateInfo and updateInfo.addedAuras and not ns.previewActive then
+		for _, aura in ipairs(updateInfo.addedAuras) do
+			-- D-11: Per-entry secret check before table index with spellId
+			if not issecretvalue(aura.spellId) then
+				local lustSpellID = ns.SATED_DEBUFF_TO_LUST[aura.spellId]
+				if lustSpellID then
+					ns:StartLustTimer(lustSpellID)
+				end
+			end
+		end
+	end
+
+	-- AURA-02: Gate on secret restriction (must be FIRST check for scan logic)
+	if C_Secrets.ShouldAurasBeSecret() then
+		if not ns.auraCheckBlocked then
+			ns.auraCheckBlocked = true
+			if ns.debugLogging then
+				print("|cff00ccffTBT Debug|r: aura check blocked — ShouldAurasBeSecret() returned true")
+			end
+		end
+		return
+	end
+
+	-- ZONE-02 / D-05: Suppress on isFullUpdate (zone boundary / loading screen transient)
+	if updateInfo and updateInfo.isFullUpdate then
+		if ns.debugLogging then
+			print("|cff00ccffTBT Debug|r: UNIT_AURA isFullUpdate suppressed")
+		end
+		return
+	end
+
+	-- D-02: Skip scan while preview timers are active
+	if ns.previewActive then
+		return
+	end
+
+	ns:ScanActiveTimersForCancellation()
+end
+
+function ns:ClearAuraBlock()
+	local wasBlocked = ns.auraCheckBlocked
+	ns.auraCheckBlocked = false
+	if ns.debugLogging and wasBlocked then
+		print("|cff00ccffTBT Debug|r: aura check unblocked")
 	end
 end

@@ -156,7 +156,13 @@ local function CreateTimerBar(parent)
 		end
 		if self.spellID then
 			GameTooltip_SetDefaultAnchor(GameTooltip, self)
-			GameTooltip:SetSpellByID(self.spellID)
+			-- Resolve display spell for meta-buffs (string keys like "lust")
+			local tooltipSpellID = ns:ResolveSuggestedSpellID(self.spellID) or self.spellID
+			if type(tooltipSpellID) == "number" then
+				GameTooltip:SetSpellByID(tooltipSpellID)
+			else
+				GameTooltip:SetText(self.spellID, 1, 1, 1)
+			end
 			GameTooltip:Show()
 		end
 	end)
@@ -209,7 +215,13 @@ local function CreateTimerIcon(parent)
 		end
 		if self.spellID then
 			GameTooltip_SetDefaultAnchor(GameTooltip, self)
-			GameTooltip:SetSpellByID(self.spellID)
+			-- Resolve display spell for meta-buffs (string keys like "lust")
+			local tooltipSpellID = ns:ResolveSuggestedSpellID(self.spellID) or self.spellID
+			if type(tooltipSpellID) == "number" then
+				GameTooltip:SetSpellByID(tooltipSpellID)
+			else
+				GameTooltip:SetText(self.spellID, 1, 1, 1)
+			end
 			GameTooltip:Show()
 		end
 	end)
@@ -388,8 +400,9 @@ function ns:UpdateDisplay()
 				local showPlaceholders = not settings.hideWhenInactive or ns.configOpen or barEditing
 				if showPlaceholders then
 					wipe(barSlots)
-					for _, entry in pairs(ns.db.trackedBuffs) do
+					for spellID, entry in pairs(ns.db.trackedBuffs) do
 						if entry.section == "bars" then
+							entry.spellID = spellID -- carry the key for rendering
 							table.insert(barSlots, entry)
 						end
 					end
@@ -421,8 +434,18 @@ function ns:UpdateDisplay()
 
 					if bar.spellID ~= slot.spellID then
 						bar.spellID = slot.spellID
-						bar.icon:SetTexture(timer and timer.icon or ns:GetSpellIcon(slot.spellID))
-						bar.label:SetText(timer and timer.label or slot.label)
+						-- Resolve icon/label: meta-buffs use class-aware lust spell
+						local resolvedID = ns:ResolveSuggestedSpellID(slot.spellID) or slot.spellID
+						local fallbackIcon = ns:GetSpellIcon(resolvedID)
+						local fallbackLabel = slot.label
+						if type(resolvedID) == "number" then
+							local info = C_Spell.GetSpellInfo(resolvedID)
+							if info and info.name then
+								fallbackLabel = info.name
+							end
+						end
+						bar.icon:SetTexture(timer and timer.icon or fallbackIcon)
+						bar.label:SetText(timer and timer.label or fallbackLabel)
 					end
 
 					if timer then
@@ -503,8 +526,9 @@ function ns:UpdateDisplay()
 	ns.iconContainer:Show()
 
 	wipe(buffSlots)
-	for _, entry in pairs(ns.db.trackedBuffs) do
+	for spellID, entry in pairs(ns.db.trackedBuffs) do
 		if entry.section == "buffs" then
+			entry.spellID = spellID -- carry the key for rendering
 			table.insert(buffSlots, entry)
 		end
 	end
@@ -569,7 +593,9 @@ function ns:UpdateDisplay()
 			-- Placeholder: show icon with no timer
 			if icon.spellID ~= entry.spellID then
 				icon.spellID = entry.spellID
-				icon.icon:SetTexture(ns:GetSpellIcon(entry.spellID))
+				-- Resolve icon: meta-buffs use class-aware lust spell
+				local iconTexture = ns:GetSpellIcon(ns:ResolveSuggestedSpellID(entry.spellID) or entry.spellID)
+				icon.icon:SetTexture(iconTexture)
 			end
 			ApplyIconStyle(icon, iconSettings)
 
