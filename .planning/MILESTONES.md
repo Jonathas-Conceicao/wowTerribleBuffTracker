@@ -1,10 +1,21 @@
 # Milestones
 
+## v0.2.1 Aura-Based Timer Cancellation (Shipped: 2026-04-04)
+
+**Phases completed:** 5 phases, 6 plans, 11 tasks
+
+**Key accomplishments:**
+
+- (none recorded)
+
+---
+
 ## v0.1.0 (pre-GSD)
 
 Initial release. Manual buff/cooldown timer tracking with CDM-anchored bars/icons, standalone config UI, and CI/CD pipeline.
 
 **Shipped:**
+
 - Timer tracking via UNIT_SPELLCAST_SUCCEEDED + GetTime()
 - Timer bars and buff icons anchored to CDM
 - Config UI for adding/removing tracked buffs
@@ -18,6 +29,7 @@ Initial release. Manual buff/cooldown timer tracking with CDM-anchored bars/icon
 Replace standalone config UI with CDM-integrated tab. Add Edit Mode support for independent buff/bar positioning.
 
 **Shipped:**
+
 - Schema migration to section-based buff management (bars/buffs/hidden)
 - Two independent Edit Mode containers with position persistence
 - CDM Settings tab ("TBT Buffs") with 4 collapsible sections

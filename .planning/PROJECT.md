@@ -32,29 +32,13 @@ Players can see countdown timers for buffs/cooldowns that the game no longer sur
 
 ### Active
 
-- [ ] Register UNIT_AURA to detect buff removal when aura data is readable
-- [ ] Cache secret-value detection — block aura checks until combat drop or zone change, re-check on next event
-- [ ] Silently cancel active timers for tracked buffs no longer present in aura list
-- [ ] Zone-transition scan to catch buffs stripped during loading screens
-- [ ] Lust meta-buff: detect Sated-family debuffs to auto-start lust timer, single CDM tab icon with class-aware icon
+(None — planning next milestone)
 
 ### Out of Scope
 
-- Display rendering changes — not in this milestone
-- New buff tracking sources beyond UNIT_AURA_UPDATE — not in this milestone
-- Updating timer durations from aura data — only cancellation for now
+- Updating timer durations from aura data — future enhancement
 - Aura-based buff auto-discovery — only checks already-tracked buffs
-
-## Current Milestone: v0.2.1 Aura-Based Timer Cancellation
-
-**Goal:** Use UNIT_AURA_UPDATE to detect and cancel tracked buff timers when buffs are no longer present, with smart secret-value caching.
-
-**Target features:**
-- Register UNIT_AURA_UPDATE event for "player" unit
-- On first event with secret values, set a "blocked" flag and skip future events
-- Clear blocked flag on PLAYER_REGEN_ENABLED (combat drop) or ZONE_CHANGED_NEW_AREA (zone change)
-- When not blocked: scan aura list for tracked buffs, silently remove timers for missing buffs
-- Handles lust on wipe, trinket procs ending early, buff cancellations
+- Preview preserving per-buff state on CDM open/close — works at timer level but could be more granular
 
 ## Context
 
@@ -101,4 +85,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-04 after Phase 10 completion (lust tracking)*
+*Last updated: 2026-04-04 after v0.2.1 milestone completion*
