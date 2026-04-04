@@ -1,202 +1,208 @@
-# Feature Research
+# Feature Landscape: Aura-Based Timer Cancellation
 
-**Domain:** WoW addon UI — CDM settings tab integration, Edit Mode movable elements, drag-and-drop buff management
-**Researched:** 2026-03-28
-**Confidence:** HIGH (all findings sourced directly from Blizzard UI source at C:\Users\jonat\Repositories\wow-ui-source)
+**Domain:** WoW addon — aura monitoring with secret value constraints
+**Researched:** 2026-04-03
+**Milestone:** v0.2.1
 
 ---
 
-## Feature Landscape
+## Context and Constraints
 
-### Table Stakes (Users Expect These)
+This milestone adds one mechanism: silently cancel active timers when tracked buffs are no longer present in aura data. The existing system (UNIT_SPELLCAST_SUCCEEDED + GetTime()) starts timers. UNIT_AURA stops them early.
 
-These features are required for the milestone goals to be coherent. Missing any of these means the feature set is incomplete or broken.
+**Critical constraint:** Aura data is "SecretWhenUnitAuraRestricted" in WoW Midnight (Interface 120000+). In-combat, in mythic keystone, in PvP, and in active instance encounters, aura field values (spellId, duration, expirationTime, name) become opaque secret values. Attempting to index a secret value produces a Lua error: `"table index is secret"` or `"attempt to perform arithmetic on a secret number value"`.
+
+**What is never secret (HIGH confidence — verified via Warcraft Wiki and Blizzard's CooldownViewer.lua source):**
+- `removedAuraInstanceIDs` in the UNIT_AURA updateInfo payload — always numeric, always readable
+- `updatedAuraInstanceIDs` in the UNIT_AURA updateInfo payload — always readable
+- `auraInstanceID` field on individual `addedAuras` entries — always readable
+
+**What is conditionally secret:**
+- `addedAuras[i].spellId` — readable out of combat, secret in restricted contexts
+- `addedAuras[i].duration`, `expirationTime`, `name` — same restriction
+- `C_UnitAuras.GetPlayerAuraBySpellID(spellID)` return value — marked `SecretWhenUnitAuraRestricted`; returns an opaque table (or nil if absent) during combat lockdown; fields on it cannot be indexed
+
+**Blizzard's own pattern (HIGH confidence — verified directly in CooldownViewer.lua and CooldownViewerItemData.lua):**
+CDM builds a `spellID → auraInstanceID` registry. It calls `C_UnitAuras.GetPlayerAuraBySpellID(spellID)` at setup time (when data is accessible) to populate the mapping. On UNIT_AURA, it consumes only `removedAuraInstanceIDs` — which are never secret — to look up which tracked item lost its aura. This avoids touching secret fields in the hot path. TBT should replicate this exact pattern.
+
+---
+
+## Table Stakes
+
+Features users expect from this milestone. Missing any of these means the milestone goal is unmet.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| TBT tab button in CDM settings sidebar | CDM has lateral tab buttons (`LargeSideTabButtonTemplate`) on the left of `CooldownViewerSettings` frame; the `parentArray="TabButtons"` pattern auto-registers tabs into the iterated set; users expect TBT to follow this exact pattern | MEDIUM | Tab buttons are `LargeSideTabButtonTemplate` (43x55px), use `activeAtlas`/`inactiveAtlas`/`tooltipText` key-values, anchored vertically below the last existing tab. Tab selection is driven by `SetDisplayMode()` which iterates `self.TabButtons` and calls `SetChecked(frame.displayMode == displayMode)`. TBT needs a new `displayMode` string key and corresponding category render path |
-| Buff icons displayed in CDM settings content area | CDM's content area is a `ScrollFrame > Content` frame; categories are added via `categoryPool` (CreateFramePoolCollection); items are 38x38 icon frames using `CooldownViewerSettingsItemTemplate`; users expect TBT buffs to use the same visual language | MEDIUM | TBT cannot reuse `CooldownViewerCategory` directly (it's tied to `Enum.CooldownViewerCategory` which is Blizzard-internal). TBT must create its own category frame within CDM's scroll content, mimicking the visual style |
-| 4 named sections (Tracked Buffs, Tracked Bars, Not Displayed, Suggested) | CDM itself uses collapsible sections with headers (`ListHeaderThreeSliceTemplate`) and grid layout containers; users familiar with CDM expect the same sectioning pattern | MEDIUM | Each section is a `CooldownViewerSettingsCategoryTemplate`-style frame: a `Header` button + `Container` (GridLayoutFrame). TBT replicates this structure manually since it cannot inject into Blizzard's `cooldownCategories` table (which is local to CooldownViewerSettings.lua) |
-| Drag buff icons between sections | CDM implements drag-and-drop via `OnDragStart`/`OnMouseUp`/`GLOBAL_MOUSE_UP` event pattern; a floating cursor icon (`CooldownViewerSettingsDraggedItemMixin`) follows the mouse; `OnEnter` triggers fire `EventRegistry` events; drop commits via `EndOrderChange()` calling `SetCooldownToCategory()` or `ChangeOrderIndex()`. Users expect the same feel | HIGH | TBT must implement its own parallel drag system: pickup frame following cursor via `OnUpdate`, `GLOBAL_MOUSE_UP` listener on the settings window, reorder marker (`ReorderMarker` frame), `GetBestCooldownItemTarget()` hit-test logic weighted by distance. The CDM drag system is entirely in `CooldownViewerSettingsMixin`; TBT cannot hook into it and must replicate the pattern |
-| Edit Mode movable elements (bars container, buffs container) | Blizzard uses `EditMode.Enter` / `EditMode.Exit` EventRegistry callbacks for showing/hiding system selection frames; the existing Display.lua already hooks `EventRegistry:RegisterCallback("EditMode.Exit", ...)`. Users expect both TBT containers to be independently draggable in Edit Mode | HIGH | Full `EditModeSystemMixin` registration requires `self.system` set to a valid `Enum.EditModeSystem` value — this is Blizzard-internal and not available to addons. TBT cannot use native Edit Mode registration. Instead: listen to `EditMode.Enter`/`EditMode.Exit` events, show custom drag handles on the containers, and save positions to `TerribleBuffTrackerDB` manually |
-| Position persistence for Edit Mode elements | Users expect positions to survive reloads | LOW | Store `anchorInfo` (point, offsetX, offsetY relative to UIParent) in `TerribleBuffTrackerDB`; apply on `PLAYER_ENTERING_WORLD`. Already precedented by Display.lua's cached settings pattern |
-| Migration: existing tracked buffs preserved | Any existing `TerribleBuffTrackerDB` data must survive the UI rework | LOW | The buff data model is unchanged; only the config UI is being replaced. A version flag in `TerribleBuffTrackerDB` ensures the migration runs once. No data transformation needed if category assignment defaults are sensible |
+| Register UNIT_AURA for "player" unit | Core detection mechanism — no event, no cancellation | Low | Single `RegisterEvent` call added to Core.lua |
+| Build spellID → auraInstanceID map on startup | Enables secret-safe removal detection using never-secret instance IDs | Medium | Iterate `activeTimers` on PLAYER_ENTERING_WORLD; call `GetPlayerAuraBySpellID` for each to capture current instanceID |
+| Update map when OnSpellCastSucceeded fires | After cast, a new aura appears — must capture its instanceID immediately while data is accessible | Medium | Call `C_UnitAuras.GetPlayerAuraBySpellID(spellID)` inside `ns:OnSpellCastSucceeded` after setting `ns.activeTimers[spellID]` |
+| Cancel timer on removedAuraInstanceIDs match | Core cancellation behavior — covers lust-on-wipe, trinket procs, dispels, manual buff cancellations | Low | Iterate `removedAuraInstanceIDs`; reverse-lookup spellID from map; `ns.activeTimers[spellID] = nil` + `ns:UpdateDisplay()` |
+| Blocked flag when aura data is secret | Prevents Lua errors from secret-value indexing in restricted contexts | Medium | Set via `C_Secrets.ShouldUnitAuraInstanceBeSecret` check, or by detecting a failed field read; prevents map-rebuild and spellId reads in the handler |
+| Clear blocked flag on PLAYER_REGEN_ENABLED | Re-enables aura checks after combat ends | Low | Register event in Core.lua; clear `ns.auraBlocked` flag |
+| Clear blocked flag on ZONE_CHANGED_NEW_AREA | Re-enables after zone transitions (keystone ends, instance exits, area changes) | Low | Register event; clear flag; optionally trigger a fresh scan |
+| isFullUpdate / nil updateInfo fallback | `updateInfo` can be nil or arrive with `isFullUpdate=true` — must handle gracefully | Medium | When triggered: scan all `activeTimers` via `GetPlayerAuraBySpellID`; cancel any where result is nil |
 
-### Differentiators (Competitive Advantage)
+---
 
-Features that make TBT's config feel native rather than bolted-on.
+## Differentiators
+
+Features that improve quality or robustness. Not blocking, but high value for correctness.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Reorder marker between icons during drag | CDM uses an 8px wide `ReorderMarker` frame (vertical or horizontal) that updates every frame during drag to show where the icon will land. This visual polish is what makes the drag feel native rather than approximate | MEDIUM | `UpdateReorderMarkerPosition()` is called per-frame during `OnUpdate`. The marker toggles between vertical (icon grid) and horizontal (bar list) orientation based on category type. For TBT's simpler 2-category setup this is achievable without the full weighted hit-test machinery |
-| Context menu on right-click (reassign to section) | CDM's items show a context menu via `MenuUtil.CreateContextMenu` with "Assign to [Section]" options; right-click reassignment is faster than drag for power users | MEDIUM | TBT can use `MenuUtil.CreateContextMenu` with section reassignment options. This is independent of drag and simpler to implement |
-| Add button in Suggested section (spell ID + duration prompt) | New buffs land in Not Displayed by default; this matches CDM's "disabled" category convention and prevents clutter. The Add workflow is a static popup or custom dialog | MEDIUM | `StaticPopupDialogs` pattern is well-established. Two fields needed: Spell ID and Duration. On accept: create entry in `TerribleBuffTrackerDB`, assign to `NotDisplayed` category |
-| Delete drop zone in Not Displayed section | A dedicated delete target (trash/drop zone) gives users a visual affordance for removal during drag. CDM has no exact equivalent but the "empty slot" pattern (`SetAsEmptyCategory`) provides a model for a special drop target | MEDIUM | Implement as a special slot frame in Not Displayed that, when a drag is released over it, removes the buff from `TerribleBuffTrackerDB` entirely. Can be a fixed square with a trash atlas icon |
-| One-time CDM settings copy for fresh installs | On first install, copy CDM's current scale/padding/bar width into `TerribleBuffTrackerDB` so TBT's bars match CDM visually without manual calibration | LOW | Check for version sentinel in `TerribleBuffTrackerDB` on `ADDON_LOADED`. If absent: read CDM settings via the cached settings path already in Display.lua, write to DB, set sentinel. This runs once and never again |
+| Per-aura secret guard (not blanket block) | More granular — non-secret auras still cancel timers even when some auras are secret in the same event | Medium | Use `C_Secrets.ShouldUnitAuraInstanceBeSecret("player", auraInstanceID)` per-aura before any field access. Pattern from Cell PR #457. Only needed if blanket blocked flag proves too conservative |
+| Rebuild auraInstanceMap on PLAYER_ENTERING_WORLD | Handles login, reload, and instance entry where timers may have survived | Low | Iterate `activeTimers`; call `GetPlayerAuraBySpellID`; populate map. If result is nil, cancel the timer (buff didn't survive the zone) |
+| Scan + cancel on ZONE_CHANGED_NEW_AREA | Clears timers for buffs stripped by zone transitions that don't fire UNIT_AURA | Low | Same scan as PLAYER_ENTERING_WORLD; guards against loading-screen removal edge case |
+| Debug flag for blocked/unblocked state changes | Surfaces aura-blocking behavior during development without production spam | Low | `if ns.db.debugMode then print(...) end` gate in Core.lua |
 
-### Anti-Features (Commonly Requested, Often Problematic)
+---
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| Native `EditModeSystemMixin` registration | Would give TBT frames the full Edit Mode chrome (highlight border, settings dialog, snap lines) | `Enum.EditModeSystem` values are Blizzard-internal enums; addons cannot add new entries. `EditModeManagerFrame:RegisterSystemFrame()` expects `self.system` to match a known enum value. Attempting this causes taint and API errors | Listen to `EditMode.Enter`/`EditMode.Exit` EventRegistry events; show custom drag handles on TBT containers; save positions manually. This is how Display.lua already handles `EditMode.Exit` |
-| Injecting into CDM's `cooldownCategories` table | Would allow TBT entries to appear in CDM's native sections (Essential, Utility, etc.) | `cooldownCategories` is a `local` table in `CooldownViewerSettings.lua`. It is initialized in a `do...end` block and never exposed. No upvalue injection path exists | Add a TBT-owned tab via `parentArray="TabButtons"` which renders TBT's own category UI inside CDM's scroll content |
-| Hooking CDM's drag system | Reusing `CooldownViewerSettingsMixin:BeginOrderChange` / `EndOrderChange` would avoid reimplementing drag | These methods operate on `CooldownViewerSettingsItemMixin` instances which reference internal `CooldownID` / `GetCooldownInfo()` APIs tied to Blizzard's spell data. TBT items have no such backing data | Implement a parallel drag system using the same event pattern (`GLOBAL_MOUSE_UP`, `OnUpdate`, `OnDragStart`) but operating on TBT's own item frames |
-| Real spell suggestions in Suggested section | Users want auto-populated recommendations based on their spec | Spell IDs are often Secret Values in Midnight; `GetSpellInfo` behavior is restricted; building a reliable suggestion engine requires per-spec spell ID databases that go stale | Placeholder section with a single Add button. Document the placeholder clearly. Real suggestions are a future milestone |
-| SavedVariables for drag order within CDM's layout manager | Sharing CDM's layout persistence (which uses `C_CooldownViewer` APIs) | The layout manager APIs (`CooldownViewerLayoutManagerMixin`, serializer, data provider) are tightly coupled to CDM's internal IDs. TBT has no `CooldownID` for its tracked buffs | Store buff order and section assignment directly in `TerribleBuffTrackerDB` using spellID as key |
+## Anti-Features
+
+Features to explicitly not build in this milestone.
+
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| Reading aura duration to update timer remaining | Duration field is secret in combat — defeats the entire secret-guarding strategy | Use only presence/absence detection; never read temporal fields from aura data |
+| Auto-discovering new tracked spells from aura data | Scope creep per PROJECT.md — only cancel already-tracked buffs | New buff discovery is a future milestone |
+| Tracking UNIT_AURA for units other than "player" | Party/target aura data is more restricted and irrelevant to TBT's use case | Filter `unit == "player"` in handler; reject all other units |
+| Blanket block all UNIT_AURA processing when any aura is secret | Too aggressive — non-secret auras (out-of-combat buffs, whitelisted spells) can still cancel timers safely | Default: block only map rebuilds and spellId field reads; keep removedAuraInstanceIDs processing always-on since those IDs are never secret |
+| Polling aura state on an OnUpdate tick | GC pressure and unnecessary work — UNIT_AURA is event-driven and sufficient | Stick to event-driven pattern; no per-frame polling |
+| Updating expiresAt from aura expirationTime | Explicitly out of scope per PROJECT.md; field is secret in combat anyway | Only nil-out timers (cancellation); never mutate durations from aura data |
 
 ---
 
 ## Feature Dependencies
 
 ```
-CDM Tab Button (parentArray="TabButtons")
-    └──requires──> CDM settings window exists and is loaded
-                       └──requires──> COOLDOWN_VIEWER_DATA_LOADED event fired
+Register UNIT_AURA event (Core.lua)
+  → isFullUpdate / nil updateInfo fallback scan
+  → Blocked flag logic
+      → PLAYER_REGEN_ENABLED clears flag
+      → ZONE_CHANGED_NEW_AREA clears flag
 
-TBT Content Frame (category sections)
-    └──requires──> CDM Tab Button (content only shown when tab is active)
-    └──requires──> TerribleBuffTrackerDB buff list
+PLAYER_ENTERING_WORLD (existing, Core.lua)
+  → Rebuild spellID → auraInstanceID map (new)
+      → Scan active timers: cancel any where buff is absent
 
-Drag-and-Drop (section reassignment)
-    └──requires──> TBT Content Frame (needs rendered item frames as drag targets)
-    └──requires──> TerribleBuffTrackerDB category field per buff
+OnSpellCastSucceeded (existing, BuffEngine.lua)
+  → After setting ns.activeTimers[spellID]: call GetPlayerAuraBySpellID
+      → Store result.auraInstanceID in ns.auraInstanceMap[spellID]
 
-Delete Drop Zone
-    └──requires──> Drag-and-Drop (only activated during drag)
-
-Add Button (Suggested section)
-    └──requires──> TBT Content Frame rendered
-
-Edit Mode Movable Elements
-    └──requires──> EventRegistry "EditMode.Enter" / "EditMode.Exit" (already used in Display.lua)
-    └──requires──> Position stored in TerribleBuffTrackerDB
-
-One-Time CDM Settings Copy
-    └──requires──> ADDON_LOADED (already handled in Core.lua)
-    └──enhances──> Edit Mode Movable Elements (sets initial position from CDM anchor)
-
-Migration (existing buffs preserved)
-    └──requires──> TerribleBuffTrackerDB version sentinel
-    └──must complete before──> TBT Content Frame renders (needs category assignments)
+removedAuraInstanceIDs processing
+  → Reverse-lookup: auraInstanceMap (spellID → instanceID, inverted) OR iterate map
+      → ns.activeTimers[spellID] = nil
+      → ns:UpdateDisplay() (existing)
 ```
 
-### Dependency Notes
+**Dependency on existing BuffEngine:**
+- `ns.activeTimers` is the sole cancellation target — already a simple keyed table by spellID
+- `ns:UpdateDisplay()` already exists and handles nil timers correctly
+- `ns:OnSpellCastSucceeded()` is the right hook for map population (fires at cast time before aura data becomes secret)
+- `ns:GetActiveTimers()` already cleans expired entries via GetTime() — no change needed
 
-- **CDM Tab requires COOLDOWN_VIEWER_DATA_LOADED:** CDM's own `OnLoad` uses `EventUtil.ContinueAfterAllEvents` waiting on `VARIABLES_LOADED`, `PLAYER_ENTERING_WORLD`, and `COOLDOWN_VIEWER_DATA_LOADED`. TBT's tab injection must happen after this sequence completes or the CDM settings window won't exist yet.
-- **Drag requires rendered items:** The `OnEnter` / `GetBestCooldownItemTarget` hit-test only works on visible, positioned frames. Items must be laid out before drag begins.
-- **Edit Mode is independent of CDM tab:** The two features share no code path. Edit Mode affects `Display.lua` containers; the CDM tab affects `ConfigUI.lua`. They can be developed in parallel.
-- **Migration must run before first render:** Category assignments default to `NotDisplayed` for new buffs; existing buffs without a category field need one assigned on first load. This guard is a single nil-check on load, not a blocking event.
-
----
-
-## MVP Definition
-
-This is milestone v0.2.0 — the "minimum" is defined by the milestone scope in PROJECT.md, not by product-market fit. All items below are in scope.
-
-### Launch With (v0.2.0)
-
-- [ ] CDM tab button ("TBT Buffs") via `LargeSideTabButtonTemplate` + `parentArray="TabButtons"` — without this, nothing else has a home
-- [ ] 4 sections rendered in CDM scroll content: Tracked Buffs, Tracked Bars, Not Displayed, Suggested — the core organizational structure
-- [ ] Drag icons between sections to reassign display mode or disable — primary interaction model
-- [ ] Delete drop zone in Not Displayed — required to remove buffs without needing a separate button
-- [ ] Add button in Suggested section (spell ID + duration prompt, lands in Not Displayed) — required to add new buffs in the new UI
-- [ ] Edit Mode movable elements: bars container and buffs container independently draggable — required by milestone spec
-- [ ] Position persistence for Edit Mode elements in `TerribleBuffTrackerDB` — Edit Mode is useless without persistence
-- [ ] Migration: existing buffs get `category = "NotDisplayed"` default if field absent — required to not break existing installs
-- [ ] One-time CDM settings copy for fresh installs — required by milestone spec
-
-### Add After Validation (v0.2.x)
-
-- [ ] Context menu (right-click) for section reassignment — good ergonomics but drag covers the primary case
-- [ ] Reorder marker visual during drag — polish; drag still works without it
-- [ ] Collapsible section headers — useful if buff lists grow long; not needed for initial use
-
-### Future Consideration (v0.3+)
-
-- [ ] Real spell suggestions in Suggested section — blocked on reliable spell ID data for Midnight
-- [ ] Import/export buff list (similar to CDM's clipboard layout sharing) — only valuable once users have large curated lists
-- [ ] Per-spec buff configurations — scope expansion; requires spec-detection event handling
+**New state required:**
+- `ns.auraInstanceMap` — table mapping `spellID → auraInstanceID` (populated at cast time and login)
+- `ns.auraBlocked` — boolean flag; gates map-rebuild and spellId reads
 
 ---
 
-## Feature Prioritization Matrix
+## Edge Cases
 
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| CDM tab button | HIGH | MEDIUM | P1 |
-| 4 sections rendered | HIGH | MEDIUM | P1 |
-| Drag between sections | HIGH | HIGH | P1 |
-| Edit Mode movable elements | HIGH | HIGH | P1 |
-| Delete drop zone | MEDIUM | MEDIUM | P1 |
-| Add button (Suggested) | HIGH | MEDIUM | P1 |
-| Position persistence | HIGH | LOW | P1 |
-| Migration guard | HIGH | LOW | P1 |
-| One-time CDM settings copy | MEDIUM | LOW | P1 |
-| Context menu (right-click reassign) | MEDIUM | MEDIUM | P2 |
-| Reorder marker visual | MEDIUM | MEDIUM | P2 |
-| Collapsible section headers | LOW | LOW | P2 |
-| Real spell suggestions | LOW | HIGH | P3 |
+### Buff Refresh (Same Spell Recasted Before Expiry)
 
-**Priority key:**
-- P1: Must have for v0.2.0 launch
-- P2: Should have, add in v0.2.x
-- P3: Future milestone
+When a tracked buff is refreshed, the UNIT_AURA event fires with the aura's instanceID in `updatedAuraInstanceIDs`, NOT in `removedAuraInstanceIDs`. The timer should not be cancelled. `OnSpellCastSucceeded` already fires on each cast and resets `expiresAt` — no additional aura logic needed.
+
+**Risk:** Some buffs receive a new auraInstanceID on refresh; the old one appears in `removedAuraInstanceIDs` and a new one appears in `addedAuras` simultaneously. If the removal is processed before `UNIT_SPELLCAST_SUCCEEDED` fires, TBT would incorrectly cancel the timer and then immediately restart it on the cast event. The display flickers for one frame.
+
+**Mitigation:** The cast event fires before the aura event in practice (cast completes, then server sends aura update). Accept the theoretical race; the timer will self-correct within the same frame cycle.
+
+### Stacking Buffs (Multiple auraInstanceIDs Per SpellID)
+
+Buffs like Maelstrom Weapon can have multiple simultaneous instances (one per stack), each with a distinct auraInstanceID. TBT tracks one timer per spellID. If one stack falls off (one auraInstanceID in `removedAuraInstanceIDs`) but the spell still has active stacks, TBT must NOT cancel the timer.
+
+**Mitigation:** Store only the single instanceID captured at last cast time in `ns.auraInstanceMap[spellID]`. Only cancel when the removed instanceID matches the stored one. Other stacks have different instanceIDs that will not match. This works correctly for the "lust on wipe" case (all instances removed) and incorrectly only when the specific stored instance is the one that fell off but others remain — an edge case that results in a stale but harmless cosmetic timer.
+
+### Buff Removal During Loading Screens / Zone Transitions
+
+`UNIT_AURA` does not fire for buffs stripped during loading screens. Buffs can be silently removed with no event. TBT timers would continue running past the point where the buff existed.
+
+**Mitigation (included as differentiator above):**
+- On `PLAYER_ENTERING_WORLD`: scan all active timers via `GetPlayerAuraBySpellID`; cancel any that return nil (buff absent). This handles most zone-stripping cases.
+- On `ZONE_CHANGED_NEW_AREA`: same scan.
+
+**Limitation:** If aura data is itself restricted at the moment of the scan (unlikely at login but possible in some PvP zone entry scenarios), the scan silently skips cancellation. The timer runs to natural expiry.
+
+### Buff Removal During Combat (Blocked State)
+
+The blocked flag prevents aura-based cancellation in restricted contexts. Timers run to natural expiry if the buff falls off in combat (e.g., Bloodlust dispelled on a wipe). The timer shows stale data for the remainder of its configured duration.
+
+This is the explicit design tradeoff: correctness in restricted contexts is sacrificed to prevent Lua errors. The alternative (unconstrained secret-value access) would produce addon errors in raid/keystone content — a far worse outcome.
+
+### isFullUpdate = true
+
+`updateInfo.isFullUpdate = true` signals a complete aura state reset with no incremental data. All incremental fields (`removedAuraInstanceIDs`, `addedAuras`, `updatedAuraInstanceIDs`) will be nil. TBT must perform a full scan of active timers via `GetPlayerAuraBySpellID` for each tracked spell, cancelling any where the result is nil. This also invalidates the stored auraInstanceMap entries — rebuild them from the full scan result.
+
+### nil updateInfo
+
+The second argument to the UNIT_AURA handler can be nil. This is equivalent to `isFullUpdate = true` for TBT's purposes. Guard: `if not updateInfo or updateInfo.isFullUpdate then`.
+
+### Multiple Removals in One Event
+
+`removedAuraInstanceIDs` is a table. Iterate the full table on every UNIT_AURA event, not just the first entry. Multiple buffs can be removed simultaneously (e.g., combat end strips all combat-only effects at once).
 
 ---
 
-## Implementation Complexity Notes
+## MVP Recommendation
 
-### CDM Tab Injection: How It Actually Works
+Implement in this order:
 
-The `CooldownViewerSettings` XML frame defines tabs with `inherits="CooldownViewerSettingsTabTemplate" parentArray="TabButtons"`. The `parentArray` attribute causes WoW's XML parser to add each tab frame to `CooldownViewerSettings.TabButtons[]`. `SetupTabs()` iterates `self.TabButtons` and attaches a `SetCustomOnMouseUpHandler`. `SetDisplayMode()` then iterates the same array calling `SetChecked`.
+1. Register UNIT_AURA in Core.lua; route to a new `ns:OnUnitAura(unit, updateInfo)` in BuffEngine.lua
+2. Add `ns.auraInstanceMap = {}` and `ns.auraBlocked = false` to Core.lua init
+3. In `ns:OnSpellCastSucceeded`: after setting activeTimers entry, call `GetPlayerAuraBySpellID` and store `result.auraInstanceID` if non-secret
+4. In `ns:OnUnitAura`: if blocked, return early. Handle nil/isFullUpdate with full scan. Process `removedAuraInstanceIDs` for matches.
+5. Add blocked flag: test with `C_Secrets.ShouldUnitAuraInstanceBeSecret` on the first addedAura in the payload; if true, set flag and skip remainder
+6. Register PLAYER_REGEN_ENABLED and ZONE_CHANGED_NEW_AREA in Core.lua; clear `ns.auraBlocked`; trigger full scan
+7. On PLAYER_ENTERING_WORLD: rebuild map and scan for absent timers
 
-For TBT to add a tab:
-1. Create a frame inheriting `CooldownViewerSettingsTabTemplate` (or replicating it) with `CooldownViewerSettings` as parent.
-2. The frame must be added to `CooldownViewerSettings.TabButtons` manually (since it won't be in the XML `parentArray` at load time).
-3. Set `frame.displayMode = "tbt"` key-value.
-4. Hook or wrap `CooldownViewerSettingsMixin:SetDisplayMode` to handle `"tbt"` — show TBT content, hide CDM scroll content.
+**Defer:**
+- Per-aura granular guards (differentiator): add only if blanket blocking proves too aggressive
+- Debug logging flag: add after core logic is validated
 
-This is the critical architectural decision: TBT's tab selection must hide CDM's `CooldownScroll` and show TBT's own content frame (or vice versa). CDM's display mode system only shows/hides content via `SetCurrentCategories()` which operates on CDM's internal category pool — TBT cannot participate in that.
+---
 
-**Confidence: HIGH** — Tab pattern fully confirmed from XML and Lua source.
+## Confidence Assessment
 
-### Drag-and-Drop: Event Chain
-
-CDM's drag chain (confirmed from source):
-1. `OnDragStart` on item frame → `BeginOrderChange()` → `PickupCooldownItemCursor()` creates floating icon frame → `SetScript("OnUpdate", ...)` on settings window → registers `GLOBAL_MOUSE_UP`
-2. Per-frame `OnUpdate` → `UpdateReorderMarker()` → `GetBestCooldownItemTarget()` hit-tests all items in hovered category → positions `ReorderMarker`
-3. `GLOBAL_MOUSE_UP` (LeftButton) → `EndOrderChange()` → commits category change or order change → `RefreshLayout()`
-4. `GLOBAL_MOUSE_UP` (RightButton) → `CancelOrderChange()` → discards
-
-TBT replicates this pattern using its own item frames and a simpler data model (category string per buff rather than `CooldownID` + layout manager). The floating cursor frame is a standard `CreateFrame` parented to `GetAppropriateTopLevelParent()`.
-
-**Confidence: HIGH** — Pattern confirmed from complete source trace.
-
-### Edit Mode Integration: What's Actually Possible
-
-`EditModeSystemMixin:OnSystemLoad()` calls `EditModeManagerFrame:RegisterSystemFrame(self)` which requires `self.system` to be a valid `Enum.EditModeSystem` value. These are Blizzard-internal — confirmed by examining `EditModePresetLayoutManager:GetModernSystems()` and the system registration flow. Third-party addons cannot add new systems.
-
-What TBT CAN do (and already partially does via `EventRegistry:RegisterCallback("EditMode.Exit", ...)`):
-- Listen to `"EditMode.Enter"` to show custom drag handles on TBT containers
-- Listen to `"EditMode.Exit"` to hide handles and persist positions
-- Implement `StartMoving()` / `StopMovingOrSizing()` on the container frames during edit mode
-- Save final position as `point, relativeTo:GetName(), relativePoint, offsetX, offsetY` in `TerribleBuffTrackerDB`
-
-This gives users draggable TBT elements during Edit Mode without native Edit Mode chrome. The trade-off: no snap lines, no settings dialog, no "Reset to default position" button in the Edit Mode UI. These can be approximated with TBT's own UI elements if needed in a future milestone.
-
-**Confidence: HIGH** — Confirmed from EditModeManager.lua and existing Display.lua patterns.
+| Claim | Confidence | Source |
+|-------|------------|--------|
+| `removedAuraInstanceIDs` is never secret | HIGH | Warcraft Wiki UNIT_AURA; Blizzard CooldownViewer.lua source |
+| `GetPlayerAuraBySpellID` is SecretWhenUnitAuraRestricted | HIGH | Warcraft Wiki API docs; Blizzard forum thread |
+| CDM uses spellID → auraInstanceID registry pattern | HIGH | CooldownViewer.lua and CooldownViewerItemData.lua in wow-ui-source |
+| `C_Secrets.ShouldUnitAuraInstanceBeSecret` exists and is usable | HIGH | Warcraft Wiki; Cell PR #457 |
+| isFullUpdate / nil updateInfo requires full scan | HIGH | Warcraft Wiki UNIT_AURA page |
+| Buff refresh may produce new auraInstanceID (race condition) | MEDIUM | Inferred from addedAuras/removedAuraInstanceIDs docs; not explicitly stated |
+| PLAYER_ENTERING_WORLD scan reliably catches zone-stripped buffs | MEDIUM | BuffActive addon pattern; depends on aura data being accessible at login |
+| Stacking buff per-stack instanceID independence | MEDIUM | Inferred from UNIT_AURA documentation; behavior with multiple same-spell stacks not explicitly documented |
+| Cast events fire before aura events (ordering) | LOW | Community convention; not guaranteed by WoW API contract |
 
 ---
 
 ## Sources
 
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_CooldownViewer\CooldownViewerSettings.xml` — Tab template definitions, item templates, category templates, full frame hierarchy
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_CooldownViewer\CooldownViewerSettings.lua` — Tab setup, display mode switching, drag-and-drop event chain, order change logic, category pool management
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_EditMode\Shared\EditModeSystemTemplates.lua` — `EditModeSystemMixin` full API, `OnEditModeEnter`/`OnEditModeExit`, `RegisterSystemFrame`, position persistence via `systemInfo.anchorInfo`
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_EditMode\Shared\EditModeManager.lua` — `RegisterSystemFrame`, `EnterEditMode`/`ExitEditMode`, `EditMode.Enter`/`EditMode.Exit` event triggers
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_SharedXML\Mainline\SharedUIPanelTemplates.xml` — `LargeSideTabButtonTemplate` definition (43x55px, `SidePanelTabButtonMixin`, atlas keys)
-- `C:\Users\jonat\Repositories\TerribleBuffTracker\Display.lua` — Existing `SnapshotSettings()`, `EventRegistry:RegisterCallback("EditMode.Exit", ...)` pattern already in production
+- [UNIT_AURA — Warcraft Wiki](https://warcraft.wiki.gg/wiki/UNIT_AURA)
+- [C_Secrets.ShouldUnitAuraInstanceBeSecret — Warcraft Wiki](https://warcraft.wiki.gg/wiki/API_C_Secrets.ShouldUnitAuraInstanceBeSecret)
+- [Patch 12.0.0/Planned API changes — Warcraft Wiki](https://warcraft.wiki.gg/wiki/Patch_12.0.0/Planned_API_changes)
+- [Patch 12.0.0/API changes — Warcraft Wiki](https://warcraft.wiki.gg/wiki/Patch_12.0.0/API_changes)
+- [How to Track Specific Buffs in Midnight — Spiritbloom.Pro](https://spiritbloom.pro/blog/tracking-buffs-in-midnight)
+- [WoW 12.0.0 Midnight Compatibility PR — Cell addon (enderneko/Cell)](https://github.com/enderneko/Cell/pull/457)
+- [oUF auras element — oUF-wow/oUF](https://github.com/oUF-wow/oUF/blob/master/elements/auras.lua)
+- [Is there a secure/legal way to check player buffs in combat in 12.x — Blizzard Forums](https://us.forums.blizzard.com/en/wow/t/is-there-a-securelegal-way-to-check-specific-player-buffs-in-combat-in-12x/2246291)
+- [Blizzard Continues to Loosen API Restrictions — Wowhead](https://wowhead.com/news/blizzard-continues-to-loosen-addon-api-restrictions-and-whitelist-select-spells-379691)
+- Blizzard UI Source (local): `CooldownViewer.lua` — `OnUnitAura`, `auraInstanceIDToItemFramesMap` pattern
+- Blizzard UI Source (local): `CooldownViewerItemData.lua` — `GetPlayerAuraBySpellID` usage at setup time
+- Location: `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_CooldownViewer\`
 
 ---
-*Feature research for: WoW addon UI — CDM tab integration, Edit Mode, drag-and-drop management*
-*Researched: 2026-03-28*
+
+*Supersedes: v0.2.0 feature research (CDM tab / Edit Mode / drag-and-drop)*
+*Researched: 2026-04-03 for milestone v0.2.1*

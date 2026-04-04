@@ -1,228 +1,219 @@
 # Project Research Summary
 
-**Project:** TerribleBuffTracker v0.2.0
-**Domain:** WoW Midnight addon — CDM tab integration, Edit Mode movable elements, drag-and-drop buff management
-**Researched:** 2026-03-28
-**Confidence:** HIGH
+**Project:** TerribleBuffTracker v0.2.1 — Aura-Based Timer Cancellation
+**Domain:** WoW Midnight (Interface 120000+) addon — event-driven aura monitoring with secret value constraints
+**Researched:** 2026-04-03
+**Confidence:** HIGH (all core API facts verified against local Blizzard UI source at `C:\Users\jonat\Repositories\wow-ui-source`)
 
 ## Executive Summary
 
-TerribleBuffTracker v0.2.0 is a WoW addon UI milestone that replaces the existing standalone config window with a native-feeling tab inside Blizzard's Cooldown Manager (CDM) settings window, and adds independently movable containers to the Edit Mode system. All research was conducted directly from the Blizzard UI source at `wow-ui-source`, giving HIGH confidence in every integration pattern. The core approach is: inject a tab button into `CooldownViewerSettings.TabButtons` via an XML-defined parentArray frame, manage TBT's own content panel independently (never touching CDM's internal `displayModeToCategories`), and implement drag-and-drop between four buff sections using CDM's established `GLOBAL_MOUSE_UP` + cursor-ghost pattern.
+TerribleBuffTracker v0.2.1 adds one targeted mechanism: silently cancel active timers when tracked buffs are no longer present. The existing system uses `UNIT_SPELLCAST_SUCCEEDED` + `GetTime()` to start timers manually. This milestone adds `UNIT_AURA` handling to stop them early — covering real-world cases like Bloodlust cancelled on a wipe, trinket procs falling off, dispels, and manual buff cancellations. The change touches only `Core.lua` (three new event registrations) and `BuffEngine.lua` (three new functions, one modified function). No other files change.
 
-Edit Mode integration is strictly limited to what third-party addons can actually do: CDM's `Enum.EditModeSystem` is Blizzard-internal and cannot be extended, so TBT must listen to `EventRegistry "EditMode.Enter"/"EditMode.Exit"` callbacks and show its own drag handles. The good news is that `Display.lua` already uses this exact EventRegistry pattern for `SnapshotSettings`, so the groundwork exists. The key risk is the existing CDM layout hooks in `Display.lua` — they must be guarded to not re-anchor containers once the user has set Edit Mode positions. Additionally, TBT must register its two movable elements (bars container, buffs container) in the Edit Mode sidebar dialog as toggleable checkboxes, which is the standard third-party pattern for appearing in the Edit Mode UI.
+The dominant constraint shaping the entire implementation is WoW Midnight's secret value system. In restricted contexts (Mythic+, rated PvP, active raid encounters), aura field values — including `spellId`, `duration`, and `expirationTime` — become opaque and cannot be compared or indexed by addon code without throwing a Lua error. The reliable path, confirmed directly in Blizzard's own CDM source (`CooldownViewer.lua`, `CooldownViewerItemData.lua`), is to scan active timers using `C_UnitAuras.GetPlayerAuraBySpellID` per spell ID, gated behind `C_Secrets.ShouldAurasBeSecret()` to prevent errors when data is restricted. The `removedAuraInstanceIDs` field in the `UNIT_AURA` payload is always safe (tagged `NeverSecretContents`) but requires a `spellID → auraInstanceID` reverse map to be useful — a map that itself depends on reading `addedAuras` (which is secret-conditional). For TBT's scale (5–15 tracked buffs), a full per-spell-ID scan on every relevant `UNIT_AURA` event is simpler, equally correct, and avoids all cache-staleness risk.
 
-The biggest implementation risk is timing: CDM defers initialization until `COOLDOWN_VIEWER_DATA_LOADED` fires (after `PLAYER_ENTERING_WORLD`), so any CDM interaction that happens earlier will silently fail or crash. Migration must also run before any UI renders, and must use a `schemaVersion` sentinel to avoid overwriting user data.
+The top implementation risk is the cast/aura race condition: `UNIT_AURA` can fire before the newly applied aura appears in the aura list, which would cause the scan to immediately cancel the timer just created by `UNIT_SPELLCAST_SUCCEEDED`. This must be addressed with a short grace period (`ns.recentlyCast[spellID] = GetTime() + 0.5`) before any other cancellation logic is written. A secondary risk is the blocked-flag reset trigger: `PLAYER_REGEN_ENABLED` is NOT correct for Mythic+ (aura restrictions persist between pulls in the same key), and `ZONE_CHANGED_NEW_AREA` is the right zone-exit signal. These two guard systems must be in place before the scan function is written.
 
 ## Key Findings
 
 ### Recommended Stack
 
-All APIs are verified from Blizzard source at Interface 120000. The tab system uses `CooldownViewerSettingsTabTemplate` (inheriting `LargeSideTabButtonTemplate`) with `parentArray="TabButtons"` — this is an XML-only registration mechanism; runtime-created frames must be manually inserted into `CooldownViewerSettings.TabButtons`. CDM's content layout uses `GridLayoutFrame` with `ResizeLayoutFrame` wrappers for auto-sizing sections, and `CreateFramePool` for pooling buff icon frames. Drag-and-drop is entirely custom: a ghost frame at `TOOLTIP` strata parented to `GetAppropriateTopLevelParent()`, positioned each frame via `GetScaledCursorPositionForFrame`, terminated by `GLOBAL_MOUSE_UP`.
+All v0.2.1 APIs are native WoW Midnight Lua — no new libraries or dependencies. The implementation uses `RegisterUnitEvent("UNIT_AURA", "player")` (not `RegisterEvent`) to restrict delivery to player-unit changes only, eliminating unnecessary event traffic in group content. Secret detection uses `C_Secrets.ShouldAurasBeSecret()` as the up-front global gate and `issecretvalue()` as a per-value belt-and-suspenders fallback inside scan loops.
 
-**Core technologies:**
-- `CooldownViewerSettingsTabTemplate`: CDM tab injection — inherits `LargeSideTabButtonTemplate`, `parentArray="TabButtons"` registration, verified from XML source
-- `EventRegistry` callbacks (`EditMode.Enter`, `EditMode.Exit`, `CooldownViewerSettings.OnShow/OnHide`): lifecycle hooks for both Edit Mode and CDM panel integration — already partially used in `Display.lua`
-- `GridLayoutFrame` + `ResizeLayoutFrame`: auto-layout for sections in TBT's content panel — handles stride, padding, and height auto-sizing without manual `SetPoint` chaining
-- `CreateFramePool`: buff icon pooling for drag-drop grid cells — CDM's own pattern for category items
-- `GLOBAL_MOUSE_UP` + cursor ghost frame at `TOOLTIP` strata: drag termination and cursor tracking — mandatory pattern from CDM source; `OnMouseUp` alone is insufficient
-- `MenuUtil.CreateContextMenu`: right-click context menus — replaces deprecated `UIDropDownMenu`, confirmed present in Midnight
-- `hooksecurefunc(CooldownViewerSettings, "SetDisplayMode", ...)`: detecting tab-away to hide TBT panel — safe hook that avoids replacing Blizzard function
+**Core APIs (all verified in `wow-ui-source`):**
+- `frame:RegisterUnitEvent("UNIT_AURA", "player")` — unit-scoped registration; fires only for player aura changes, not party/raid/target/nameplates
+- `C_UnitAuras.GetPlayerAuraBySpellID(spellID)` — primary lookup; `SecretWhenUnitAuraRestricted = true`, `RequiresNonSecretAura = true`; returns `AuraData|nil`; nil when aura is absent OR when it exists but is secret
+- `C_Secrets.ShouldAurasBeSecret()` — authoritative gate check; no arguments; zero cost when aura scan will be skipped; call before any scan
+- `issecretvalue(value)` — global Lua function; per-value runtime guard; use inside scan loops as belt-and-suspenders after the gate check passes
+- `PLAYER_REGEN_ENABLED` — clears blocked flag for raid encounter contexts only (fires on every combat drop, including between M+ pulls — see Pitfalls)
+- `ZONE_CHANGED_NEW_AREA` — clears blocked flag on zone/instance exits; correct trigger for M+ and rated PvP exit
+- `PLAYER_ENTERING_WORLD` — full state reset on login/reload; triggers rebuild of aura instance map and post-load scan
 
-**Critical version notes:**
-- All APIs target Interface 120000+
-- `UIDropDownMenu` is deprecated/removed; use `MenuUtil.CreateContextMenu` only
-- `EditModeSystemMixin` registration requires a valid `Enum.EditModeSystem` value (Blizzard-internal, not extensible)
+**Critical field name:** `auraData.spellId` (lowercase `d`), not `spellID`. Confirmed in `CooldownViewerItemData.lua`. A mismatched name produces a silent nil lookup — no runtime error — making it hard to detect during casual testing.
+
+**Deprecated APIs to avoid:** `UnitBuff`, `UnitDebuff`, `UnitAura` (all replaced by `C_UnitAuras.*` in Midnight).
 
 ### Expected Features
 
-**Must have (table stakes, v0.2.0):**
-- TBT tab button in CDM settings sidebar — the entire milestone is predicated on this; nothing else has a home without it
-- 4 named sections (Tracked Buffs, Tracked Bars, Not Displayed, Suggested) — core organizational structure matching CDM's own sectioning pattern
-- Drag buff icons between sections — primary interaction model for reassigning display mode
-- Edit Mode movable containers (bars container, buffs container independently draggable) — stated milestone requirement
-- Edit Mode sidebar checkbox registration — both TBT elements must appear as toggleable items in the Edit Mode dialog sidebar, which is the table-stakes pattern for third-party addons integrating with Edit Mode; without this users have no standard way to show/hide TBT elements from the Edit Mode UI
-- Position persistence for Edit Mode containers — Edit Mode is useless without `/reload` persistence
-- Delete drop zone in Not Displayed section — required removal path in the new UI (no separate delete button in the CDM tab model)
-- Add button in Suggested section (spell ID + duration prompt landing in Not Displayed) — required to add buffs in the new UI
-- Migration: existing tracked buffs preserved with `schemaVersion` sentinel — must not break existing installs
-- One-time CDM settings copy for fresh installs — stated milestone requirement
+The milestone is narrowly scoped to cancellation only. All table-stakes features are required; differentiators improve correctness edge cases.
 
-**Should have (v0.2.x, after validation):**
-- Context menu (right-click) for section reassignment — ergonomic fast path for power users
-- Reorder marker visual during drag — polish that makes drag feel native; functional without it
-- Collapsible section headers — useful for long buff lists
+**Must have (table stakes):**
+- Register `UNIT_AURA` for "player" unit — no event, no cancellation
+- Handle `isFullUpdate = true` and nil `updateInfo` with a full scan fallback
+- Cancel timers when `GetPlayerAuraBySpellID` returns nil for a tracked spell ID, unless blocked or in grace period
+- Set and maintain blocked flag via `C_Secrets.ShouldAurasBeSecret()` when aura data is restricted
+- Clear blocked flag on `ZONE_CHANGED_NEW_AREA` and `PLAYER_ENTERING_WORLD`
+- On `PLAYER_ENTERING_WORLD`: scan all active timers and cancel any where the buff is absent
 
-**Defer (v0.3+):**
-- Real spell suggestions in Suggested section — blocked on reliable Midnight spell ID data
-- Import/export buff list — only valuable with large curated lists
-- Per-spec buff configurations — scope expansion requiring spec-detection events
+**Should have (correctness differentiators):**
+- Grace period (`ns.recentlyCast[spellID] = GetTime() + 0.5`) to absorb the cast/aura event ordering race
+- `ns.previewActive` guard in `ScanActiveTimersForCancellation` to prevent preview mode timers from being immediately cancelled
+- Filter scan to only `ns.activeTimers` entries (not all `ns.db.trackedBuffs`) — skips hidden-section buffs with no active timer
+
+**Defer (out of scope per PROJECT.md):**
+- Reading `expirationTime` to update timer remaining — field is secret in combat, duration sync is a future milestone
+- Auto-discovering new tracked spells from aura data — future milestone
+- Per-aura granular secret guards (`ShouldUnitAuraInstanceBeSecret` per instance) — add only if blanket `ShouldAurasBeSecret()` proves too conservative in practice
+- `spellID → auraInstanceID` reverse map optimization — add only if profiling shows the full scan is expensive (unlikely at 5–15 buffs)
+
+**Confirmed anti-features:** Never poll on `OnUpdate`. Never read `addedAuras` field values for cancellation logic (secret-conditional). Never update `expiresAt` from aura data. Never call `GetAuraDataByAuraInstanceID` to confirm a removal (returns nil for removed auras by design, causing ambiguity).
 
 ### Architecture Approach
 
-The v0.2.0 milestone adds two new files (`CDMTab.lua` for CDM tab injection and section management, `EditModeFrames.lua` for movable container registration and position persistence), deletes `ConfigUI.lua` entirely, and modifies `Core.lua`, `BuffEngine.lua`, and `Display.lua` for data model expansion and new integration points. The fundamental separation is: `CDMTab.lua` owns everything inside the CDM settings window; `EditModeFrames.lua` owns container positioning; `Display.lua` owns rendering and uses the position source that `EditModeFrames.lua` provides. The containers must have stable global names (`"TBTBarContainer"`, `"TBTIconContainer"`) for Edit Mode anchor serialization to work correctly.
+Only two files change. `Core.lua` registers three new events and adds three handler dispatch cases. `BuffEngine.lua` gains three new functions and one modification. All other files — `Display.lua`, `EditModeFrames.lua`, `CDMTab.lua`, `CDMTab.xml` — are untouched.
 
-**Major components:**
-1. `CDMTab.lua` (NEW): CDM tab button injection, 4-section content panel, drag-and-drop between sections, Add button, delete drop zone
-2. `EditModeFrames.lua` (NEW): `EditMode.Enter/Exit` hooks, movable drag handles, position save/restore in `TerribleBuffTrackerDB.editModePositions`, Edit Mode sidebar checkbox registration for both containers
-3. `BuffEngine.lua` (MODIFIED): adds `section` field, `schemaVersion` migration backfill, `SetBuffSection()` API, defaults new buffs to `section = "hidden"`
-4. `Display.lua` (MODIFIED): uses `editModePositions` for container anchoring when set; guards CDM layout hooks to skip re-anchor when containers are in Edit Mode position
-5. `ConfigUI.lua` (DELETED): replaced by CDMTab.lua; `/tbt` slash command redirected to open CDM settings to TBT tab
+**Modified components:**
+1. `Core.lua` — adds `RegisterUnitEvent("UNIT_AURA", "player")`, `RegisterEvent("PLAYER_REGEN_ENABLED")` (optional — see gaps), `RegisterEvent("ZONE_CHANGED_NEW_AREA")`; routes to `ns:OnUnitAura`, `ns:ClearAuraBlock`
+2. `BuffEngine.lua` — adds `ns.auraCheckBlocked = false` and `ns.recentlyCast = {}` as runtime-only state; new functions `OnUnitAura`, `ScanActiveTimersForCancellation`, `ClearAuraBlock`; modifies `OnSpellCastSucceeded` to set grace period and probe for secret values after creating a timer
+
+**New runtime state (not persisted):**
+- `ns.auraCheckBlocked` — boolean; gates all aura scans; set when `ShouldAurasBeSecret()` returns true or when a post-cast probe returns nil for a known-active buff
+- `ns.recentlyCast` — table of `spellID → GetTime() + 0.5`; prevents scan from cancelling a timer in the window immediately after a cast
+
+**Architecture conflict resolved:** FEATURES.md recommends building a `spellID → auraInstanceID` reverse map (CDM's pattern) and consuming `removedAuraInstanceIDs` directly. ARCHITECTURE.md recommends a simpler full scan per event, noting that populating the reverse map requires reading `addedAuras` (secret-conditional) and introduces cache-staleness on `isFullUpdate`. Resolution: implement the full scan approach. At TBT's scale the difference is negligible, and the simpler design eliminates Pitfalls 7 and 8 entirely.
+
+**Data flow:**
+```
+UNIT_SPELLCAST_SUCCEEDED
+  → OnSpellCastSucceeded (existing) → create timer → set recentlyCast[spellID]
+                                                    → probe GetPlayerAuraBySpellID
+                                                    → if nil: auraCheckBlocked = true
+
+UNIT_AURA (unit == "player")
+  → OnUnitAura(updateInfo)
+      → if auraCheckBlocked: return
+      → if not updateInfo or isFullUpdate: ScanActiveTimersForCancellation()
+      → else: ScanActiveTimersForCancellation()
+              (incremental removedAuraInstanceIDs can't map to spellID without reverse map)
+
+ScanActiveTimersForCancellation()
+  → if auraCheckBlocked or previewActive: return
+  → for spellID in activeTimers:
+      → if recentlyCast[spellID] still valid: skip
+      → aura = GetPlayerAuraBySpellID(spellID)
+      → if nil: activeTimers[spellID] = nil; cancelledAny = true
+  → if cancelledAny: UpdateDisplay()
+
+PLAYER_REGEN_ENABLED / ZONE_CHANGED_NEW_AREA / PLAYER_ENTERING_WORLD
+  → ClearAuraBlock() → auraCheckBlocked = false
+  → (PLAYER_ENTERING_WORLD additionally triggers ScanActiveTimersForCancellation)
+```
 
 ### Critical Pitfalls
 
-1. **CDM initializes after `COOLDOWN_VIEWER_DATA_LOADED`, not at `PLAYER_ENTERING_WORLD`** — use `EventUtil.ContinueAfterAllEvents` mirroring CDM's own pattern; any earlier CDM access crashes or returns nil silently
+1. **Cast/aura race condition** — `UNIT_AURA` fires before the newly applied aura appears in the list, immediately cancelling the timer just created by `UNIT_SPELLCAST_SUCCEEDED`. Symptom: timer flickers in then immediately disappears after casting. Prevention: set `ns.recentlyCast[spellID] = GetTime() + 0.5` in `OnSpellCastSucceeded`; skip cancellation for any spell within its grace window. Must be wired before the scan function is written.
 
-2. **`SetDisplayMode` asserts on unknown display mode strings** — TBT must never call `CooldownViewerSettings:SetDisplayMode("tbt_buffs")` or any TBT-owned string; manage TBT's tab checked state and content panel visibility entirely independently; hook `SetDisplayMode` only to detect tab-away
+2. **Wrong blocked-flag reset trigger** — `PLAYER_REGEN_ENABLED` fires between pulls in M+, but aura restrictions persist for the entire key run. Resetting the block on combat drop allows the next `UNIT_AURA` event to error in a between-pull lull. Symptom: intermittent Lua errors during M+ after `/reload` or between bosses. Prevention: use `ZONE_CHANGED_NEW_AREA` as the primary unblock trigger; `PLAYER_ENTERING_WORLD` for reload/login. Omit or use `PLAYER_REGEN_ENABLED` only for encounter-only scenarios after testing confirms M+ behavior.
 
-3. **`parentArray="TabButtons"` is XML-only** — runtime `CreateFrame` calls do not auto-register into `CooldownViewerSettings.TabButtons`; define the tab in a TBT XML file with `parentArray="TabButtons"` so it is registered at XML load time like the built-in tabs, then call `SetCustomOnMouseUpHandler` after `SetupTabs` has run
+3. **Secret value Lua error in scan** — Comparing or indexing `auraData.spellId` in a restricted context throws `"attempt to compare a Secret Value"`, aborting the event handler and generating console spam on every subsequent `UNIT_AURA`. Prevention: call `C_Secrets.ShouldAurasBeSecret()` before any scan; add `issecretvalue()` guards around individual field reads as belt-and-suspenders.
 
-4. **Existing CDM layout hooks in `Display.lua` will re-anchor containers after Edit Mode decouples them** — add a guard in every `HookViewerLayout` callback: if `editModePositions` is set for that container, skip the CDM re-anchor entirely
+4. **`isFullUpdate` zone-transition false cancellations** — `UNIT_AURA` fires with `isFullUpdate = true` during loading screens while the player's aura list is transiently empty. A naive "scan all, cancel anything missing" wipes all active timers on every zone change. Symptom: timers disappear every time the player enters a dungeon or crosses a zone boundary. Prevention: do not treat `isFullUpdate` as a cancellation signal on its own; always check `recentlyCast` and `auraCheckBlocked` guards; consider suppressing cancellation within a window after `PLAYER_ENTERING_WORLD`.
 
-5. **Migration must use `schemaVersion` sentinel** — never wipe or reinitialise `TerribleBuffTrackerDB` during migration; backfill only missing fields; a failed migration has no automated recovery and loses user data permanently
+5. **Preview mode timer cancellation** — `StartAllPreviewTimers` populates `ns.activeTimers` with fake entries for all non-hidden buffs. The aura scan immediately cancels these because the real auras are not active. Prevention: add `if ns.previewActive then return end` at the top of `ScanActiveTimersForCancellation`; set/clear `ns.previewActive` in `StartAllPreviewTimers` and `ClearAllTimers`.
 
-6. **Drag cursor ghost frame must be at `TOOLTIP` strata parented to `GetAppropriateTopLevelParent()`** — any lower strata or parent inside the settings panel causes the cursor icon to clip or become invisible during drag
-
-7. **`GLOBAL_MOUSE_UP` must be registered per drag session, not permanently** — permanent registration fires spurious drop completions on every mouse release anywhere in the UI
+6. **`RegisterEvent("UNIT_AURA")` without unit filter** — fires for every unit (party members, nameplates, focus target), generating unnecessary event traffic in group content. Prevention: use `RegisterUnitEvent("UNIT_AURA", "player")` exclusively. Non-negotiable from the start.
 
 ## Implications for Roadmap
 
-Based on combined research, the recommended phase structure follows the dependency chain identified in ARCHITECTURE.md's build order. Each phase must be fully stable before the next begins.
+The feature dependencies and pitfall relationships impose a strict implementation ordering: the safety infrastructure (grace period, blocked flag, correct reset triggers) must exist before the cancellation scan is written. Writing the scan first and adding guards later creates a window where M+/PvP behavior is incorrect. All four phases below follow this constraint.
 
-### Phase 0: Data Migration and Schema Expansion
+### Phase 1: Safety Infrastructure
 
-**Rationale:** The `section` field on `trackedBuffs` entries is a dependency for every subsequent phase — CDMTab.lua reads sections, EditModeFrames.lua writes positions, Display.lua uses section to drive rendering. Nothing can be tested without this foundation. Migration must happen first to avoid the highest-consequence pitfall (data loss).
+**Rationale:** The grace period and blocked flag are prerequisites for correct scan behavior. These are pure state declarations and event registrations — low risk, no WoW API calls — and they define the contract that all subsequent code depends on.
 
-**Delivers:** `schemaVersion` sentinel in `TerribleBuffTrackerDB`; `section` field backfilled on all existing entries; `SetBuffSection()` API on BuffEngine; `editModePositions` structure initialized; `AddTrackedBuff` defaulting new entries to `section = "hidden"`.
+**Delivers:** `ns.auraCheckBlocked = false` and `ns.recentlyCast = {}` initialized in `BuffEngine.lua`; `ZONE_CHANGED_NEW_AREA` and `PLAYER_ENTERING_WORLD` (extended) registered in `Core.lua` and routed to `ns:ClearAuraBlock()`; grace period set in `OnSpellCastSucceeded` after each timer creation; `ns.previewActive` flag established in `StartAllPreviewTimers` and `ClearAllTimers`.
 
-**Addresses:** Tracked Buffs preservation (migration), new buff section assignment (default behavior)
+**Addresses:** Table-stakes: blocked flag, event registrations, flag-clear events.
+**Avoids:** Pitfalls 2 (wrong reset trigger), 3 (secret value error), 5 (preview mode cancellation), 6 (unfiltered event registration).
 
-**Avoids:** PITFALLS.md Pitfall 8 (migration overwrites user data); Pitfall 3 (section field absent when CDM tab reads it)
+### Phase 2: UNIT_AURA Handler and Scan
 
-**Files:** `BuffEngine.lua`, `Core.lua`
+**Rationale:** With all guards in place, the handler and scan can be written knowing every guard condition is already wired. The full-scan approach is chosen over the reverse-map approach for simplicity and absence of cache-staleness risk.
 
----
+**Delivers:** `ns:OnUnitAura(updateInfo)` in `BuffEngine.lua` routing nil/`isFullUpdate`/incremental paths to scan; `ns:ScanActiveTimersForCancellation()` checking `auraCheckBlocked`, `recentlyCast`, and `previewActive` before scanning; `UpdateDisplay()` called only when timers are actually cancelled; Core.lua dispatch for `UNIT_AURA`.
 
-### Phase 1: Edit Mode Movable Containers
+**Addresses:** Table-stakes: core cancellation, `isFullUpdate` fallback, scan-based removal detection.
+**Avoids:** Pitfalls 1 (cast/aura race — grace period check), 4 (`isFullUpdate` false cancellations — guards), 5 (preview), 6 (unit filter in Core.lua dispatch).
 
-**Rationale:** Edit Mode integration is lower-risk than CDM tab injection (no Blizzard UI hooking), and it resolves the Display.lua anchor conflict (Pitfall 9) before CDM tab development begins. The containers need stable global names and UIParent parenting before any other feature touches them. Getting position persistence working independently validates the EventRegistry pattern that CDM tab also depends on.
+### Phase 3: Login and Zone-Transition Scan
 
-**Delivers:** Two named, independently movable containers (`TBTBarContainer`, `TBTIconContainer`); `EditMode.Enter/Exit` hooks showing/hiding drag handles; position save/restore in `TerribleBuffTrackerDB.editModePositions`; Edit Mode sidebar checkbox registration for both containers (table-stakes Edit Mode feature); one-time CDM settings copy for fresh installs; Display.lua guarded against CDM layout hook re-anchor when Edit Mode positions are set.
+**Rationale:** `UNIT_AURA` does not fire for buffs stripped during loading screens. Timers for buffs silently removed during a zone transition continue running without this phase.
 
-**Addresses:** Edit Mode movable elements (table stakes), position persistence, Edit Mode sidebar checkboxes, one-time CDM settings copy
+**Delivers:** `PLAYER_ENTERING_WORLD` handler that calls `ScanActiveTimersForCancellation` after clearing the blocked flag; `ZONE_CHANGED_NEW_AREA` handler that also triggers a scan after clearing the flag. Both reuse the existing scan function from Phase 2.
 
-**Avoids:** PITFALLS.md Pitfall 4 (Edit Mode registration timing), Pitfall 5 (unnamed frame anchor serialization), Pitfall 9 (CDM layout hooks conflicting with Edit Mode)
+**Addresses:** Differentiator: post-login scan; scan on zone change.
+**Avoids:** Pitfall 4 (`isFullUpdate` during zone transitions — this scan is explicitly triggered by `PLAYER_ENTERING_WORLD`, not by `isFullUpdate` itself).
 
-**Files:** `EditModeFrames.lua` (new), `Display.lua`, `Core.lua`
+### Phase 4: Cleanup and Validation
 
----
+**Rationale:** GSD workflow mandates a cleanup phase at milestone end. The secret value system also requires in-game validation in restricted contexts before shipping.
 
-### Phase 2: CDM Tab Shell and ConfigUI Removal
+**Delivers:** `stylua` run on all modified files; hot-path review of `ScanActiveTimersForCancellation` (no table allocations per call; `wipe()` on `recentlyCast` entries past their expiry); confirm `UpdateDisplay` is not called twice per cast event; confirm `recentlyCast` entries are cleaned up and do not grow unbounded; dead code removal; changelog entry.
 
-**Rationale:** Tab injection is the highest-risk integration step — it touches Blizzard's CDM frame directly. Isolating it as its own phase lets the tab button appear, switch correctly, and show/hide a placeholder content panel before any drag-drop complexity is added. ConfigUI.lua removal happens in this phase to prevent two competing config paths from coexisting.
-
-**Delivers:** TBT tab button in CDM sidebar (XML-defined, `parentArray="TabButtons"`); TBT content panel frame (child of `CooldownViewerSettings`, sized to match scroll area); `hooksecurefunc` on `SetDisplayMode` to detect tab-away; CDM scroll frame hidden when TBT tab active, restored on deselect; `/tbt` slash command redirected to open CDM settings to TBT tab; `ConfigUI.lua` removed from project.
-
-**Addresses:** CDM tab button (table stakes), ConfigUI replacement
-
-**Avoids:** PITFALLS.md Pitfall 1 (CDM not ready at load time — gates injection behind `COOLDOWN_VIEWER_DATA_LOADED`), Pitfall 2 (tab not in `TabButtons` parentArray — XML approach), Pitfall 3 (`SetDisplayMode` assertion — TBT never calls it with TBT strings), Pitfall 10 (slash command and UISpecialFrames broken after ConfigUI removal)
-
-**Files:** `CDMTab.lua` (new), `TerribleBuffTracker.xml` (new for tab XML definition), `Core.lua`, `ConfigUI.lua` (deleted), `TerribleBuffTracker.toc`
-
----
-
-### Phase 3: CDM Tab Sections and Static Layout
-
-**Rationale:** Build the 4-section content layout as static (no drag yet) to validate that data reads correctly from `trackedBuffs`, sections render from DB state, and the Add button creates entries. Drag complexity should only be added once the static layout is confirmed stable.
-
-**Delivers:** 4 sections rendered in TBT content panel (Tracked Buffs, Tracked Bars, Not Displayed, Suggested) using `GridLayoutFrame` + `ResizeLayoutFrame`; buff icons populated from `TerribleBuffTrackerDB`; Add button in Suggested section with spell ID + duration `StaticPopup` dialog; items are displayed but not yet draggable.
-
-**Addresses:** 4 named sections, Add button (table stakes)
-
-**Files:** `CDMTab.lua`
-
----
-
-### Phase 4: Drag-and-Drop Between Sections
-
-**Rationale:** Most complex feature, depends on all sections being stable. Implementing last avoids debugging drag behavior against a moving layout target. This phase completes the primary interaction model.
-
-**Delivers:** `RegisterForDrag("LeftButton")` on buff icon frames; cursor ghost frame (`TOOLTIP` strata, `GetAppropriateTopLevelParent()` parent, `GetScaledCursorPositionForFrame` in `OnUpdate`); `GLOBAL_MOUSE_UP` registration per drag session; section drop zones with `OnEnter/OnLeave` highlight; `EndBuffDrag` calling `SetBuffSection` then refreshing tab; delete drop zone in Not Displayed (visible only during active drag); cancel on right-click or drag outside.
-
-**Addresses:** Drag between sections, delete drop zone (table stakes)
-
-**Avoids:** PITFALLS.md Pitfall 6 (cursor strata), Pitfall 7 (`GLOBAL_MOUSE_UP` scope)
-
-**Files:** `CDMTab.lua`
-
----
-
-### Phase 5: Cleanup and Release Prep
-
-**Rationale:** Per the GSD workflow in CLAUDE.md, every milestone ends with a cleanup phase. This is also when v0.2.x enhancements (context menu, reorder marker) can be deferred or added.
-
-**Delivers:** Dead code removal; stylua run on all modified files; hot-path audit (no per-frame CDM reads, OnUpdate nil'd when not dragging); release script verification; changelog entry.
-
-**Addresses:** GSD cleanup requirement
-
-**Files:** All modified files
-
----
+**Addresses:** GSD cleanup requirement; integration risks from PITFALLS.md (double `UpdateDisplay` call, `recentlyCast` table growth).
 
 ### Phase Ordering Rationale
 
-- Data migration first because `section` field is a hard dependency for all UI phases; data loss from bad migration has no recovery path
-- Edit Mode before CDM tab because it resolves the Display.lua anchor conflict (Pitfall 9) before CDM integration begins, and it uses the same EventRegistry pattern without Blizzard UI injection risk
-- CDM tab shell before sections because tab injection is the highest-risk step; validating it in isolation reduces debugging surface
-- Static sections before drag because drag debugging against a stable layout is dramatically simpler
-- Cleanup last per GSD workflow convention
+- Phase 1 before Phase 2: safety guards are prerequisites, not afterthoughts. A scan written without them will misbehave in restricted content from its first event.
+- Phase 3 after Phase 2: the login/zone scan reuses `ScanActiveTimersForCancellation`; that function must exist first.
+- Phase 4 always last: cleanup requires a complete implementation to audit.
+- The `spellID → auraInstanceID` reverse map optimization is deferred. It adds Pitfalls 7 and 8 (stale cache, `GetAuraDataByAuraInstanceID` ambiguity) for a performance gain irrelevant at 5–15 tracked buffs. Add only if in-game profiling reveals a problem.
 
 ### Research Flags
 
-Phases needing caution during implementation (verified patterns but complex execution):
+All phases have well-documented patterns from Blizzard source. No phase requires additional research before implementation:
 
-- **Phase 1 (Edit Mode):** Edit Mode sidebar checkbox registration for third-party addons needs implementation-time verification against `wow-ui-source`; the pattern is known but the specific XML/Lua wiring for the sidebar checkbox entry is not fully documented in research
-- **Phase 2 (CDM Tab Shell):** The XML approach for `parentArray="TabButtons"` is confirmed correct but has never been tested in TBT; timing of tab injection relative to CDM's `SetupTabs()` call needs careful verification on first test
-
-Phases with well-documented patterns (can proceed with confidence):
-
-- **Phase 0 (Migration):** Standard Lua table backfill; no Blizzard API involved; straightforward
-- **Phase 3 (Static Sections):** `GridLayoutFrame` and `ResizeLayoutFrame` patterns are fully documented in research; static population from DB is low risk
-- **Phase 4 (Drag):** CDM drag pattern is completely traced from source; TBT's simpler data model (section string vs. full `CooldownID` system) makes this easier than CDM's own implementation
+- **Phase 1:** Event names, function signatures, and flag semantics all confirmed in `wow-ui-source` with HIGH confidence. `ns.previewActive` flag existence needs verification in current `BuffEngine.lua` during implementation.
+- **Phase 2:** `GetPlayerAuraBySpellID` behavior, `updateInfo` field access, and `ShouldAurasBeSecret()` all confirmed. The full-scan approach mirrors patterns in `BuffFrame.lua` and `NamePlateAuras.lua`.
+- **Phase 3:** `PLAYER_ENTERING_WORLD` post-load scan pattern confirmed in multiple Blizzard addons.
+- **Phase 4:** Standard cleanup; no research needed.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All APIs verified directly from Blizzard UI source at Interface 120000; no inference required |
-| Features | HIGH | Feature set derived from CDM source code and existing TBT codebase; milestone scope is well-defined |
-| Architecture | HIGH | Build order, component split, and integration points all confirmed from source traces |
-| Pitfalls | HIGH | Every pitfall is sourced from specific Blizzard source code behavior, not community inference |
+| Stack | HIGH | All API names, signatures, and secret annotations verified against local `wow-ui-source`; `spellId` (lowercase d) confirmed in `CooldownViewerItemData.lua` |
+| Features | HIGH | Table-stakes list verified against Blizzard's CDM implementation; anti-features explicitly excluded per PROJECT.md scope; edge cases documented with confidence levels |
+| Architecture | HIGH | Two-file change scope confirmed; data flow verified against existing `BuffEngine.lua` structure; FEATURES/ARCHITECTURE conflict resolved in favor of simpler full-scan approach |
+| Pitfalls | HIGH | Aura pitfalls sourced from Blizzard UI source + Cell PR #457 + official Blizzard forum post; all 10 pitfalls have specific prevention strategies |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Edit Mode sidebar checkbox registration specifics:** Research confirms TBT elements should appear as toggleable checkboxes in the Edit Mode sidebar dialog (this is the standard third-party pattern), but the exact XML/Lua wiring for registering into that sidebar list was not fully traced in research. Needs verification against `EditModeManager.lua` and Edit Mode dialog XML before implementing Phase 1.
+- **Cast/aura event ordering is convention, not contract (LOW confidence):** The claim that `UNIT_SPELLCAST_SUCCEEDED` fires before `UNIT_AURA` within the same server tick is community convention, not guaranteed by the WoW API contract. The 0.5s grace period absorbs this, but the grace window may need tuning for instant-application buffs. Validate in-game before closing the milestone.
 
-- **Atlas availability for TBT tab icon:** Research references `tbt_icon_64x64.blp` as the TBT addon icon, but CDM tab templates use specific atlas keys from the CDM atlas. Whether `tbt_icon_64x64.blp` can be used directly as a tab `activeAtlas`/`inactiveAtlas` value, or whether CDM atlas names must be used, needs implementation-time verification. Using an existing CDM atlas as a placeholder for the tab icon is a safe fallback.
+- **M+ restriction onset timing (MEDIUM confidence):** Research confirms aura data becomes secret "when M+ is active" but does not specify the exact moment during key start when the restriction activates relative to the first `UNIT_AURA` event. The post-cast probe detection covers this conservatively, but the exact transition is unconfirmed.
 
-- **`AurasTab` as anchor for TBT tab:** Architecture research uses `CooldownViewerSettings.AurasTab` as the reference frame for anchoring TBT's tab below the last existing tab. This should be verified against the current CDM XML to confirm `AurasTab` is the last tab defined, as adding TBT's tab below a non-last tab would misplace it in the sidebar.
+- **`PLAYER_REGEN_ENABLED` inclusion decision:** Research is split. STACK.md includes it as a reset trigger; PITFALLS.md (Pitfall 5) argues it incorrectly unblocks during M+ between-pull lulls. Recommended resolution: omit `PLAYER_REGEN_ENABLED`; use only `ZONE_CHANGED_NEW_AREA` and `PLAYER_ENTERING_WORLD`. Revisit if testing reveals encounter-only scenarios where the block persists incorrectly after a raid wipe reset.
+
+- **`ns.previewActive` flag existence:** ARCHITECTURE.md notes this guard is "implied" by how preview mode works. Confirm during Phase 1 that `StartAllPreviewTimers` and `ClearAllTimers` in `BuffEngine.lua` can be extended to set/clear this flag without side effects.
 
 ## Sources
 
-### Primary (HIGH confidence — Blizzard UI source)
+### Primary (HIGH confidence — verified in `wow-ui-source`)
 
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_CooldownViewer\CooldownViewerSettings.lua` — CDM tab system, `SetDisplayMode`, drag-and-drop implementation, `OnShow/OnHide` events
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_CooldownViewer\CooldownViewerSettings.xml` — Tab templates, item templates, category templates, `parentArray="TabButtons"` pattern
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_EditMode\Shared\EditModeSystemTemplates.lua` — `EditModeSystemMixin`, `RegisterSystemFrame`, anchor serialization
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_EditMode\Shared\EditModeManager.lua` — `EnterEditMode`/`ExitEditMode` event triggers, `RegisterSystemFrame` flow
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_SharedXML\Mainline\SharedUIPanelTemplates.lua` — `SidePanelTabButtonMixin`, `LargeSideTabButtonTemplate` behavior
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/UnitAuraDocumentation.lua` — `UNIT_AURA` payload, `C_UnitAuras` signatures, `SecretWhenUnitAuraRestricted` and `RequiresNonSecretAura` flags
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/UnitConstantsDocumentation.lua` — `UnitAuraUpdateInfo` struct; `NeverSecretContents` on `removedAuraInstanceIDs`; `ConditionalSecretContents` on `addedAuras`
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/SecretPredicateAPIDocumentation.lua` — `C_Secrets.ShouldAurasBeSecret()` signature and documentation string
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/FrameScriptDocumentation.lua` — `issecretvalue()` global function
+- `Interface/AddOns/Blizzard_FrameXMLUtil/AuraUtil.lua` — `AuraUtil.ForEachAura`, `AuraUtil.AuraFilters`, `PLAYER_REGEN_ENABLED` cache dump pattern
+- `Interface/AddOns/Blizzard_CooldownViewer/CooldownViewer.lua` — `RegisterUnitEvent("UNIT_AURA", "player")`, `OnUnitAura` handler, `auraInstanceIDToItemFramesMap` pattern, `removedAuraInstanceIDs` consumption
+- `Interface/AddOns/Blizzard_CooldownViewer/CooldownViewerItemData.lua` — `GetPlayerAuraBySpellID` at setup time; `aura.spellId` field name (lowercase `d`)
+- `Interface/AddOns/Blizzard_BuffFrame/BuffFrame.lua` — `isFullUpdate` handling pattern, `RegisterUnitEvent("UNIT_AURA", "player")`
+- `Interface/AddOns/Blizzard_NamePlates/Blizzard_NamePlateAuras.lua` — `isFullUpdate` → full rescan pattern
 
-### Primary (HIGH confidence — existing TBT codebase)
+### Secondary (MEDIUM confidence)
 
-- `C:\Users\jonat\Repositories\TerribleBuffTracker\Display.lua` — `SnapshotSettings`, `HookViewerLayout`, existing `EventRegistry:RegisterCallback("EditMode.Exit", ...)` pattern
-- `C:\Users\jonat\Repositories\TerribleBuffTracker\Core.lua` — Existing initialization order, `ADDON_LOADED`/`PLAYER_ENTERING_WORLD` flow, `TerribleBuffTrackerDB` structure
+- [UNIT_AURA — Warcraft Wiki](https://warcraft.wiki.gg/wiki/UNIT_AURA) — event arguments, `isFullUpdate`, incremental fields
+- [C_Secrets.ShouldUnitAuraInstanceBeSecret — Warcraft Wiki](https://warcraft.wiki.gg/wiki/API_C_Secrets.ShouldUnitAuraInstanceBeSecret) — per-instance secret check
+- [WoW 12.0.0 Compatibility PR #457 — enderneko/Cell](https://github.com/enderneko/Cell/pull/457) — real-world `issecretvalue()` guard patterns; `IsAuraNonSecret()` helper
+- [New UNIT_AURA Processing Optimizations — Blizzard Forum](https://us.forums.blizzard.com/en/wow/t/new-unitaura-processing-optimizations/1205007) — `isFullUpdate` design rationale (official Blizzard post, HIGH confidence for that specific claim)
+- [Patch 12.0.0/API changes — Warcraft Wiki](https://warcraft.wiki.gg/wiki/Patch_12.0.0/API_changes) — `C_Secrets.*` additions, `SecretWhenUnitAuraRestricted` context
+
+### Tertiary (LOW confidence)
+
+- [How to Track Specific Buffs in Midnight — spiritbloom.pro](https://spiritbloom.pro/blog/tracking-buffs-in-midnight) — aura field limitations in secret contexts; findings superseded by direct Blizzard source verification
 
 ---
-*Research completed: 2026-03-28*
+*Research completed: 2026-04-03*
 *Ready for roadmap: yes*
