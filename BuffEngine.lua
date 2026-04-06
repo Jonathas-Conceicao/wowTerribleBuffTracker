@@ -10,22 +10,36 @@ local savedPreviewTimers = {}
 
 -- Maps Sated-family debuff spellID -> corresponding lust buff spellID (D-13)
 ns.SATED_DEBUFF_TO_LUST = {
-	[57724] = 2825, -- Sated -> Bloodlust (covers Bloodlust + Primal Rage)
+	[57724] = 2825, -- Sated -> Bloodlust
 	[57723] = 32182, -- Exhaustion -> Heroism (covers Heroism + Drums)
 	[80354] = 80353, -- Temporal Displacement -> Time Warp
 	[390435] = 390386, -- Exhaustion (Evoker) -> Fury of the Aspects
+	[264689] = 264667, -- Fatigued -> Primal Rage (Hunter pet)
 }
 
 -- Lust buffs that share a Sated debuff — ALL must be absent before cancelling the timer.
 -- Keyed by the "display" lustBuffID stored in the timer; value is a list of buff spellIDs to check.
 local SHARED_LUST_BUFFS = {
 	[32182] = { 32182, 1243972 }, -- Heroism + Void-touched Drums share Exhaustion (57723)
-	[2825] = { 2825 }, -- Bloodlust (+ Primal Rage share Sated, but same buff icon)
+	[2825] = { 2825 }, -- Bloodlust
+	[264667] = { 264667, 466904 }, -- Primal Rage + Harrier's Cry (MM Hunter) share Fatigued
 	[80353] = { 80353 }, -- Time Warp
 	[390386] = { 390386 }, -- Fury of the Aspects
 }
 
 -- Maps classFilename -> class-specific lust spellID (D-14)
+-- Hunter uses Primal Rage by default; MM Hunter (spec ID 254) uses Harrier's Cry
+local function GetHunterLustSpell()
+	local specIndex = GetSpecialization()
+	if specIndex then
+		local specID = GetSpecializationInfo(specIndex)
+		if specID == 254 then -- Marksmanship
+			return 466904 -- Harrier's Cry
+		end
+	end
+	return 264667 -- Primal Rage (BM/Survival)
+end
+
 ns.CLASS_LUST_SPELL = {
 	SHAMAN = 2825, -- Bloodlust
 	MAGE = 80353, -- Time Warp
@@ -41,6 +55,9 @@ ns.SUGGESTED_BUFFS = {
 		metaBuff = true,
 		getCDMSpellID = function()
 			local _, classFilename = UnitClass("player")
+			if classFilename == "HUNTER" then
+				return GetHunterLustSpell()
+			end
 			return ns.CLASS_LUST_SPELL[classFilename] or 2825
 		end,
 	},

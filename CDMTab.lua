@@ -758,6 +758,11 @@ function ns:RefreshTBTSections()
 		ns:UpdateSectionHeight(section)
 	end
 	ns:UpdateScrollChildHeight()
+
+	-- Refresh preview timers so meta-buff icons/labels reflect current spec
+	if ns.previewActive or ns.configOpen then
+		ns:StartAllPreviewTimers()
+	end
 end
 
 local function CreateAddDialog()

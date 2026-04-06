@@ -432,7 +432,13 @@ function ns:UpdateDisplay()
 
 					ApplyBarStyle(bar, barWidth, settings)
 
-					if bar.spellID ~= slot.spellID then
+					-- Update icon/label: always refresh when timer exists (icon may change
+					-- on spec swap even though spellID key stays the same, e.g. "lust")
+					if timer then
+						bar.spellID = slot.spellID
+						bar.icon:SetTexture(timer.icon)
+						bar.label:SetText(timer.label)
+					elseif bar.spellID ~= slot.spellID then
 						bar.spellID = slot.spellID
 						-- Resolve icon/label: meta-buffs use class-aware lust spell
 						local resolvedID = ns:ResolveSuggestedSpellID(slot.spellID) or slot.spellID
@@ -444,8 +450,8 @@ function ns:UpdateDisplay()
 								fallbackLabel = info.name
 							end
 						end
-						bar.icon:SetTexture(timer and timer.icon or fallbackIcon)
-						bar.label:SetText(timer and timer.label or fallbackLabel)
+						bar.icon:SetTexture(fallbackIcon)
+						bar.label:SetText(fallbackLabel)
 					end
 
 					if timer then
@@ -577,10 +583,8 @@ function ns:UpdateDisplay()
 		end
 
 		if timer then
-			if icon.spellID ~= timer.spellID then
-				icon.spellID = timer.spellID
-				icon.icon:SetTexture(timer.icon)
-			end
+			icon.spellID = timer.spellID
+			icon.icon:SetTexture(timer.icon)
 			ApplyIconStyle(icon, iconSettings)
 
 			if icon._lastStart ~= timer.startedAt then

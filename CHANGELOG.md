@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.2 — Lust Tracking Fixes
+
+### Fixes
+- Added Primal Rage (264667) detection via Fatigued debuff (264689)
+- MM Hunter shows Harrier's Cry (466904) icon on CDM tab and preview
+- Detection assumes Primal Rage due to the matching Fatigued debuff
+  for both Primal Rage and Harrier's Cry
+
 ## v0.2.1 — Aura-Based Timer Cancellation
 
 ### New Features
