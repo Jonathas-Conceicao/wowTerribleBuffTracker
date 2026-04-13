@@ -81,6 +81,21 @@ local function GetBarColor(fraction)
 	end
 end
 
+-- D-12/D-13: Returns the at-rest icon for a slot key when it maps to a SUGGESTED_BUFFS
+-- entry with a getCDMIcon closure (i.e. trinket/pot). Returns nil otherwise so callers
+-- fall through to the existing GetSpellIcon / ResolveSuggestedSpellID chain (lust path).
+local function GetSuggestedAtRestIcon(key)
+	if type(key) ~= "string" then
+		return nil
+	end
+	for _, suggested in ipairs(ns.SUGGESTED_BUFFS) do
+		if suggested.key == key and suggested.getCDMIcon then
+			return ns:GetAtRestMetaIcon(key)
+		end
+	end
+	return nil
+end
+
 ---------------------------------------------------------------------
 -- Frame creation — CDM CooldownViewerBuffBarItemTemplate
 ---------------------------------------------------------------------
@@ -156,12 +171,20 @@ local function CreateTimerBar(parent)
 		end
 		if self.spellID then
 			GameTooltip_SetDefaultAnchor(GameTooltip, self)
-			-- Resolve display spell for meta-buffs (string keys like "lust")
-			local tooltipSpellID = ns:ResolveSuggestedSpellID(self.spellID) or self.spellID
-			if type(tooltipSpellID) == "number" then
-				GameTooltip:SetSpellByID(tooltipSpellID)
+			-- Trinket/pot meta-slots: show resolved at-rest item tooltip
+			local metaInfo = type(self.spellID) == "string"
+					and ns.GetAtRestMetaInfo
+					and ns:GetAtRestMetaInfo(self.spellID)
+				or nil
+			if metaInfo and metaInfo.spellID then
+				GameTooltip:SetSpellByID(metaInfo.spellID)
 			else
-				GameTooltip:SetText(self.spellID, 1, 1, 1)
+				local tooltipSpellID = ns:ResolveSuggestedSpellID(self.spellID) or self.spellID
+				if type(tooltipSpellID) == "number" then
+					GameTooltip:SetSpellByID(tooltipSpellID)
+				else
+					GameTooltip:SetText(tostring(self.spellID), 1, 1, 1)
+				end
 			end
 			GameTooltip:Show()
 		end
@@ -215,12 +238,19 @@ local function CreateTimerIcon(parent)
 		end
 		if self.spellID then
 			GameTooltip_SetDefaultAnchor(GameTooltip, self)
-			-- Resolve display spell for meta-buffs (string keys like "lust")
-			local tooltipSpellID = ns:ResolveSuggestedSpellID(self.spellID) or self.spellID
-			if type(tooltipSpellID) == "number" then
-				GameTooltip:SetSpellByID(tooltipSpellID)
+			local metaInfo = type(self.spellID) == "string"
+					and ns.GetAtRestMetaInfo
+					and ns:GetAtRestMetaInfo(self.spellID)
+				or nil
+			if metaInfo and metaInfo.spellID then
+				GameTooltip:SetSpellByID(metaInfo.spellID)
 			else
-				GameTooltip:SetText(self.spellID, 1, 1, 1)
+				local tooltipSpellID = ns:ResolveSuggestedSpellID(self.spellID) or self.spellID
+				if type(tooltipSpellID) == "number" then
+					GameTooltip:SetSpellByID(tooltipSpellID)
+				else
+					GameTooltip:SetText(tostring(self.spellID), 1, 1, 1)
+				end
 			end
 			GameTooltip:Show()
 		end
@@ -394,7 +424,14 @@ function ns:UpdateDisplay()
 				-- Build bar slots: all tracked bar entries if showing inactive, else active only
 				wipe(activeBarBySpell)
 				for _, timer in ipairs(barTimers) do
+					-- Meta-slot timers (metaSlot="trinket"/"pot") are stored in ns.activeTimers
+					-- keyed by the numeric cast spellID but DB slots use the meta string key.
+					-- When hideWhenInactive=true and CDM is closed, the slot IS the timer so
+					-- slot.spellID is numeric — index by BOTH keys so lookup works either way.
 					activeBarBySpell[timer.spellID] = timer
+					if timer.metaSlot then
+						activeBarBySpell[timer.metaSlot] = timer
+					end
 				end
 
 				local showPlaceholders = not settings.hideWhenInactive or ns.configOpen or barEditing
@@ -438,20 +475,36 @@ function ns:UpdateDisplay()
 						bar.spellID = slot.spellID
 						bar.icon:SetTexture(timer.icon)
 						bar.label:SetText(timer.label)
-					elseif bar.spellID ~= slot.spellID then
+					elseif bar.spellID ~= slot.spellID or (type(slot.spellID) == "string" and ns.metaIconsDirty) then
 						bar.spellID = slot.spellID
-						-- Resolve icon/label: meta-buffs use class-aware lust spell
-						local resolvedID = ns:ResolveSuggestedSpellID(slot.spellID) or slot.spellID
-						local fallbackIcon = ns:GetSpellIcon(resolvedID)
-						local fallbackLabel = slot.label
-						if type(resolvedID) == "number" then
-							local info = C_Spell.GetSpellInfo(resolvedID)
-							if info and info.name then
-								fallbackLabel = info.name
+						local metaIcon = GetSuggestedAtRestIcon(slot.spellID)
+						if metaIcon then
+							-- D-12: Trinket/pot at-rest — use resolved equipped/bag icon, not GetSpellIcon fallback
+							bar.icon:SetTexture(metaIcon)
+							-- Prefer the resolved spell's name when available for a richer label
+							local metaInfo = ns.GetAtRestMetaInfo and ns:GetAtRestMetaInfo(slot.spellID) or nil
+							local metaLabel = slot.label
+							if metaInfo and metaInfo.spellID then
+								local info = C_Spell.GetSpellInfo(metaInfo.spellID)
+								if info and info.name then
+									metaLabel = info.name
+								end
 							end
+							bar.label:SetText(metaLabel)
+						else
+							-- D-13: Lust path preserved — class-aware spell resolution
+							local resolvedID = ns:ResolveSuggestedSpellID(slot.spellID) or slot.spellID
+							local fallbackIcon = ns:GetSpellIcon(resolvedID)
+							local fallbackLabel = slot.label
+							if type(resolvedID) == "number" then
+								local info = C_Spell.GetSpellInfo(resolvedID)
+								if info and info.name then
+									fallbackLabel = info.name
+								end
+							end
+							bar.icon:SetTexture(fallbackIcon)
+							bar.label:SetText(fallbackLabel)
 						end
-						bar.icon:SetTexture(fallbackIcon)
-						bar.label:SetText(fallbackLabel)
 					end
 
 					if timer then
@@ -544,7 +597,11 @@ function ns:UpdateDisplay()
 
 	wipe(activeBySpell)
 	for _, timer in ipairs(iconTimers) do
+		-- Index by both numeric spellID and metaSlot string key — see bar path above.
 		activeBySpell[timer.spellID] = timer
+		if timer.metaSlot then
+			activeBySpell[timer.metaSlot] = timer
+		end
 	end
 
 	-- Match CDM GridLayoutFrame: step = GetSize() + padding (unscaled).
@@ -595,11 +652,17 @@ function ns:UpdateDisplay()
 			icon:Show()
 		elseif not iconSettings.hideWhenInactive or ns.configOpen or iconEditing then
 			-- Placeholder: show icon with no timer
-			if icon.spellID ~= entry.spellID then
+			if icon.spellID ~= entry.spellID or (type(entry.spellID) == "string" and ns.metaIconsDirty) then
 				icon.spellID = entry.spellID
-				-- Resolve icon: meta-buffs use class-aware lust spell
-				local iconTexture = ns:GetSpellIcon(ns:ResolveSuggestedSpellID(entry.spellID) or entry.spellID)
-				icon.icon:SetTexture(iconTexture)
+				-- D-12: Trinket/pot at-rest — resolved equipped/bag icon
+				local metaIcon = GetSuggestedAtRestIcon(entry.spellID)
+				if metaIcon then
+					icon.icon:SetTexture(metaIcon)
+				else
+					-- D-13: Lust path preserved — class-aware spell resolution
+					local iconTexture = ns:GetSpellIcon(ns:ResolveSuggestedSpellID(entry.spellID) or entry.spellID)
+					icon.icon:SetTexture(iconTexture)
+				end
 			end
 			ApplyIconStyle(icon, iconSettings)
 
@@ -633,4 +696,7 @@ function ns:UpdateDisplay()
 	else
 		ns.iconContainer:SetSize(BUFF_ICON_SIZE, BUFF_ICON_SIZE)
 	end
+
+	-- Meta-icon dirty flag cleared after a full render (both bar and icon containers).
+	ns.metaIconsDirty = nil
 end

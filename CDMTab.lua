@@ -11,7 +11,13 @@ local ICON_PATH = "Interface\\AddOns\\TerribleBuffTracker\\tbt_icon_64x64"
 ---------------------------------------------------------------------
 
 local function StartPreview()
+	-- D-14 / ICON-05: Refresh at-rest meta-icons (trinket/pot) before preview begins.
+	-- Combat-gated inside RefreshMetaIcons (D-07) — safe to call unconditionally.
+	ns:RefreshMetaIcons()
+	ns:RefreshTBTSections()
 	ns.configOpen = true
+	-- Signal placeholder icons need a refresh (stale from prior CDM session or live swap).
+	ns.metaIconsDirty = true
 	ns:StartAllPreviewTimers()
 end
 
@@ -68,51 +74,72 @@ local function CreateIconFrame(parent)
 
 	f:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		-- Resolve the display spellID: meta-buffs use class-aware lust spell
-		local displaySpellID = ns:ResolveSuggestedSpellID(self.spellID) or self.spellID
-		-- Show the real spell tooltip if possible, then append TBT info
-		local hasSpellTooltip = false
-		if displaySpellID and type(displaySpellID) == "number" and C_Spell and C_Spell.GetSpellInfo then
-			local info = C_Spell.GetSpellInfo(displaySpellID)
-			if info and info.name then
-				GameTooltip:SetSpellByID(displaySpellID)
-				hasSpellTooltip = true
+
+		-- For trinket/pot meta-slots, show item tooltip of the resolved at-rest item
+		-- with duration from the corresponding spell table.
+		local META_DESCRIPTIONS = {
+			trinket = "Tracks all current season's on-use trinkets",
+			pot = "Tracks all current season's damage potions",
+			lust = "Matches all Heroism/Bloodlust effects",
+		}
+		local isMetaString = type(self.spellID) == "string"
+		local metaInfo = isMetaString and ns.GetAtRestMetaInfo and ns:GetAtRestMetaInfo(self.spellID) or nil
+
+		local hasTooltip = false
+		if metaInfo and metaInfo.spellID then
+			GameTooltip:SetSpellByID(metaInfo.spellID)
+			hasTooltip = true
+		else
+			-- Lust path (and non-meta regular buffs): class-aware spell tooltip
+			local displaySpellID = ns:ResolveSuggestedSpellID(self.spellID) or self.spellID
+			if displaySpellID and type(displaySpellID) == "number" and C_Spell and C_Spell.GetSpellInfo then
+				local info = C_Spell.GetSpellInfo(displaySpellID)
+				if info and info.name then
+					GameTooltip:SetSpellByID(displaySpellID)
+					hasTooltip = true
+				end
 			end
 		end
+
 		local entry = ns.db and ns.db.trackedBuffs and ns.db.trackedBuffs[self.spellID]
-		if entry then
-			if not hasSpellTooltip then
-				GameTooltip:SetText(entry.label, 1, 1, 1)
+		local suggested
+		if not entry and self.sectionName == "suggested" then
+			for _, s in ipairs(ns.SUGGESTED_BUFFS) do
+				if s.key == self.spellID then
+					suggested = s
+					break
+				end
+			end
+		end
+
+		if entry or suggested then
+			local displayLabel = (entry and entry.label) or (suggested and suggested.label) or tostring(self.spellID)
+			if not hasTooltip then
+				GameTooltip:SetText(displayLabel, 1, 1, 1)
 			end
 			GameTooltip:AddLine(" ")
 			if type(self.spellID) == "number" then
 				GameTooltip:AddLine("Spell ID: " .. self.spellID, 0.8, 0.8, 0.8)
 			end
-			GameTooltip:AddLine("TBT Duration: " .. entry.duration .. "s", 0.8, 0.8, 0.8)
-			if entry.metaBuff then
-				GameTooltip:AddLine("Matches all Heroism/Bloodlust effects", 0.5, 0.5, 0.5)
+			-- Duration: for trinket/pot, use resolved at-rest duration; else fall back to stored duration
+			local duration
+			if metaInfo and metaInfo.duration then
+				duration = metaInfo.duration
+			elseif entry and entry.duration and entry.duration > 0 then
+				duration = entry.duration
+			elseif suggested and suggested.duration and suggested.duration > 0 then
+				duration = suggested.duration
 			end
-			GameTooltip:Show()
-		elseif not entry and self.sectionName == "suggested" then
-			-- Show tooltip from SUGGESTED_BUFFS definition (not yet in user DB)
-			for _, suggested in ipairs(ns.SUGGESTED_BUFFS) do
-				if suggested.key == self.spellID then
-					-- Show the real spell tooltip for the class-aware lust spell
-					local cdmSpellID = suggested.getCDMSpellID and suggested.getCDMSpellID()
-					if cdmSpellID then
-						GameTooltip:SetSpellByID(cdmSpellID)
-					else
-						GameTooltip:SetText(suggested.label, 1, 1, 1)
-					end
-					GameTooltip:AddLine(" ")
-					GameTooltip:AddLine("TBT Duration: " .. suggested.duration .. "s", 0.8, 0.8, 0.8)
-					if suggested.metaBuff then
-						GameTooltip:AddLine("Matches all Heroism/Bloodlust effects", 0.5, 0.5, 0.5)
-					end
-					GameTooltip:Show()
-					break
+			if duration then
+				GameTooltip:AddLine("TBT Duration: " .. duration .. "s", 0.8, 0.8, 0.8)
+			end
+			if isMetaString then
+				local desc = META_DESCRIPTIONS[self.spellID]
+				if desc then
+					GameTooltip:AddLine(desc, 0.5, 0.5, 0.5)
 				end
 			end
+			GameTooltip:Show()
 		end
 	end)
 
@@ -403,9 +430,15 @@ BeginDrag = function(iconFrame)
 	-- Show ghost at cursor; resolve class-aware icon for suggested items
 	local ghost = GetOrCreateGhostFrame()
 	local ghostIconID
-	if iconFrame.sectionName == "suggested" and type(iconFrame.spellID) == "string" then
-		local resolved = ns:ResolveSuggestedSpellID(iconFrame.spellID)
-		ghostIconID = ns:GetSpellIcon(resolved or 2825)
+	if type(iconFrame.spellID) == "string" then
+		-- Meta-buffs: try at-rest meta icon (trinket/pot) first, then class-aware spell (lust)
+		local metaIcon = ns.GetAtRestMetaIcon and ns:GetAtRestMetaIcon(iconFrame.spellID) or nil
+		if metaIcon and metaIcon ~= 134400 then
+			ghostIconID = metaIcon
+		else
+			local resolved = ns:ResolveSuggestedSpellID(iconFrame.spellID)
+			ghostIconID = resolved and ns:GetSpellIcon(resolved) or (metaIcon or 134400)
+		end
 	else
 		ghostIconID = ns:GetSpellIcon(iconFrame.spellID)
 	end
@@ -717,10 +750,20 @@ function ns:RefreshTBTSections()
 			-- Add square is layoutIndex 1 (always first); catalog starts at 2
 			for i, suggested in ipairs(ns.SUGGESTED_BUFFS) do
 				local item = section.itemPool:Acquire()
-				-- Class-aware icon via getCDMSpellID (D-14)
-				local cdmSpellID = suggested.getCDMSpellID and suggested.getCDMSpellID() or 2825
+				-- Resolve at-rest icon: prefer getCDMSpellID (existing class-aware path for lust),
+				-- fall through to getCDMIcon for itemID-based entries (trinket/pot — Phase 14 fills in),
+				-- final fallback to 134400 question-mark. D-08 plumbing (research Pattern 3).
+				local cdmSpellID = suggested.getCDMSpellID and suggested.getCDMSpellID()
+				local iconID
+				if cdmSpellID then
+					iconID = ns:GetSpellIcon(cdmSpellID)
+				elseif suggested.getCDMIcon then
+					iconID = suggested.getCDMIcon() or 134400
+				else
+					iconID = 134400
+				end
 				item.spellID = suggested.key -- string key "lust"
-				item.Icon:SetTexture(ns:GetSpellIcon(cdmSpellID))
+				item.Icon:SetTexture(iconID)
 				item.sectionName = "suggested"
 				item.suggestedIndex = i -- index into ns.SUGGESTED_BUFFS
 				item.layoutIndex = i + 1 -- +1 to leave slot 1 for the Add square
@@ -740,10 +783,17 @@ function ns:RefreshTBTSections()
 			for i, info in ipairs(sorted) do
 				local item = section.itemPool:Acquire()
 				item.spellID = info.spellID
-				-- Resolve icon: meta-buffs use class-aware CDM spell ID (D-14)
+				-- Resolve icon: meta-buffs with getCDMIcon (trinket/pot) → at-rest icon cache;
+				-- meta-buffs with getCDMSpellID (lust) → class-aware spell icon.
 				local iconID
 				if type(info.spellID) == "string" then
-					iconID = ns:GetSpellIcon(ns:ResolveSuggestedSpellID(info.spellID) or 2825)
+					local metaIcon = ns.GetAtRestMetaIcon and ns:GetAtRestMetaIcon(info.spellID) or nil
+					if metaIcon and metaIcon ~= 134400 then
+						iconID = metaIcon
+					else
+						local resolved = ns:ResolveSuggestedSpellID(info.spellID)
+						iconID = resolved and ns:GetSpellIcon(resolved) or (metaIcon or 134400)
+					end
 				else
 					iconID = ns:GetSpellIcon(info.spellID)
 				end

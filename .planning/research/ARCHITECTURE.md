@@ -1,335 +1,442 @@
-# Architecture Research: Aura-Based Timer Cancellation
+# Architecture Research
 
-**Milestone:** v0.2.1 — UNIT_AURA_UPDATE integration for timer cancellation
-**Researched:** 2026-04-03
-**Confidence:** HIGH (sourced directly from Blizzard UI source at C:\Users\jonat\Repositories\wow-ui-source)
+**Domain:** WoW Midnight addon — meta-tracker slots (trinkets & damage pots)
+**Researched:** 2026-04-11
+**Confidence:** HIGH (code read directly; APIs verified against warcraft.wiki.gg)
 
----
+## Standard Architecture
 
-## Question
+### System Overview (Existing + New)
 
-How should `UNIT_AURA` handling integrate with the existing `BuffEngine.lua` timer system? Where should the blocked-flag state live? How should the aura scan interact with active timers keyed by `spellID`? What is the data flow from event to check to cancel?
-
----
-
-## API Facts (Verified from wow-ui-source)
-
-### Event: `UNIT_AURA`
-
-Documented name is `UNIT_AURA`, not `UNIT_AURA_UPDATE`. Payload:
-
-```lua
--- event == "UNIT_AURA"
-local unitTarget, updateInfo = ...
--- unitTarget: UnitTokenVariant — "player", "target", etc.
--- updateInfo: UnitAuraUpdateInfo table
+```
++------------------------------------------------------------------+
+|  Core.lua — Event router                                          |
+|  ADDON_LOADED, PLAYER_ENTERING_WORLD,                             |
+|  UNIT_SPELLCAST_SUCCEEDED, UNIT_AURA,                             |
+|  PLAYER_REGEN_ENABLED, ZONE_CHANGED_NEW_AREA                      |
++------------------+-------------------+---------------------------+
+                   |                   |                   |
+                   v                   v                   v
++------------------+----+  +----------+------+  +---------+--------+
+|  BuffEngine.lua       |  | EditModeFrames  |  | Display.lua      |
+|                       |  | .lua            |  |                  |
+|  ns.activeTimers      |  | barContainer    |  | UpdateDisplay()  |
+|  OnSpellCastSucceeded |  | iconContainer   |  | bar/icon pools   |
+|  OnUnitAura           |  | Edit Mode       |  | RefreshContainer |
+|  StartLustTimer       |  | positioning     |  | Settings()       |
+|  [NEW]                |  +-----------------+  +------------------+
+|  StartTrinketTimer()  |
+|  StartPotTimer()      |
+|  TRINKET_SPELLS table |
+|  POT_SPELLS table     |
+|  ResolveTrinketIcon() |
+|  ResolvePotIcon()     |
+|  GetAtRestMetaIcon()  |
++-----------------------+
+           |
+           v
++------------------------------------------------------------------+
+|  CDMTab.lua — CDM tab, Suggested section                          |
+|                                                                    |
+|  ns.SUGGESTED_BUFFS  <-- [NEW entries: "trinket", "pot"]          |
+|  RefreshTBTSections()  -> renders Suggested icons from catalog    |
+|  BeginDrag/EndDrag     -> copy-on-drag from Suggested to sections |
+|  addSuggestedToSection -> creates trackedBuffs entry on demand    |
++------------------------------------------------------------------+
 ```
 
-`UnitAuraUpdateInfo` fields (from `UnitConstantsDocumentation.lua`):
+### Component Responsibilities
 
+| Component | Responsibility | New vs Modified |
+|-----------|----------------|-----------------|
+| `BuffEngine.lua` — `TRINKET_SPELLS` | Maps trinket use spellID -> {duration, itemID, label} | NEW — add table |
+| `BuffEngine.lua` — `POT_SPELLS` | Maps pot use spellID -> {duration, itemID, label} | NEW — add table |
+| `BuffEngine.lua` — `OnSpellCastSucceeded` | Fan-out to `StartTrinketTimer`/`StartPotTimer` when spellID in respective table | MODIFIED |
+| `BuffEngine.lua` — `StartTrinketTimer(spellID)` | Shared-slot timer keyed "trinket"; icon = active spell's icon; overwrite on re-proc | NEW — mirrors `StartLustTimer` |
+| `BuffEngine.lua` — `StartPotTimer(spellID)` | Shared-slot timer keyed "pot"; icon = active spell's icon; overwrite on re-proc | NEW — mirrors `StartLustTimer` |
+| `BuffEngine.lua` — `ResolveTrinketIcon()` | Scans equipped slots 13/14 via `GetInventoryItemID`; returns first tracked trinket icon | NEW |
+| `BuffEngine.lua` — `ResolvePotIcon()` | Scans bags 0-4 via `C_Container.GetContainerItemID`; matches against POT_SPELLS itemIDs; returns icon | NEW |
+| `BuffEngine.lua` — `GetAtRestMetaIcon(key)` | Helper: looks up `getAtRestIcon` fn from `ns.SUGGESTED_BUFFS` by key; called by Display.lua | NEW |
+| `BuffEngine.lua` — `ns.SUGGESTED_BUFFS` | Append two new entries: key="trinket", key="pot", each with `getAtRestIcon` | MODIFIED |
+| `BuffEngine.lua` — `ScanActiveTimersForCancellation` | Add `source == "meta"` skip clause to prevent string-key aura lookups | MODIFIED |
+| `CDMTab.lua` — Suggested icon render | Guard: if `getCDMSpellID()` returns nil, call `getAtRestIcon()` for icon texture | MODIFIED (minor) |
+| `CDMTab.lua` — Suggested tooltip | Guard: if no numeric spellID, fall back to label-only tooltip | MODIFIED (minor) |
+| `Display.lua` — bar/icon at-rest path | After `ResolveSuggestedSpellID` returns nil, call `ns:GetAtRestMetaIcon(key)` | MODIFIED (minor) |
+| `Core.lua` — event router | No changes; `UNIT_SPELLCAST_SUCCEEDED` already routed to `OnSpellCastSucceeded` | UNMODIFIED |
+| `EditModeFrames.lua` | No changes | UNMODIFIED |
+
+## Recommended Project Structure
+
+No new files are required. All changes land in existing files:
+
+```
+TerribleBuffTracker/
++-- Core.lua              # unmodified
++-- BuffEngine.lua        # primary change surface
+|   +-- TRINKET_SPELLS    # new lookup table (module level)
+|   +-- POT_SPELLS        # new lookup table (module level)
+|   +-- StartTrinketTimer # new function (after StartLustTimer)
+|   +-- StartPotTimer     # new function (after StartTrinketTimer)
+|   +-- ResolveTrinketIcon# new function
+|   +-- ResolvePotIcon    # new function
+|   +-- GetAtRestMetaIcon # new helper function
+|   +-- SUGGESTED_BUFFS   # 2 new entries appended
+|   +-- ScanActiveTimers  # modified: add "meta" source skip
+|   +-- OnSpellCastSucceeded # modified: fan-out to trinket/pot
++-- CDMTab.lua            # minor: nil-spellID guard in Suggested section
++-- Display.lua           # minor: at-rest icon path calls GetAtRestMetaIcon
++-- EditModeFrames.lua    # unmodified
+```
+
+## Architectural Patterns
+
+### Pattern 1: Meta-Tracker Shared Slot (mirrors lust)
+
+**What:** One string key ("trinket" / "pot") owns a single entry in `ns.activeTimers`. Any matching spellID cast overwrites the existing timer — no per-spell slots.
+
+**When to use:** When multiple different spells all represent the same resource cooldown that can only be in one state at a time.
+
+**Trade-offs:** Simpler display (one bar/icon per concept). Loses per-spell granularity, which is acceptable because the player only needs to know "is my trinket on CD?" not which trinket fired.
+
+**Example (mirrors `StartLustTimer` exactly):**
 ```lua
-{
-    isFullUpdate            = bool,              -- always present, default false
-    removedAuraInstanceIDs  = table<number>|nil, -- NeverSecretContents = true
-    addedAuras              = table<AuraData>|nil,-- ConditionalSecretContents = true
-    updatedAuraInstanceIDs  = table<number>|nil, -- NeverSecretContents = true
+-- BuffEngine.lua
+function ns:StartTrinketTimer(spellID)
+    local entry = ns.db.trackedBuffs["trinket"]
+    if not entry or entry.section == "hidden" then return end
+    local now = GetTime()
+    local def = TRINKET_SPELLS[spellID]
+    local label = def.label or "Trinket"
+    local info = C_Spell.GetSpellInfo(spellID)
+    if info and info.name then label = info.name end
+    ns.activeTimers["trinket"] = {
+        spellID   = "trinket",
+        expiresAt = now + def.duration,
+        startedAt = now,
+        duration  = def.duration,
+        icon      = ns:GetSpellIcon(spellID),  -- active: cast spell icon
+        label     = label,
+        section   = entry.section or "bars",
+        source    = "meta",  -- NOT "cast" — see Anti-Pattern 1
+    }
+    if ns.UpdateDisplay then ns:UpdateDisplay() end
+end
+```
+
+### Pattern 2: Data Table Lookup on Cast (mirrors SATED_DEBUFF_TO_LUST)
+
+**What:** Module-level constant tables map spell IDs to timer metadata. `OnSpellCastSucceeded` becomes a dispatch fan-out: check `TRINKET_SPELLS`, check `POT_SPELLS`, then check `ns.db.trackedBuffs`.
+
+**When to use:** Any time "same event, different handling based on spell identity." Adding a new trinket to track in a future season requires only a data table update, not logic changes.
+
+**Example:**
+```lua
+-- BuffEngine.lua — module level
+local TRINKET_SPELLS = {
+    -- [spellID] = { duration = N, itemID = M, label = "..." }
+    -- Season-specific usable trinkets go here
+}
+
+local POT_SPELLS = {
+    -- [spellID] = { duration = N, itemID = M, label = "..." }
+}
+
+-- Modified OnSpellCastSucceeded
+function ns:OnSpellCastSucceeded(spellID)
+    -- Existing: user-tracked buffs
+    local entry = ns.db.trackedBuffs[spellID]
+    if entry and entry.section ~= "hidden" then
+        -- ... existing timer start ...
+    end
+    -- NEW: trinket meta-tracker
+    if TRINKET_SPELLS[spellID] then
+        ns:StartTrinketTimer(spellID)
+    end
+    -- NEW: pot meta-tracker
+    if POT_SPELLS[spellID] then
+        ns:StartPotTimer(spellID)
+    end
+end
+```
+
+### Pattern 3: Lazy Icon Resolution with `getAtRestIcon`
+
+**What:** `ns.SUGGESTED_BUFFS` entries carry an optional `getAtRestIcon` function called at render time (not cast time). For trinkets it calls `ResolveTrinketIcon()`; for pots it calls `ResolvePotIcon()`. Resolution is deferred to avoid stale data from pre-equip state.
+
+**When to use:** When the at-rest icon depends on the player's current loadout (equipped gear, bag contents) rather than a fixed spell ID.
+
+**Trade-offs:** Slightly more work than a fixed icon. Acceptable because the at-rest path only runs when CDM settings are open OR when `hideWhenInactive = false`. Fully out of the hot path.
+
+**Example:**
+```lua
+-- BuffEngine.lua — new SUGGESTED_BUFFS entries
+ns.SUGGESTED_BUFFS = {
+    {  -- existing lust entry unchanged
+        key = "lust", ...
+    },
+    {
+        key           = "trinket",
+        label         = "Trinket",
+        duration      = 0,    -- placeholder; actual duration from TRINKET_SPELLS at cast time
+        metaBuff      = true,
+        getCDMSpellID = function() return nil end,  -- no fixed spell; icon from gear
+        getAtRestIcon = function() return ns:ResolveTrinketIcon() end,
+    },
+    {
+        key           = "pot",
+        label         = "Damage Pot",
+        duration      = 0,
+        metaBuff      = true,
+        getCDMSpellID = function() return nil end,
+        getAtRestIcon = function() return ns:ResolvePotIcon() end,
+    },
 }
 ```
 
-**Critical secret value semantics:**
-- `removedAuraInstanceIDs` — `NeverSecretContents = true`. Removal IDs are ALWAYS available regardless of aura secrecy. This is the reliable channel.
-- `addedAuras` — `ConditionalSecretContents = true`. May be nil or contain nil entries for secret auras. Cannot be relied on.
-- `updatedAuraInstanceIDs` — `NeverSecretContents = true`. Reliable.
-- `isFullUpdate = true` — fired when the runtime cannot send incremental changes (e.g. zone transitions, entering combat in some cases). Must trigger a full rescan.
+### Pattern 4: Equipped Trinket Icon Resolution
 
-### Direct Lookup: `C_UnitAuras.GetPlayerAuraBySpellID(spellID)`
+**What:** `ResolveTrinketIcon()` calls `GetInventoryItemID("player", 13)` and `GetInventoryItemID("player", 14)` to find equipped trinkets. Optionally cross-references against TRINKET_SPELLS itemIDs to confirm it is a tracked trinket. Returns `C_Item.GetItemIconByID(itemID)`.
 
-- `SecretWhenUnitAuraRestricted = true`, `RequiresNonSecretAura = true`
-- Returns `AuraData|nil`
-- Returns `nil` for secret auras even when the aura IS active on the player
-- This is how "blocked" detection works: call it for a tracked spellID we just cast — if `nil` when we know the buff is active, the aura data is restricted
-
-`AuraData` has a `spellId` field (lowercase `d` confirmed in `CooldownViewerItemData.lua` line 229).
-
-### Direct Lookup: `C_UnitAuras.GetUnitAuraBySpellID(unit, spellID)`
-
-- Same secret restrictions as `GetPlayerAuraBySpellID`
-- For "player" unit, use `GetPlayerAuraBySpellID` (simpler, no unit arg)
-
----
-
-## Secret Value Detection Strategy
-
-The Blizzard documentation marks many aura APIs as `SecretWhenUnitAuraRestricted`. The restriction means the function returns `nil` even when the aura exists. This is the "Secret Value" scenario described in CLAUDE.md.
-
-**Detection approach (fail-safe guard):**
-
-When `UNIT_AURA` fires for `"player"` and we have an active timer for a tracked buff:
-1. Call `C_UnitAuras.GetPlayerAuraBySpellID(spellID)` for a buff we know was recently cast
-2. If it returns `nil` AND the timer is not expired, the aura is likely secret → set blocked flag
-3. If it returns a valid `AuraData`, aura checks are working → proceed
-
-The blocked flag is conservative: it means "I cannot trust `nil` results from the aura API." It does NOT mean `UNIT_AURA` itself is unreliable — only that the data inside it may be hidden.
-
-**Reset triggers:** `PLAYER_REGEN_ENABLED` (out of combat) and `ZONE_CHANGED_NEW_AREA`. These are the two states where Blizzard's own code (e.g. `AuraUtil.lua` line 344-347) dumps its own caches, and are when aura data often becomes readable again.
-
----
-
-## Where the Blocked Flag Lives
-
-**Answer: `BuffEngine.lua`, on the namespace (`ns`), as a runtime-only flag.**
-
-Rationale:
-- It is purely runtime state — not persisted (active timers are already runtime-only per CLAUDE.md)
-- `BuffEngine.lua` owns all timer logic and is the natural owner of "can I trust aura data right now?"
-- `Core.lua` routes events and should remain thin — logic belongs in `BuffEngine`
-- The flag does not touch `TerribleBuffTrackerDB` — no migration needed
+**Confidence:** HIGH — `GetInventoryItemID` confirmed available in Midnight 12.0.1 (warcraft.wiki.gg). TrinketTracker addon for Midnight uses this exact approach.
 
 ```lua
--- Runtime-only, initialized in ns:InitBuffEngine() or at module scope
-ns.auraCheckBlocked = false
-```
-
----
-
-## Data Flow: Event → Check → Cancel
-
-```
-UNIT_AURA fires (Core.lua event handler)
-    │
-    ├── unit ~= "player" → return (ignore non-player events)
-    │
-    ▼
-ns:OnUnitAura(updateInfo)        [NEW function in BuffEngine.lua]
-    │
-    ├── updateInfo == nil         → full rescan path
-    ├── updateInfo.isFullUpdate   → full rescan path
-    │
-    │   INCREMENTAL PATH:
-    ├── updateInfo.removedAuraInstanceIDs present?
-    │       → These are safe (NeverSecretContents)
-    │       → But we track by spellID not auraInstanceID
-    │       → Cannot use removal IDs directly (no spellID→instanceID map)
-    │       → Fall through to scan path
-    │
-    └── Scan path: for each active timer spellID
-            → C_UnitAuras.GetPlayerAuraBySpellID(spellID)
-            → nil result: check if blocked before cancelling
-```
-
-**The aura instance ID mismatch:** TBT tracks active timers keyed by `spellID`. The `removedAuraInstanceIDs` field provides instance IDs, not spell IDs. Maintaining a reverse map from `auraInstanceID → spellID` would require tracking `addedAuras` (which is secret-conditional). This reverse map approach is fragile. The simpler and more correct approach is to scan by spellID directly via `GetPlayerAuraBySpellID` on every relevant event.
-
-**Full scan logic:**
-
-```lua
-function ns:ScanActiveTimersForCancellation()
-    if ns.auraCheckBlocked then
-        return
-    end
-
-    local cancelledAny = false
-    for spellID, _ in pairs(ns.activeTimers) do
-        local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
-        if aura == nil then
-            -- Aura not present: check if this might be a secret value
-            -- If we haven't confirmed aura data is readable, skip
-            -- (blocked flag should have been set already if secret)
-            ns.activeTimers[spellID] = nil
-            cancelledAny = true
+-- BuffEngine.lua
+function ns:ResolveTrinketIcon()
+    for _, slot in ipairs({13, 14}) do
+        local itemID = GetInventoryItemID("player", slot)
+        if itemID then
+            local icon = C_Item.GetItemIconByID(itemID)
+            if icon then return icon end
         end
     end
-
-    if cancelledAny and ns.UpdateDisplay then
-        ns:UpdateDisplay()
-    end
+    return 134400  -- question mark fallback
 end
 ```
 
-**Blocked flag setting:**
+Note: Scanning only tracked trinkets (cross-referencing TRINKET_SPELLS.itemID) is more precise but less forgiving of data gaps. Recommend showing any equipped trinket icon so the slot always looks meaningful even if the specific item is not in the table.
 
-The safest time to probe for secret values is immediately after `OnSpellCastSucceeded` creates a timer. At that point we know the buff was just cast, so if `GetPlayerAuraBySpellID` returns nil, it's a secret value.
+### Pattern 5: Bag Consumable Icon Resolution
+
+**What:** `ResolvePotIcon()` scans bags 0-4 via `C_Container.GetContainerItemID(bag, slot)`, cross-references against a pre-built set of tracked pot itemIDs, returns `C_Item.GetItemIconByID` of first match.
+
+**Confidence:** MEDIUM — `C_Container.GetContainerItemID` confirmed available (warcraft.wiki.gg). Bag iteration pattern (0-4, `C_Container.GetContainerNumSlots`) is established addon convention but must be validated against Midnight's API naming.
+
+**Caution:** `C_Item.GetItemIconByID` may return nil if item is not yet cached. Must guard. Do not call this in combat or on every frame tick.
 
 ```lua
--- In ns:OnSpellCastSucceeded, after creating the timer:
--- Probe immediately to detect secret value restriction
-local probe = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
-if probe == nil then
-    -- The aura exists (we just cast it) but is hidden: blocked
-    ns.auraCheckBlocked = true
+-- BuffEngine.lua — build pot item ID set once at module level
+local POT_ITEM_IDS = {}  -- populated after POT_SPELLS is defined
+for _, def in pairs(POT_SPELLS) do
+    if def.itemID then POT_ITEM_IDS[def.itemID] = true end
+end
+
+function ns:ResolvePotIcon()
+    for bag = 0, 4 do
+        local slots = C_Container.GetContainerNumSlots(bag)
+        for slot = 1, slots do
+            local itemID = C_Container.GetContainerItemID(bag, slot)
+            if itemID and POT_ITEM_IDS[itemID] then
+                local icon = C_Item.GetItemIconByID(itemID)
+                if icon then return icon end
+            end
+        end
+    end
+    return 134400
 end
 ```
 
-This is a fail-safe: if the probe succeeds (aura is readable), blocked stays false and cancellation logic proceeds normally. If the probe fails, blocked is set and all UNIT_AURA scans are skipped until a reset event fires.
+## Data Flow
 
----
-
-## Integration Points with BuffEngine.lua
-
-### New Functions
-
-| Function | Location | Purpose |
-|----------|----------|---------|
-| `ns:OnUnitAura(updateInfo)` | `BuffEngine.lua` | Handles `UNIT_AURA` event, routes to scan or no-op based on blocked flag |
-| `ns:ScanActiveTimersForCancellation()` | `BuffEngine.lua` | Iterates `ns.activeTimers`, calls `GetPlayerAuraBySpellID` per spellID, cancels missing ones |
-| `ns:ClearAuraBlock()` | `BuffEngine.lua` | Resets `ns.auraCheckBlocked = false`, called from `Core.lua` on reset events |
-
-### Modified Functions
-
-| Function | Change |
-|----------|--------|
-| `ns:OnSpellCastSucceeded(spellID)` | After timer creation, probe `GetPlayerAuraBySpellID` to detect secret value; set `ns.auraCheckBlocked = true` if nil |
-| (none in `GetActiveTimers`) | No change — expiry cleanup is independent of aura logic |
-
-### Unchanged
-
-- `ns.activeTimers` — still a flat table keyed by `spellID`, no new fields needed
-- `ns:RemoveTrackedBuff` — already does `ns.activeTimers[spellID] = nil`; cancellation reuses the same nil-assignment pattern
-- `ns:GetActiveTimers` — still the consumer for display; no change needed
-- All DB structures — no persistence, no migration
-
----
-
-## Core.lua Changes
-
-### New Event Registrations
-
-```lua
-eventFrame:RegisterEvent("UNIT_AURA")
-eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-```
-
-### New Event Handler Cases
-
-```lua
-elseif event == "UNIT_AURA" then
-    local unit, updateInfo = ...
-    if unit == "player" then
-        ns:OnUnitAura(updateInfo)
-    end
-elseif event == "PLAYER_REGEN_ENABLED" then
-    ns:ClearAuraBlock()
-elseif event == "ZONE_CHANGED_NEW_AREA" then
-    ns:ClearAuraBlock()
-```
-
-### No Other Core.lua Changes
-
-The existing `UNIT_SPELLCAST_SUCCEEDED` path is untouched. Slash command, DB init, display init — all unchanged.
-
----
-
-## New vs. Modified Files Summary
-
-| File | Status | What Changes |
-|------|--------|--------------|
-| `Core.lua` | MODIFIED | Register 3 new events (`UNIT_AURA`, `PLAYER_REGEN_ENABLED`, `ZONE_CHANGED_NEW_AREA`); add 3 handler cases; no structural changes |
-| `BuffEngine.lua` | MODIFIED | Add `ns.auraCheckBlocked = false` init; add `ns:OnUnitAura(updateInfo)`, `ns:ScanActiveTimersForCancellation()`, `ns:ClearAuraBlock()`; modify `ns:OnSpellCastSucceeded` to probe for secret values |
-| All other files | UNCHANGED | Display, CDMTab, EditModeFrames, TOC — no changes needed |
-
----
-
-## Full Data Flow Diagram
+### Trinket/Pot Cast Flow
 
 ```
 UNIT_SPELLCAST_SUCCEEDED (spellID)
-    ↓
-ns:OnSpellCastSucceeded(spellID)        [BuffEngine.lua — existing]
-    → create ns.activeTimers[spellID]
-    → probe C_UnitAuras.GetPlayerAuraBySpellID(spellID)
-    → if nil: ns.auraCheckBlocked = true
-    → ns:UpdateDisplay()
-
-UNIT_AURA (unit, updateInfo)
-    ↓
-Core.lua: if unit == "player" → ns:OnUnitAura(updateInfo)
-    ↓
-ns:OnUnitAura(updateInfo)               [BuffEngine.lua — NEW]
-    ├── if ns.auraCheckBlocked → return (skip entirely)
-    ├── if updateInfo == nil OR isFullUpdate → ns:ScanActiveTimersForCancellation()
-    └── else → ns:ScanActiveTimersForCancellation()
-              (scan always: incremental removal IDs map to instanceID not spellID)
-
-ns:ScanActiveTimersForCancellation()    [BuffEngine.lua — NEW]
-    → for spellID in activeTimers:
-        → aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
-        → if aura == nil: activeTimers[spellID] = nil
-    → if any cancelled: ns:UpdateDisplay()
-
-PLAYER_REGEN_ENABLED / ZONE_CHANGED_NEW_AREA
-    ↓
-Core.lua → ns:ClearAuraBlock()
-    → ns.auraCheckBlocked = false
-    → (next UNIT_AURA will attempt scan again)
+    |
+    v
+Core.lua: ns:OnSpellCastSucceeded(spellID)
+    |
+    +-- TRINKET_SPELLS[spellID]? --> ns:StartTrinketTimer(spellID)
+    |       --> ns.activeTimers["trinket"] = { icon=spellIcon, source="meta", ... }
+    |       --> ns:UpdateDisplay()
+    |
+    +-- POT_SPELLS[spellID]?    --> ns:StartPotTimer(spellID)
+            --> ns.activeTimers["pot"]     = { icon=spellIcon, source="meta", ... }
+            --> ns:UpdateDisplay()
 ```
 
----
+### At-Rest Icon Resolution Flow
 
-## Edge Cases
+```
+Display.lua: UpdateDisplay() (placeholder path — no active timer)
+    |
+    v
+slot.spellID is "trinket" or "pot" (string key)
+    |
+    v
+ns:ResolveSuggestedSpellID(slot.spellID) --> nil  (no fixed spellID for these)
+    |
+    v
+[NEW] ns:GetAtRestMetaIcon(slot.spellID)
+    --> looks up SUGGESTED_BUFFS entry by key
+    --> calls entry.getAtRestIcon()
+    --> ResolveTrinketIcon() or ResolvePotIcon()
+    |
+    v
+GetInventoryItemID / C_Container scan --> itemID --> C_Item.GetItemIconByID
+    |
+    v
+bar.icon:SetTexture(resolvedIcon)
+```
 
-### Timer expires naturally before aura fires
+### Active Timer Icon Switch Flow
 
-`ns:GetActiveTimers()` already cleans up expired timers on every call (`timer.expiresAt <= now → nil`). Aura cancellation fires first if the buff is removed early; expiry cleanup handles the normal path. No conflict.
+```
+Cast fires --> ns.activeTimers["trinket"].icon = ns:GetSpellIcon(castSpellID)
+    |
+    v (display tick)
+timer exists --> bar.icon:SetTexture(timer.icon)        <- active spell icon shown
 
-### Buff cast while blocked
+    (timer expires --> GetActiveTimers removes it)
+    |
+    v (display tick)
+no timer --> at-rest path --> GetAtRestMetaIcon()        <- equipped trinket icon shown
+```
 
-The timer is created normally. The block suppresses aura cancellation, not timer creation. On next reset event, the block clears; subsequent `UNIT_AURA` events will then scan and cancel any timers whose buffs are no longer present.
+### Why Aura Cancellation Is Safe (Without Modification)
 
-### Multiple active timers, some secret, some not
+`ScanActiveTimersForCancellation` dispatches on `timer.source`. Trinket and pot timers use `source = "meta"`. Without a guard, the existing code falls through to the end of the if/elseif chain and does nothing — no cancellation occurs. However, this is fragile (relies on silent fall-through). The explicit guard below makes intent clear and prevents future breakage.
 
-`ns.auraCheckBlocked` is a global flag. If ANY tracked buff is secret, all cancellation is blocked. This is conservative but correct — better to let timers expire naturally than to incorrectly cancel visible ones due to a misidentified secret value nil.
-
-Alternative design (per-spellID blocked map) is more precise but adds complexity for limited gain. The single flag is the right starting point.
-
-### `isFullUpdate` with blocked flag
-
-If `ns.auraCheckBlocked` is true, `isFullUpdate` is still ignored. The block means the aura API is unreliable, so a "full rescan" is also unreliable. Reset events are the only safe unblock mechanism.
-
-### Preview mode
-
-`ns:StartAllPreviewTimers()` creates fake timers for all non-hidden entries. These will be scanned by `ScanActiveTimersForCancellation`. In preview mode the real auras are likely not active, so `GetPlayerAuraBySpellID` returns nil for them, and preview timers get cancelled.
-
-**Mitigation:** Add a `ns.previewActive` guard (already implied by how preview works — it sets `ns.activeTimers = {}` then populates all). The simplest fix is: do not register `UNIT_AURA` handling during preview, or check `ns.previewActive` in `ScanActiveTimersForCancellation` and return early.
-
+**Required modification to `ScanActiveTimersForCancellation`:**
 ```lua
-function ns:ScanActiveTimersForCancellation()
-    if ns.auraCheckBlocked then return end
-    if ns.previewActive then return end  -- guard preview mode
-    -- ...
+if timer.source == "cast" then
+    local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+    if aura == nil then shouldCancel = true end
+elseif timer.source == "debuff" and timer.lustBuffID then
+    -- existing lust check (unchanged)
+elseif timer.source == "meta" then
+    -- trinket/pot: no aura to check; timer runs to natural expiry
+    shouldCancel = false
 end
 ```
 
-`ns.previewActive` needs to be set in `StartAllPreviewTimers()` and cleared in `ClearAllTimers()`.
+## Integration Points
 
----
+### BuffEngine.lua — Specific Integration Locations
 
-## Confidence Assessment
+| Integration Point | Exact Location | Change |
+|-------------------|----------------|--------|
+| `TRINKET_SPELLS` table | After `SHARED_LUST_BUFFS` (line ~22) | Add new module-level constant |
+| `POT_SPELLS` table | After `TRINKET_SPELLS` | Add new module-level constant |
+| `POT_ITEM_IDS` set | After `POT_SPELLS` | Build lookup set for bag scan |
+| `ns.SUGGESTED_BUFFS` | After lust entry (line ~50) | Append trinket and pot entries |
+| `ns:OnSpellCastSucceeded` | After existing `trackedBuffs` lookup (line ~137) | Add two table-driven fan-out checks |
+| `ns:ScanActiveTimersForCancellation` | In the source dispatch block (line ~350) | Add `elseif timer.source == "meta"` skip clause |
+| New functions | After `ns:StartLustTimer` (line ~404) | `StartTrinketTimer`, `StartPotTimer`, `ResolveTrinketIcon`, `ResolvePotIcon`, `GetAtRestMetaIcon` |
 
-| Claim | Confidence | Source |
-|-------|------------|--------|
-| Event name is `UNIT_AURA` not `UNIT_AURA_UPDATE` | HIGH | `UnitAuraDocumentation.lua` LiteralName field |
-| `removedAuraInstanceIDs` is always visible (not secret) | HIGH | `NeverSecretContents = true` in `UnitConstantsDocumentation.lua` |
-| `addedAuras` may be nil/hidden for secret auras | HIGH | `ConditionalSecretContents = true` |
-| `GetPlayerAuraBySpellID` returns nil for secret auras | HIGH | `SecretWhenUnitAuraRestricted = true`, `RequiresNonSecretAura = true` in `UnitAuraDocumentation.lua` |
-| `isFullUpdate` requires full rescan | HIGH | Used this way in BuffFrame.lua, NamePlateAuras.lua, TargetFrame.lua |
-| `PLAYER_REGEN_ENABLED` as unblock trigger | HIGH | `AuraUtil.lua` uses it to dump aura caches (lines 344-347) |
-| Probing immediately after cast detects secret values | MEDIUM | Logical — we know the buff exists at that moment; nil = secret |
-| Preview mode needs guard | MEDIUM | Inferred from `StartAllPreviewTimers` creating artificial timers; confirm during implementation |
+### CDMTab.lua — Specific Integration Locations
 
----
+| Integration Point | Exact Location | Change |
+|-------------------|----------------|--------|
+| Suggested icon texture | `RefreshTBTSections`, suggested branch (~line 721) | `cdmSpellID = suggested.getCDMSpellID()` may be nil; use `suggested.getAtRestIcon and suggested.getAtRestIcon()` as fallback for `item.Icon:SetTexture` |
+| Suggested tooltip | `OnEnter` handler (~line 101), `getCDMSpellID()` path | Guard nil return: if cdmSpellID is nil, skip `SetSpellByID` and show label-only tooltip |
+| `BeginDrag` ghost icon | `BeginDrag` (~line 406) | `resolved = ns:ResolveSuggestedSpellID(iconFrame.spellID)` may be nil for trinket/pot; fall back to `ns:GetAtRestMetaIcon(iconFrame.spellID)` for ghost icon |
+
+### Display.lua — Specific Integration Locations
+
+| Integration Point | Exact Location | Change |
+|-------------------|----------------|--------|
+| Bar at-rest icon | `UpdateDisplay`, bar placeholder path (~line 444) | After `ResolveSuggestedSpellID` returns nil, call `ns:GetAtRestMetaIcon(slot.spellID)` |
+| Icon at-rest icon | `UpdateDisplay`, icon placeholder path (~line 601) | Same pattern |
+
+**Concrete change (both paths follow same shape):**
+```lua
+-- Before (current, Display.lua ~line 444):
+local resolvedID = ns:ResolveSuggestedSpellID(slot.spellID) or slot.spellID
+local fallbackIcon = ns:GetSpellIcon(resolvedID)
+
+-- After (new):
+local resolvedID = ns:ResolveSuggestedSpellID(slot.spellID)
+local fallbackIcon
+if resolvedID then
+    fallbackIcon = ns:GetSpellIcon(resolvedID)
+else
+    fallbackIcon = ns:GetAtRestMetaIcon(slot.spellID) or ns:GetSpellIcon(slot.spellID)
+end
+```
+
+### Core.lua — No Changes Required
+
+`UNIT_SPELLCAST_SUCCEEDED` is already registered (line 8) and routed to `ns:OnSpellCastSucceeded` (line 94). No new events needed.
+
+## Suggested Build Order
+
+Dependencies flow bottom-up. Data tables must exist before functions that use them; functions before UI that calls them.
+
+| Step | File | Work | Dependency |
+|------|------|------|------------|
+| 1 | `BuffEngine.lua` | Add `TRINKET_SPELLS` and `POT_SPELLS` tables with season data | All other code depends on these |
+| 2 | `BuffEngine.lua` | Add `StartTrinketTimer` and `StartPotTimer` (mirrors `StartLustTimer`) | Required before fan-out in `OnSpellCastSucceeded` |
+| 3 | `BuffEngine.lua` | Modify `OnSpellCastSucceeded` to fan out to trinket/pot handlers | Activates live cast detection — testable now |
+| 4 | `BuffEngine.lua` | Add `source = "meta"` guard in `ScanActiveTimersForCancellation` | Prevents premature cancellation for new timers |
+| 5 | `BuffEngine.lua` | Add `ResolveTrinketIcon`, `ResolvePotIcon`, `GetAtRestMetaIcon` | Needed by SUGGESTED_BUFFS entries and Display.lua |
+| 6 | `BuffEngine.lua` | Append trinket and pot entries to `ns.SUGGESTED_BUFFS` | Needed by CDMTab.lua Suggested section render |
+| 7 | `CDMTab.lua` | Guard nil `cdmSpellID` in Suggested icon render, tooltip, and ghost drag | Prevents nil-icon and nil-spell errors |
+| 8 | `Display.lua` | Update at-rest icon path (bars + icons) to call `GetAtRestMetaIcon` | Enables equipped-trinket / bag-pot icon in placeholders |
+| 9 | Test | `/tbt`, drag trinket/pot to Bars, cast a tracked trinket/pot | Validates: cast detection -> timer -> icon switch -> expiry -> at-rest icon |
+
+Steps 1-4 are the functional core and self-contained — cast detection and timer management work without UI polish. Steps 5-8 add the display polish. This ordering means the feature is testable in-game after step 4 (bar shows "trinket" key with question mark icon) and progressively improves through step 8.
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Using `source = "cast"` for meta-slot timers
+
+**What people do:** Reuse `source = "cast"` on trinket/pot timers to avoid touching `ScanActiveTimersForCancellation`.
+
+**Why it's wrong:** `ScanActiveTimersForCancellation` iterates `ns.activeTimers` keyed by spellID. The timer key is the string `"trinket"`. The existing `source == "cast"` branch calls `C_UnitAuras.GetPlayerAuraBySpellID(spellID)` where `spellID` is the timer's `spellID` field — which is `"trinket"`. Passing a string to this API returns nil. The timer is cancelled on the first `UNIT_AURA` event after it starts.
+
+**Do this instead:** Use `source = "meta"` and add a skip clause in `ScanActiveTimersForCancellation`. Two extra lines; zero premature cancellations.
+
+### Anti-Pattern 2: Resolving bag/equipped icons on every display tick
+
+**What people do:** Call `ResolveTrinketIcon()` or `ResolvePotIcon()` inside the `UpdateDisplay()` 20Hz cycle.
+
+**Why it's wrong:** `C_Container.GetContainerItemID` and `GetInventoryItemID` are not free. Bag scan loops inside a 20Hz frame loop create unnecessary CPU work, especially for pot scanning (up to ~120+ slots per scan). This directly contradicts the CLAUDE.md directive to avoid hot-path allocations and redundant per-frame work.
+
+**Do this instead:** Call resolution only in the at-rest placeholder path, which is already gated behind the `bar.spellID ~= slot.spellID` dirty-check. Resolution runs only when the slot assignment changes, not every frame.
+
+### Anti-Pattern 3: One DB entry per trinket/pot spell
+
+**What people do:** Register each trinket spell as a separate `trackedBuffs` entry (like a normal tracked spell) and rely on the user to add them manually via the Add dialog.
+
+**Why it's wrong:** Destroys the "shared slot" semantic. A full season trinket list has 10+ items; the CDM would show 10+ entries. The user would need to manually add each one.
+
+**Do this instead:** One string key ("trinket") in `trackedBuffs` with `metaBuff = true`. TRINKET_SPELLS is the data table; the DB entry is the slot definition. Exactly how lust works.
+
+### Anti-Pattern 4: Storing `getAtRestIcon` result in SavedVariables
+
+**What people do:** Cache the resolved icon ID in `TerribleBuffTrackerDB` to avoid re-scanning.
+
+**Why it's wrong:** Functions are not serializable. Cached icon IDs go stale when gear changes between sessions. SavedVariables load before `PLAYER_ENTERING_WORLD`; item APIs are not guaranteed available at that point.
+
+**Do this instead:** Resolve icons lazily at render time. The existing `hideWhenInactive = true` default means the at-rest path only runs when CDM settings are open — frequency is negligible.
+
+### Anti-Pattern 5: Querying `getAtRestIcon` in `ResolveSuggestedSpellID`
+
+**What people do:** Extend `ns:ResolveSuggestedSpellID` to return a texture ID instead of a spellID when `getCDMSpellID` is nil.
+
+**Why it's wrong:** `ResolveSuggestedSpellID` is called from tooltip handlers, display loops, and CDMTab — all of which expect a numeric spellID or nil. Returning a texture ID from a function named "ResolveSuggestedSpellID" breaks all existing callers.
+
+**Do this instead:** Add a separate `ns:GetAtRestMetaIcon(key)` helper. Keep `ResolveSuggestedSpellID` returning spellIDs only. Separation of concerns; no existing call sites broken.
 
 ## Sources
 
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_APIDocumentationGenerated\UnitAuraDocumentation.lua` — `UNIT_AURA` event payload, all `C_UnitAuras` function signatures and secret annotations (HIGH)
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_APIDocumentationGenerated\UnitConstantsDocumentation.lua` — `UnitAuraUpdateInfo` structure, `NeverSecretContents` / `ConditionalSecretContents` field annotations (HIGH)
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_CooldownViewer\CooldownViewer.lua` — `OnUnitAura` handler using `removedAuraInstanceIDs`, `updatedAuraInstanceIDs`, `addedAuras` (HIGH)
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_CooldownViewer\CooldownViewerItemData.lua` — `GetPlayerAuraBySpellID` call pattern, `aura.spellId` field name (HIGH)
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_FrameXMLUtil\AuraUtil.lua` — `ForEachAura` scan pattern, `PLAYER_REGEN_ENABLED`/`PLAYER_REGEN_DISABLED` used to dump caches (HIGH)
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_BuffFrame\BuffFrame.lua` — `isFullUpdate` handling pattern (HIGH)
-- `C:\Users\jonat\Repositories\wow-ui-source\Interface\AddOns\Blizzard_NamePlates\Blizzard_NamePlateAuras.lua` — `isFullUpdate` → full rescan pattern (HIGH)
-- Existing `BuffEngine.lua` and `Core.lua` — confirmed `ns.activeTimers` structure, event routing pattern, namespace convention (HIGH)
+- Existing codebase: `BuffEngine.lua`, `CDMTab.lua`, `Display.lua`, `Core.lua` (read directly — HIGH confidence)
+- [GetInventoryItemID — warcraft.wiki.gg](https://warcraft.wiki.gg/wiki/API_GetInventoryItemID) — confirmed available in Midnight 12.0.1 (HIGH)
+- [C_Container.GetContainerItemID — warcraft.wiki.gg](https://warcraft.wiki.gg/wiki/API_C_Container.GetContainerItemID) — confirmed available (HIGH)
+- [C_Item.GetItemIconByID — warcraft.wiki.gg](https://warcraft.wiki.gg/wiki/API_C_Item.GetItemIconByID) — confirmed available in 12.0.1 (HIGH)
+- [TrinketTracker (Midnight) — CurseForge](https://www.curseforge.com/wow/addons/trinkettracker-midnight) — confirms trinket slot 13/14 detection pattern works in Midnight (MEDIUM)
+- [UNIT_SPELLCAST_SUCCEEDED — warcraft.wiki.gg](https://warcraft.wiki.gg/wiki/UNIT_SPELLCAST_SUCCEEDED) — spellID confirmed safe/never secret (HIGH)
 
 ---
-
-*Architecture research for: TerribleBuffTracker v0.2.1 — Aura-Based Timer Cancellation*
-*Researched: 2026-04-03*
+*Architecture research for: TerribleBuffTracker v0.3.0 — trinket & pot meta-trackers*
+*Researched: 2026-04-11*

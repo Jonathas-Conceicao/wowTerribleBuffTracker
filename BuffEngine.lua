@@ -46,6 +46,150 @@ ns.CLASS_LUST_SPELL = {
 	EVOKER = 390386, -- Fury of the Aspects
 }
 
+-- Static lookup: spellID -> { duration, itemID } for tracked on-use trinkets (D-01).
+-- Names are comments only (D-04); labels come from C_Spell.GetSpellInfo at cast time.
+-- Source: trinket_info.csv. Duration is used at cast time; SUGGESTED_BUFFS.duration=0 is a sentinel (D-07).
+local TRINKET_SPELLS = {
+	-- Light Company Guidon
+	[1259633] = { duration = 15, itemID = 249344 },
+	-- Vaelgor's Final Stare
+	[1260459] = { duration = 15, itemID = 249346 },
+	-- Emberwing Feather
+	[1250508] = { duration = 15, itemID = 250144 },
+	-- Algeth'ar Puzzle Box
+	[383781] = { duration = 20, itemID = 193701 },
+	-- Echo of L'ura
+	[250768] = { duration = 45, itemID = 151340 },
+	-- Radiant Sunstone
+	[1254624] = { duration = 20, itemID = 252411 },
+	-- Freightrunner's Flask
+	[1250533] = { duration = 15, itemID = 250215 },
+	-- Seed of Radiant Hope
+	[1263644] = { duration = 12, itemID = 250254 },
+	-- Void Execution Mandate
+	[1250557] = { duration = 20, itemID = 250225 },
+}
+
+-- Static lookup: spellID -> { duration, itemID } for tracked damage potions (D-01).
+-- Source: pots_info.csv.
+local POT_SPELLS = {
+	-- Light's Potential
+	[1236616] = { duration = 30, itemID = 241308 },
+	-- Potion of Recklessness
+	[1236994] = { duration = 30, itemID = 241288 },
+	-- Draught of Rampant Abandon
+	[1236998] = { duration = 30, itemID = 241292 },
+	-- Void-Shrouded Tincture
+	[1236551] = { duration = 12, itemID = 241302 },
+}
+
+-- Derived at module load (D-02): itemID -> true sets for O(1) equipment/bag lookup in Phase 14.
+-- Do NOT hand-maintain; regenerate by iterating the parent spell tables.
+local TRINKET_ITEM_IDS = {}
+for _, def in pairs(TRINKET_SPELLS) do
+	TRINKET_ITEM_IDS[def.itemID] = true
+end
+
+local POT_ITEM_IDS = {}
+for _, def in pairs(POT_SPELLS) do
+	POT_ITEM_IDS[def.itemID] = true
+end
+
+ns.TRINKET_SPELLS = TRINKET_SPELLS
+ns.POT_SPELLS = POT_SPELLS
+ns.TRINKET_ITEM_IDS = TRINKET_ITEM_IDS
+ns.POT_ITEM_IDS = POT_ITEM_IDS
+
+-- D-08: Ordered fallback iteration in CSV order. pairs() doesn't guarantee order
+-- so we hard-code the insertion order matching trinket_info.csv / pots_info.csv.
+-- If TRINKET_SPELLS / POT_SPELLS gain entries, keep these arrays in sync.
+local TRINKET_FALLBACK_ORDER = { 249344, 249346, 250144, 193701, 151340, 252411, 250215, 250254, 250225 }
+local POT_FALLBACK_ORDER = { 241308, 241288, 241292, 241302 }
+
+-- D-01: Eager-cached at-rest resolution for meta-slots. Populated by ns:RefreshMetaIcons.
+-- Detection scans items (equipped trinkets / bag pots), but icon and tooltip resolve
+-- to the matching buff SPELL (via reverse lookup itemID → spellID). This keeps the
+-- visual coherent across ilvl/quality differences of the source item.
+ns.metaIcons = { trinket = nil, pot = nil } -- texture only (back-compat)
+ns.metaAtRest = {
+	trinket = { icon = nil, spellID = nil, duration = nil },
+	pot = { icon = nil, spellID = nil, duration = nil },
+}
+
+-- Reverse lookup: given an itemID, find the matching buff spellID in a spell table.
+local function FindSpellByItemID(spellTable, itemID)
+	if not itemID then
+		return nil, nil
+	end
+	for spellID, def in pairs(spellTable) do
+		if def.itemID == itemID then
+			return spellID, def.duration
+		end
+	end
+	return nil, nil
+end
+
+-- D-02/D-03: Single scan entry point. Called from CDMTab StartPreview only.
+-- D-07: Combat-gated. If locked down, leave cache as-is.
+-- Resolution: scan finds itemID → reverse-lookup to spellID → icon/tooltip/duration
+-- all derive from the buff spell (not the item).
+function ns:RefreshMetaIcons()
+	if InCombatLockdown() then
+		return
+	end
+
+	-- Trinket scan (D-05): equipped slots 13/14, first match wins
+	local trinketItemID
+	for _, slot in ipairs({ INVSLOT_TRINKET1, INVSLOT_TRINKET2 }) do
+		local equipped = GetInventoryItemID("player", slot)
+		if equipped and TRINKET_ITEM_IDS[equipped] then
+			trinketItemID = equipped
+			break
+		end
+	end
+	-- D-08: Fallback to first CSV entry whose buff spell icon resolves
+	if not trinketItemID then
+		for _, itemID in ipairs(TRINKET_FALLBACK_ORDER) do
+			trinketItemID = itemID
+			break -- first entry is the fallback; spell icon resolution happens below
+		end
+	end
+	local trinketSpellID, trinketDuration = FindSpellByItemID(TRINKET_SPELLS, trinketItemID)
+	local trinketIcon = trinketSpellID and ns:GetSpellIcon(trinketSpellID) or nil
+	ns.metaIcons.trinket = trinketIcon
+	ns.metaAtRest.trinket.icon = trinketIcon
+	ns.metaAtRest.trinket.spellID = trinketSpellID
+	ns.metaAtRest.trinket.duration = trinketDuration
+
+	-- Pot scan (D-06): bag iteration over POT_ITEM_IDS in CSV order, first count>0 wins
+	local potItemID
+	for _, itemID in ipairs(POT_FALLBACK_ORDER) do
+		if (C_Item.GetItemCount(itemID) or 0) > 0 then
+			potItemID = itemID
+			break
+		end
+	end
+	if not potItemID then
+		potItemID = POT_FALLBACK_ORDER[1] -- D-08 fallback: first CSV entry
+	end
+	local potSpellID, potDuration = FindSpellByItemID(POT_SPELLS, potItemID)
+	local potIcon = potSpellID and ns:GetSpellIcon(potSpellID) or nil
+	ns.metaIcons.pot = potIcon
+	ns.metaAtRest.pot.icon = potIcon
+	ns.metaAtRest.pot.spellID = potSpellID
+	ns.metaAtRest.pot.duration = potDuration
+end
+
+-- D-10: Public read accessor. Returns 134400 (?-icon) when cache is nil.
+function ns:GetAtRestMetaIcon(key)
+	return ns.metaIcons[key] or 134400
+end
+
+-- Return resolved at-rest spellID and duration for tooltip/display.
+function ns:GetAtRestMetaInfo(key)
+	return ns.metaAtRest[key]
+end
+
 -- Registry of suggested buff definitions for CDM tab Suggested section (D-04, D-09)
 ns.SUGGESTED_BUFFS = {
 	{
@@ -63,7 +207,45 @@ ns.SUGGESTED_BUFFS = {
 	},
 }
 
+-- Trinket meta-tracker (D-06). getCDMIcon calls ns:GetAtRestMetaIcon (Phase 14).
+-- duration=0 is a sentinel (D-07) — real duration comes from ns.TRINKET_SPELLS[spellID].duration at cast time.
+ns.SUGGESTED_BUFFS[#ns.SUGGESTED_BUFFS + 1] = {
+	key = "trinket",
+	label = "Trinket",
+	duration = 0,
+	metaBuff = true,
+	getCDMSpellID = function()
+		return nil
+	end,
+	getCDMIcon = function()
+		return ns:GetAtRestMetaIcon("trinket")
+	end,
+}
+
+-- Damage pot meta-tracker (D-06). Same plumbing as trinket; itemID scanning is bag-based
+-- in Phase 14 (C_Item.GetItemCount against ns.POT_ITEM_IDS).
+ns.SUGGESTED_BUFFS[#ns.SUGGESTED_BUFFS + 1] = {
+	key = "pot",
+	label = "Damage Pot",
+	duration = 0,
+	metaBuff = true,
+	getCDMSpellID = function()
+		return nil
+	end,
+	getCDMIcon = function()
+		return ns:GetAtRestMetaIcon("pot")
+	end,
+}
+
 function ns:InitBuffEngine()
+	-- Schema v3 is terminal for v0.2.3 (DATA-03 reconciliation).
+	-- v0.2.3 introduces trinket/pot meta-trackers but creates NO new persistent SavedVariables
+	-- structures — TRINKET_SPELLS and POT_SPELLS are runtime-only static tables. The SUGGESTED_BUFFS
+	-- entries for "trinket"/"pot" land in ns.db.trackedBuffs only via copy-on-drag (user action),
+	-- and follow the existing string-keyed lust pattern that v3 already supports. Therefore no
+	-- v3->v4 migration is needed: v0.2.3 is the first release with these features, so no stale
+	-- "trinket"/"pot" keys can exist in pre-upgrade SavedVariables. D-05 (CONTEXT.md) supersedes
+	-- REQUIREMENTS.md DATA-03; DATA-03 is marked N/A in REQUIREMENTS.md traceability.
 	local CURRENT_SCHEMA_VERSION = 3
 	local ver = ns.db.schemaVersion or 0
 
@@ -135,6 +317,78 @@ function ns:ResolveSuggestedSpellID(key)
 end
 
 function ns:OnSpellCastSucceeded(spellID)
+	-- D-02: Meta-slot fan-out happens FIRST, before the regular trackedBuffs[spellID] path.
+	-- Trinket/pot spellIDs never collide with regular tracked buffs; first match wins.
+
+	-- Trinket fan-out (D-01, D-03, D-04, D-06, D-08)
+	local trinketDef = ns.TRINKET_SPELLS[spellID]
+	if trinketDef then
+		local metaEntry = ns.db.trackedBuffs["trinket"]
+		if not metaEntry or metaEntry.section == "hidden" then
+			return
+		end
+		-- D-04: Remove any existing timer occupying the same meta-slot
+		for existingID, existingTimer in pairs(ns.activeTimers) do
+			if existingTimer.metaSlot == "trinket" then
+				ns.activeTimers[existingID] = nil
+			end
+		end
+		local now = GetTime()
+		local spellInfo = C_Spell.GetSpellInfo(spellID)
+		local label = (spellInfo and spellInfo.name) or metaEntry.label or "Trinket"
+		ns.activeTimers[spellID] = {
+			spellID = spellID,
+			expiresAt = now + trinketDef.duration,
+			startedAt = now,
+			duration = trinketDef.duration,
+			icon = ns:GetSpellIcon(spellID),
+			label = label,
+			section = metaEntry.section or "bars",
+			layoutOrder = metaEntry.layoutOrder,
+			source = "cast",
+			metaSlot = "trinket",
+		}
+		if ns.UpdateDisplay then
+			ns:UpdateDisplay()
+		end
+		return
+	end
+
+	-- Pot fan-out (same shape as trinket, metaSlot = "pot")
+	local potDef = ns.POT_SPELLS[spellID]
+	if potDef then
+		local metaEntry = ns.db.trackedBuffs["pot"]
+		if not metaEntry or metaEntry.section == "hidden" then
+			return
+		end
+		-- D-04: Remove any existing timer occupying the same meta-slot
+		for existingID, existingTimer in pairs(ns.activeTimers) do
+			if existingTimer.metaSlot == "pot" then
+				ns.activeTimers[existingID] = nil
+			end
+		end
+		local now = GetTime()
+		local spellInfo = C_Spell.GetSpellInfo(spellID)
+		local label = (spellInfo and spellInfo.name) or metaEntry.label or "Damage Pot"
+		ns.activeTimers[spellID] = {
+			spellID = spellID,
+			expiresAt = now + potDef.duration,
+			startedAt = now,
+			duration = potDef.duration,
+			icon = ns:GetSpellIcon(spellID),
+			label = label,
+			section = metaEntry.section or "bars",
+			layoutOrder = metaEntry.layoutOrder,
+			source = "cast",
+			metaSlot = "pot",
+		}
+		if ns.UpdateDisplay then
+			ns:UpdateDisplay()
+		end
+		return
+	end
+
+	-- Existing regular-buff path (preserved verbatim)
 	local entry = ns.db.trackedBuffs[spellID]
 	if not entry then
 		return
@@ -272,11 +526,14 @@ function ns:SetBuffSection(spellID, section)
 end
 
 function ns:StartAllPreviewTimers()
-	-- D-07: Save real timers before preview overwrites them (only on FIRST call)
-	-- Re-entry guard: if previewActive is already true, savedPreviewTimers already holds real timers.
-	if not ns.previewActive then
-		wipe(savedPreviewTimers)
-		for k, v in pairs(ns.activeTimers) do
+	-- D-07: Save real timers before preview overwrites them. Capture on EVERY call —
+	-- real cast timers can be added between preview rebuilds (e.g. user casts a
+	-- trinket while CDM is open and a section rebuild fires). Real timers have
+	-- source="cast" (trinket/pot/regular) or source="debuff" (lust); preview timers
+	-- have no source field.
+	wipe(savedPreviewTimers)
+	for k, v in pairs(ns.activeTimers) do
+		if v.source then
 			savedPreviewTimers[k] = v
 		end
 	end
@@ -296,12 +553,28 @@ function ns:StartAllPreviewTimers()
 					timerLabel = info.name
 				end
 			end
+			-- Phase 14: meta-slots with at-rest icon cache (trinket/pot) use GetAtRestMetaIcon.
+			-- Lust falls through to GetSpellIcon via the resolved class-aware spellID.
+			local previewIcon
+			if type(spellID) == "string" then
+				local metaIcon = ns:GetAtRestMetaIcon(spellID)
+				if metaIcon and metaIcon ~= 134400 then
+					previewIcon = metaIcon
+				else
+					previewIcon = ns:GetSpellIcon(resolvedID)
+					if (not previewIcon or previewIcon == 134400) and metaIcon then
+						previewIcon = metaIcon
+					end
+				end
+			else
+				previewIcon = ns:GetSpellIcon(resolvedID)
+			end
 			ns.activeTimers[spellID] = {
 				spellID = spellID,
 				expiresAt = now + entry.duration,
 				startedAt = now,
 				duration = entry.duration,
-				icon = ns:GetSpellIcon(resolvedID),
+				icon = previewIcon,
 				label = timerLabel,
 				section = entry.section or "bars",
 			}

@@ -29,10 +29,22 @@ Players can see countdown timers for buffs/cooldowns that the game no longer sur
 - UNIT_AURA event registration (player-filtered), secret-value blocked flag, isFullUpdate suppression, preview guard, debug toggle — v0.2.1 Phase 7
 - Aura scan cancellation: ScanActiveTimersForCancellation removes timers for absent buffs via GetPlayerAuraBySpellID — v0.2.1 Phase 8
 - Lust meta-buff: Sated-family debuff detection auto-starts 40s timer, class-aware CDM icon, Suggested section activated as static catalog — v0.2.1 Phase 10
+- Trinket meta-tracker: shared slot tracking all season on-use trinkets via cast detection, shared-slot overwrite (newest cast wins) — v0.2.3 Phases 12-13
+- Damage pot meta-tracker: shared slot tracking all current-season damage potions via cast detection, shared-slot overwrite — v0.2.3 Phases 12-13
+- Dynamic CDM icon resolution: trinket shows equipped trinket icon, pot shows bag consumable icon; refreshes on CDM settings open (out of combat); falls back to first CSV entry — v0.2.3 Phase 14
+- Active timer icon switches to cast spell icon; reverts to at-rest resolved icon on expiry — v0.2.3 Phases 13-15
 
 ### Active
 
-(None — planning next milestone)
+<!-- No active items — v0.2.3 is complete and ready for release. -->
+
+## Current State
+
+**Last shipped:** v0.2.3 Trinket & Pot Meta-Trackers (2026-04-13)
+
+## Next Milestone Goals
+
+Full data-storage rework — unify the icon-resolution chain across CDMTab/Display/BuffEngine, deduplicate `ns.metaIcons` vs `ns.metaAtRest` caches, eliminate hardcoded `*_FALLBACK_ORDER` arrays, simplify `StartAllPreviewTimers` preservation logic. Planned as deliberate tech debt cleanup after three feature milestones accumulated exceptions.
 
 ### Out of Scope
 
@@ -85,4 +97,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-04 after v0.2.1 milestone completion*
+*Last updated: 2026-04-13 after Phase 16 cleanup*

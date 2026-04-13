@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.3 — Trinket & Pot Meta-Trackers
+
+### New Features
+- Trinket meta-tracker slot in the Suggested section — tracks current-season on-use trinkets;
+- Damage pot meta-tracker slot in the Suggested section — tracks current-season damage potions;
+- Trinket slot shows the icon of the first matching equipped trinket (slots 13/14); pot slot shows the icon of the first matching damage potion found in bags
+
 ## v0.2.2 — Lust Tracking Fixes
 
 ### Fixes

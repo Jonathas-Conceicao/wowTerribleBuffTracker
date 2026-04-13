@@ -6,6 +6,270 @@
 
 ---
 
+## v0.3.0 Addition: Trinket and Pot Meta-Tracker Icon APIs
+
+**Researched:** 2026-04-11
+**Scope:** WoW Midnight (Interface 120000+) APIs for inventory scanning, item icon resolution, and event triggers needed for trinket and pot meta-tracker slots
+
+### Cast Detection (No Change)
+
+`UNIT_SPELLCAST_SUCCEEDED` remains the detection mechanism for trinket and pot activation, exactly as used by existing tracked buffs. The spellID from this event is never a secret value (confirmed in CLAUDE.md and current practice). No new event registration is needed for detection.
+
+The only change to the existing `OnSpellCastSucceeded` handler is recognizing the meta-slot keys (`"trinket"`, `"pot"`) and performing overwrite behavior instead of rejecting an existing active timer.
+
+---
+
+### Trinket Icon: Equipped Slot Scanning
+
+#### `GetInventoryItemID("player", slot)` — Read equipped item ID
+
+```lua
+-- Global legacy function (not in C_ namespace)
+-- Returns itemID (number) or nil if slot is empty
+local itemID1 = GetInventoryItemID("player", INVSLOT_TRINKET1)  -- slot 13
+local itemID2 = GetInventoryItemID("player", INVSLOT_TRINKET2)  -- slot 14
+```
+
+**Secret value risk:** None. No `SecretReturn` annotation in any API documentation. Blizzard uses this function without secret guards in `EquipmentManager.lua` (lines 82, 135, 229) and tutorial code. The `SecretAspect` enum has no inventory ID aspect.
+
+**Why:** Allows comparing equipped item IDs against the known trinket item ID set to determine which trinket is equipped and therefore which icon to show at rest.
+
+#### `GetInventoryItemTexture("player", slot)` — Read equipped item icon directly
+
+```lua
+-- Global legacy function (not in C_ namespace)
+-- Returns fileID (number) or nil if slot is empty
+local icon1 = GetInventoryItemTexture("player", INVSLOT_TRINKET1)
+local icon2 = GetInventoryItemTexture("player", INVSLOT_TRINKET2)
+```
+
+**Secret value risk:** None. No `SecretReturn` annotation. Used by Blizzard's `BuffFrame.lua` line 703, `PaperDollFrame.lua`, `ContainerFrame.lua`, and `IconDataProvider.lua` without any secret guards.
+
+**Why:** Avoids a two-step lookup (GetInventoryItemID → GetItemIconByID). When you have confirmed the item matches a known trinket, use this to get the icon in one call.
+
+**Alternative:** `C_Item.GetItemIconByID(itemID)` — equally valid if you already have the itemID from the matching step and want to avoid a second slot API call.
+
+#### Trinket slot constants
+
+```lua
+INVSLOT_TRINKET1  -- = 13 (defined in Constants.lua)
+INVSLOT_TRINKET2  -- = 14 (defined in Constants.lua)
+```
+
+Use these named constants, not the raw numbers 13 and 14.
+
+#### Pattern: trinket icon resolution
+
+```lua
+-- Scan both trinket slots; pick the first that matches a known trinket itemID
+local function ResolveTrinketIcon(knownItemIDs)
+    for _, slot in ipairs({ INVSLOT_TRINKET1, INVSLOT_TRINKET2 }) do
+        local itemID = GetInventoryItemID("player", slot)
+        if itemID and knownItemIDs[itemID] then
+            return GetInventoryItemTexture("player", slot)
+        end
+    end
+    return 134400  -- question mark fallback
+end
+```
+
+`knownItemIDs` is a lookup table built from the trinket item ID set (keys are itemIDs, values are truthy). This scan is O(2 × N_trinkets) at worst and only runs on icon refresh, not per-frame.
+
+---
+
+### Pot Icon: Bag Consumable Scanning
+
+#### `C_Item.GetItemCount(itemID)` — Check if item is in bags
+
+```lua
+-- C_Item namespace (modern)
+-- SecretArguments = "AllowedWhenUntainted" — safe for addon code
+-- Returns count (number); 0 if not found
+local count = C_Item.GetItemCount(itemID)
+if count > 0 then
+    -- pot is in bags
+end
+```
+
+**Secret value risk:** None. `SecretArguments = "AllowedWhenUntainted"` means the function accepts secret values as arguments (not that it returns them). There is no `SecretReturn` annotation. Item count is not a secret aspect.
+
+**Why:** Single-call check for bag presence. Searches all carried bags automatically. No need to iterate slots manually. Use for pot detection: iterate known pot item IDs, first one with count > 0 is the "current" pot.
+
+#### `C_Item.GetItemIconByID(itemID)` — Get icon from item ID
+
+```lua
+-- C_Item namespace (modern)
+-- SecretArguments = "AllowedWhenUntainted"
+-- Returns fileID (number) or nil
+local icon = C_Item.GetItemIconByID(itemID)
+```
+
+**Secret value risk:** None. No `SecretReturn` annotation. Used in `Blizzard_Contribution.lua`, `Blizzard_HousingMarketCart`, `Blizzard_ObjectAPI` without secret guards.
+
+**Why:** Resolves item icon from a known item ID. This is the modern replacement for the deprecated global `GetItemIcon`. Do not use `GetItemIcon` — it only loads under the `loadDeprecationFallbacks` CVar (verified in `Deprecated_ItemScript.lua`).
+
+#### Pattern: pot icon resolution
+
+```lua
+-- Try known pot item IDs in priority order; use the first one found in bags
+local function ResolvePotIcon(orderedItemIDs)
+    for _, itemID in ipairs(orderedItemIDs) do
+        if C_Item.GetItemCount(itemID) > 0 then
+            return C_Item.GetItemIconByID(itemID)
+        end
+    end
+    return 134400  -- question mark fallback
+end
+```
+
+`orderedItemIDs` is an ordered list of pot item IDs to check. Priority order is arbitrary (all are damage pots); any consistent ordering works.
+
+---
+
+### Spell Icon for Active Timer
+
+No new API needed. The existing `ns:GetSpellIcon(spellID)` via `C_Spell.GetSpellInfo(spellID).iconID` is the correct method for resolving the cast spell's icon when a timer becomes active. This is already validated.
+
+Store the resolved icon in the timer table at cast time (same pattern as all other timers). When the timer expires and is removed, the meta-slot display reverts to the at-rest icon (resolved via the inventory/bag scan above, cached on the SUGGESTED_BUFFS entry or a parallel table).
+
+---
+
+### Icon Refresh: Event Triggers
+
+Two events are needed to keep at-rest icons current without per-frame scanning.
+
+#### `PLAYER_EQUIPMENT_CHANGED` — Trinket slot changed
+
+```lua
+-- Fires when player equips or unequips any gear
+-- Payload: equipmentSlot (number), hasCurrent (bool)
+-- Source: PaperDollInfoDocumentation.lua
+frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+
+-- In handler:
+elseif event == "PLAYER_EQUIPMENT_CHANGED" then
+    local slot, hasCurrent = ...
+    if slot == INVSLOT_TRINKET1 or slot == INVSLOT_TRINKET2 then
+        ns:RefreshTrinketIcon()
+    end
+```
+
+Filter on trinket slots specifically. `hasCurrent` indicates whether the slot now has an item (true) or was unequipped (false). On false, the icon should revert to the question mark.
+
+#### `BAG_UPDATE_DELAYED` — Bags settled after update
+
+```lua
+-- Fires once after all bag slot changes complete (debounced)
+-- No payload
+-- Preferred over BAG_UPDATE which fires per-slot
+frame:RegisterEvent("BAG_UPDATE_DELAYED")
+
+-- In handler:
+elseif event == "BAG_UPDATE_DELAYED" then
+    ns:RefreshPotIcon()
+```
+
+Use `BAG_UPDATE_DELAYED` rather than `BAG_UPDATE`. `BAG_UPDATE` fires per bag per slot change; `BAG_UPDATE_DELAYED` fires once after all changes settle. This prevents scanning bags multiple times during a single loot or vendor transaction.
+
+#### Combat gate for icon scans
+
+Equipment and bag scanning should not run in combat. These are initialization-time operations. Gate behind `InCombatLockdown()` and defer to `PLAYER_REGEN_ENABLED`:
+
+```lua
+local function RefreshTrinketIconSafe()
+    if InCombatLockdown() then
+        ns.pendingTrinketIconRefresh = true
+        return
+    end
+    -- ... do scan
+end
+
+-- In PLAYER_REGEN_ENABLED handler (already registered):
+if ns.pendingTrinketIconRefresh then
+    ns.pendingTrinketIconRefresh = false
+    RefreshTrinketIconSafe()
+end
+```
+
+Initial scan runs on `PLAYER_ENTERING_WORLD` (after display init). Trinket refresh runs on `PLAYER_EQUIPMENT_CHANGED` filtered to slots 13/14. Pot refresh runs on `BAG_UPDATE_DELAYED`.
+
+---
+
+### Overwrite Behavior (Newest Cast Wins)
+
+The meta-slot key (`"trinket"` or `"pot"`) is the `activeTimers` table key. Assigning a new timer entry to the same key naturally overwrites the previous. This is the same mechanism used by the `"lust"` slot.
+
+Critical difference from lust: the lust handler has an early-return guard ("don't restart if already running"). Trinket and pot meta-slots must NOT have this guard — always overwrite on any new cast, regardless of whether a timer is running.
+
+```lua
+-- In OnSpellCastSucceeded, after detecting a trinket/pot spell:
+ns.activeTimers["trinket"] = {
+    spellID = "trinket",
+    expiresAt = now + duration,
+    startedAt = now,
+    duration = duration,
+    icon = ns:GetSpellIcon(castSpellID),  -- active icon = spell icon
+    label = entry.label or "Trinket",
+    section = entry.section or "bars",
+    source = "cast",
+    castSpellID = castSpellID,            -- store for revert logic
+}
+```
+
+When the timer expires, the display layer reverts the icon to the cached at-rest icon (stored in the SUGGESTED_BUFFS definition or a ns-level cache). The timer entry does not need to store the at-rest icon — the display reads it from the meta-slot config.
+
+---
+
+### Cancellation via UNIT_AURA
+
+Trinket and pot buffs are likely contextually secret in M+ (same restrictions as other tracked buffs). The existing `ScanActiveTimersForCancellation` guards behind `C_Secrets.ShouldAurasBeSecret()`. Trinket and pot meta-slot timers should use `source = "cast"` — this routes them through the existing cast-source cancellation path which calls `C_UnitAuras.GetPlayerAuraBySpellID(spellID)`.
+
+The spellID stored in the active timer must be the castSpellID (e.g., 1259633 for Light Company Guidon), not the string key `"trinket"`. The meta-slot uses a string key, but the cancellation check needs a numeric spellID. Store the numeric castSpellID inside the timer table for this purpose, and branch in cancellation:
+
+```lua
+-- In ScanActiveTimersForCancellation, for meta-slot timers:
+if timer.source == "cast" and type(spellID) == "string" then
+    -- meta-slot: check castSpellID stored in timer
+    local aura = C_UnitAuras.GetPlayerAuraBySpellID(timer.castSpellID)
+    if aura == nil then shouldCancel = true end
+end
+```
+
+---
+
+### APIs NOT to Use
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| Global `GetItemIcon(itemID)` | Deprecated alias; only loaded under `loadDeprecationFallbacks` CVar (verified in Deprecated_ItemScript.lua) | `C_Item.GetItemIconByID(itemID)` |
+| Global `GetItemInfoInstant(itemID)` | Also deprecated alias (same file) | `C_Item.GetItemInfoInstant(itemID)` (or just `C_Item.GetItemIconByID` if only icon needed) |
+| `C_UnitAuras.GetPlayerAuraBySpellID` to detect trinket/pot activation | Buff spellIDs are contextually secret in M+; returns nil when aura is secret, indistinguishable from "buff ended" | `UNIT_SPELLCAST_SUCCEEDED` for activation detection |
+| `C_Item.GetItemCooldown` to infer trinket activation | Has `SecretArguments = "AllowedWhenUntainted"` and may return secret values in restricted contexts; also doesn't tell you WHICH spell was cast | `UNIT_SPELLCAST_SUCCEEDED` |
+| `BAG_UPDATE` for pot icon refresh | Fires per-slot per-bag during a transaction; multiple redundant scans | `BAG_UPDATE_DELAYED` (fires once after all changes settle) |
+| Scanning bank bags (BagIndex -2, 6+) | Bank only accessible at bank; `GetContainerNumSlots` returns 0 when closed | Only scan bags 0–4 (backpack + equipped bags) |
+| Per-frame icon resolution | Icon only changes on equipment swap or bag change; per-frame wastes CPU | Cache resolved icon; refresh on events only |
+
+---
+
+### Sources (v0.3.0 Research)
+
+All findings verified against `C:\Users\jonat\Repositories\wow-ui-source`:
+
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/ContainerDocumentation.lua` — C_Container functions with SecretArguments annotations; ContainerItemInfo struct (iconFileID field confirmed); BagUpdate/BagUpdateDelayed events
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/ItemDocumentation.lua` — C_Item.GetItemIconByID (SecretArguments=AllowedWhenUntainted, no SecretReturn); C_Item.GetItemCount; C_Item.GetItemInfoInstant; C_Item.GetItemSpell
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/PaperDollInfoDocumentation.lua` — PLAYER_EQUIPMENT_CHANGED event payload (equipmentSlot: number, hasCurrent: bool)
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/SecretPredicateAPIDocumentation.lua` — Complete C_Secrets function list; no item/inventory predicates exist; confirms item APIs are not subject to aura-style restriction
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/SecretAspectConstantsDocumentation.lua` — Full SecretAspect enum; no inventory ID or item icon aspect; confirms these are not secret
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/BagIndexConstantsDocumentation.lua` — BagIndex enum: Backpack=0, Bag_1=1, Bag_2=2, Bag_3=3, Bag_4=4
+- `Interface/AddOns/Blizzard_FrameXMLBase/Constants.lua` lines 165-166 — INVSLOT_TRINKET1=13, INVSLOT_TRINKET2=14
+- `Interface/AddOns/Blizzard_DeprecatedItemScript/Deprecated_ItemScript.lua` — Confirms GetItemIcon=C_Item.GetItemIconByID and GetItemInfoInstant=C_Item.GetItemInfoInstant are deprecated; only loaded under loadDeprecationFallbacks CVar
+- `Interface/AddOns/Blizzard_BuffFrame/BuffFrame.lua` line 703 — GetInventoryItemTexture used in production code without secret guard
+- `Interface/AddOns/Blizzard_FrameXML/EquipmentManager.lua` lines 82, 135, 229 — GetInventoryItemID used in production code without secret guard
+- `Interface/AddOns/Blizzard_FrameXMLBase/Mainline/IconDataProvider.lua` line 122 — GetInventoryItemTexture used in production code without secret guard
+- `Interface/AddOns/Blizzard_APIDocumentationGenerated/FrameAPICooldownDocumentation.lua` — Confirms Cooldown is a separate SecretAspect; item icon is not in this category
+
+---
+
 ## v0.2.1 Addition: Aura-Based Timer Cancellation APIs
 
 **Researched:** 2026-04-03

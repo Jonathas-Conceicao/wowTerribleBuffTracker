@@ -1,5 +1,21 @@
 # Milestones
 
+## v0.2.3 Trinket & Pot Meta-Trackers (Shipped: 2026-04-13)
+
+**Phases completed:** 5 phases, 8 plans, 17 tasks
+
+**Key accomplishments:**
+
+- spellID-keyed TRINKET_SPELLS (9 entries) and POT_SPELLS (4 entries) added to BuffEngine.lua with derived itemID sets, providing the static data layer for Phase 13-15 trinket and pot meta-trackers
+- Trinket and pot meta-trackers registered in ns.SUGGESTED_BUFFS with a nil-safe three-way icon fallback in CDMTab, making them visible in the CDM Suggested section as question-mark placeholders ready for Phase 14 icon resolution
+- OnSpellCastSucceeded extended with trinket/pot meta-slot fan-out: casting any TRINKET_SPELLS or POT_SPELLS entry creates a keyed activeTimer with metaSlot, shared-slot overwrite, and source='cast' for aura-scan cancellation compatibility
+- All TRINKET_SPELLS and POT_SPELLS spell IDs confirmed accurate via live in-game casts; debug instrumentation stripped from shipping BuffEngine.lua
+- ns.metaIcons eager cache with combat-gated CSV-ordered scan via GetInventoryItemID + C_Item.GetItemCount, and GetAtRestMetaIcon wired into SUGGESTED_BUFFS trinket/pot getCDMIcon closures
+- CDMTab StartPreview now triggers ns:RefreshMetaIcons before every preview; Display.lua bar and icon placeholder paths route trinket/pot through GetSuggestedAtRestIcon (GetAtRestMetaIcon) instead of falling back to the Bloodlust/?-icon; verified in-game for ICON-01/02/05/07
+- v0.2.3 release-prep complete: stylua-clean Lua files, v0.2.3 CHANGELOG entry, PROJECT.md Validated block updated, TOC/pkgmeta confirmed correct — milestone ready to tag
+
+---
+
 ## v0.2.1 Aura-Based Timer Cancellation (Shipped: 2026-04-04)
 
 **Phases completed:** 5 phases, 6 plans, 11 tasks

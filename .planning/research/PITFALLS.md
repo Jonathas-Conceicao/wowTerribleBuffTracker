@@ -1,8 +1,436 @@
 # Pitfalls Research
 
-**Domain:** WoW addon — CDM tab integration, Edit Mode movable elements, drag-and-drop buff management, aura-based timer cancellation
-**Researched:** 2026-03-28 (CDM/EditMode/DnD) | 2026-04-03 (aura cancellation v0.2.1)
-**Confidence:** HIGH (CDM/EditMode sourced from Blizzard UI source) | MEDIUM (aura section sourced from Warcraft Wiki + Cell addon PR + Midnight dev docs)
+**Domain:** WoW addon — CDM tab integration, Edit Mode movable elements, drag-and-drop buff management, aura-based timer cancellation, trinket/pot meta-trackers
+**Researched:** 2026-03-28 (CDM/EditMode/DnD) | 2026-04-03 (aura cancellation v0.2.1) | 2026-04-11 (trinket/pot meta-trackers v0.3.0)
+**Confidence:** HIGH (CDM/EditMode sourced from Blizzard UI source) | MEDIUM (aura section sourced from Warcraft Wiki + Cell addon PR + Midnight dev docs) | MEDIUM (v0.3.0 sourced from Warcraft Wiki API docs + Midnight dev forum + TrinketTracker Midnight addon analysis)
+
+---
+
+## v0.3.0 Milestone: Trinket and Pot Meta-Tracker Pitfalls
+
+This section covers pitfalls specific to adding trinket and damage pot meta-tracker slots to the existing TBT timer system. These slots use shared-slot overwrite behavior (one key per tracker, not per spell), dynamic icon resolution from equipped gear and bag consumables, and `UNIT_SPELLCAST_SUCCEEDED` cast detection for known spellIDs.
+
+---
+
+### Meta-Tracker Pitfall 1: Source Marker Absent — Aura Scan Immediately Cancels Meta-Timer
+
+**What goes wrong:**
+Trinket and pot buffs are tracked under string meta-keys (`"trinket"`, `"pot"`) like the lust meta-buff under `"lust"`. When a timer is created at `ns.activeTimers["trinket"]`, the `ScanActiveTimersForCancellation` function iterates `ns.activeTimers` and checks each timer's `source` field. If the timer has no `source` field, or has `source = "cast"`, the scan calls `C_UnitAuras.GetPlayerAuraBySpellID(spellID)` using the timer's `spellID` field — which is the string `"trinket"`, not a numeric spell ID. `GetPlayerAuraBySpellID` with a string argument produces a type error or silently returns nil (nil treated as "buff absent"), causing the meta-timer to be cancelled on the very first aura scan after it is started.
+
+**Why it happens:**
+The existing `OnSpellCastSucceeded` path stores `spellID = spellID` (the numeric cast spell ID) in the timer, which is safe for `source = "cast"` timers because the key and the aura lookup match. Meta-trackers use string keys but their aura lookup must use the actual buff spell ID — or must be routed through a source branch that bypasses the direct aura check. Developers copy the timer creation pattern from `OnSpellCastSucceeded` without adjusting the source marker, producing a timer that looks like a cast-sourced timer but has an unresolvable aura lookup.
+
+**How to avoid:**
+Assign `source = "meta"` (or a purpose-specific value like `source = "trinket"`) on all meta-tracker timers. Add a `source == "meta"` branch in `ScanActiveTimersForCancellation` that skips the aura check entirely — meta-trackers are cast-detection only; they have no corresponding aura to verify because trinket proc buffs and pot buffs are secret values in restricted contexts. The lust meta-tracker uses `source = "debuff"` with a `lustBuffID` field; trinket/pot timers need their own equivalent non-default source tag.
+
+```lua
+-- Timer creation for meta-trackers:
+ns.activeTimers["trinket"] = {
+    spellID = "trinket",
+    castSpellID = actualSpellID,  -- the actual cast spell ID (for icon, label)
+    source = "meta",              -- prevents aura scan cancellation
+    expiresAt = now + duration,
+    ...
+}
+
+-- In ScanActiveTimersForCancellation:
+if timer.source == "meta" then
+    -- meta-trackers are not verified against auras — skip
+elseif timer.source == "cast" then
+    -- existing aura check path
+elseif timer.source == "debuff" then
+    -- existing lust check path
+end
+```
+
+**Warning signs:**
+Meta-tracker timer appears on cast and vanishes within one event tick. Debug logging shows cancellation with label "trinket" or "pot" immediately after creation.
+
+**Phase to address:**
+Timer creation phase (first phase of v0.3.0). The source marker must be correct before any end-to-end testing.
+
+---
+
+### Meta-Tracker Pitfall 2: Overwrite Behavior Loses the Previous Timer on Re-Cast
+
+**What goes wrong:**
+The shared-slot design means `ns.activeTimers["trinket"]` is always overwritten on each new cast. If the player casts a trinket while a previous trinket timer is still running (possible with two different on-use trinkets, or a pot and a trinket sharing the same meta-key), the previous timer disappears with no warning and the display shows only the new timer. This is intentional per-spec — but the bug appears when the overwrite uses the wrong key or when the new timer's icon and label data comes from a stale cache.
+
+A specific sub-case: if the player switches trinkets between pulls (unequips trinket A, equips trinket B), the icon cache for the meta-tracker slot was resolved for trinket A. The next cast of trinket B starts a timer with trinket A's icon unless the cache is invalidated on equip change.
+
+**Why it happens:**
+Icon resolution is done out of combat and cached. The equip event that would invalidate the cache (`UNIT_INVENTORY_CHANGED`) is not registered, so the cache is never refreshed after trinket swaps.
+
+**How to avoid:**
+Register `UNIT_INVENTORY_CHANGED` for "player" unit. On this event, call the icon resolution function for both trinket slots and for the pot bag scan. Do not allow resolution to run in combat (`InCombatLockdown()` returns true) — defer the refresh to after combat ends via `PLAYER_REGEN_ENABLED`. Cache the resolved icon per meta-key (e.g., `ns.metaIcons["trinket"]`) and use it as the idle-state display; switch to the active cast's spell icon when a timer is running.
+
+```lua
+-- Register:
+eventFrame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
+
+-- Handler:
+if not InCombatLockdown() then
+    ns:RefreshMetaIcons()
+else
+    ns.metaIconRefreshPending = true  -- refresh on PLAYER_REGEN_ENABLED
+end
+```
+
+**Warning signs:**
+After a trinket swap (seen by equipping a different trinket), the idle icon in the CDM Suggested section shows the old trinket's icon. On cast, the timer icon is also wrong.
+
+**Phase to address:**
+Icon resolution phase. The pending-refresh pattern must be established before release.
+
+---
+
+### Meta-Tracker Pitfall 3: `GetInventoryItemID` Returns a Secret Value in Combat
+
+**What goes wrong:**
+`GetInventoryItemID("player", slotID)` is documented as returning the item ID for an equipped item. However, in Midnight (Interface 120000+), any API that queries inventory slot data during combat — particularly during Mythic+ or PvP — may return a secret value. Attempting to use the returned item ID as a table index (`ns.trinketIconCache[itemID]`) or pass it to `C_Item.GetItemInfo(itemID)` after it is received as a secret value will throw a Lua error or silently return nil from the downstream call.
+
+The TrinketTracker Midnight addon explicitly documents this: "in combat, most APIs return secret values that cannot be used directly" and works around this by caching out of combat exclusively.
+
+**Why it happens:**
+The natural implementation calls `GetInventoryItemID` whenever the icon is needed — including on every CDM settings open during combat. This works in open world but errors in restricted contexts.
+
+**How to avoid:**
+Gate ALL inventory slot queries behind `InCombatLockdown()`. Never call `GetInventoryItemID` during combat. Use a pre-computed cache (`ns.metaIcons["trinket"]`) resolved out of combat, and serve that cache for display during combat. The cache should be populated on: addon load, `PLAYER_REGEN_ENABLED` if a refresh was pending, `UNIT_INVENTORY_CHANGED` when out of combat, and CDM settings open when out of combat.
+
+Additionally, guard the return value with `issecretvalue()` as a fail-safe even when called out of combat, since Midnight's secret value restrictions can be applied to non-combat contexts in some zone types:
+
+```lua
+function ns:ResolveEquippedTrinketIcon(slotID)
+    if InCombatLockdown() then return end
+    local itemID = GetInventoryItemID("player", slotID)
+    if not itemID or issecretvalue(itemID) then return end
+    local info = C_Item.GetItemInfo(itemID)
+    if info then
+        ns.metaIcons["trinket"] = info.iconFileDataID
+    end
+end
+```
+
+**Warning signs:**
+Lua error: "attempt to index a Secret Value" originating from icon resolution code. Error occurs only when the CDM settings panel is opened during combat in Midnight.
+
+**Phase to address:**
+Icon resolution phase. The `InCombatLockdown()` gate and `issecretvalue()` guard must be present before any in-game testing.
+
+---
+
+### Meta-Tracker Pitfall 4: `C_Item.GetItemInfo` Returns nil for Uncached Items
+
+**What goes wrong:**
+`C_Item.GetItemInfo(itemID)` returns nil if the item has not been cached by the client. Trinkets and pots that the player has never had in their inventory (e.g., a trinket acquired just before the session, or a pot bought at the auction house mid-session) may not be in the client cache. Calling `GetItemInfo` immediately after `GetInventoryItemID` on a freshly equipped trinket returns nil, and the addon stores nil as the meta-icon — causing a broken or question-mark icon.
+
+**Why it happens:**
+`GetItemInfo` triggers a server request for uncached items but does not block — it returns nil immediately and fires `GET_ITEM_INFO_RECEIVED` when the data arrives. Code that does not handle the asynchronous case uses the nil return directly.
+
+**How to avoid:**
+After a nil return from `GetItemInfo`, register for `GET_ITEM_INFO_RECEIVED` and retry when the event fires with the matching item ID:
+
+```lua
+function ns:ResolveItemIcon(itemID, cacheKey)
+    local info = C_Item.GetItemInfo(itemID)
+    if info then
+        ns.metaIcons[cacheKey] = info.iconFileDataID
+        ns:RefreshDisplay()
+        return
+    end
+    -- Item not cached — register for async callback
+    ns.pendingItemIconRequests[itemID] = cacheKey
+    -- GET_ITEM_INFO_RECEIVED handler resolves these
+end
+```
+
+Alternatively, use `ItemMixin:ContinueOnItemLoad()` which provides a clean async pattern. The key constraint: never let the nil icon propagate to the display — fall back to the question-mark icon (texture ID 134400, already used in `GetSpellIcon`) until the real icon arrives.
+
+**Warning signs:**
+Meta-tracker slot shows question mark icon even when trinket is equipped. Resolves after a `/reload` once the item has been cached from that previous load.
+
+**Phase to address:**
+Icon resolution phase. The async fallback must be part of the initial implementation, not deferred.
+
+---
+
+### Meta-Tracker Pitfall 5: Bag Scan Finds Multiple Matching Pots — Wrong Icon Displayed
+
+**What goes wrong:**
+The damage pot bag scan iterates `C_Container.GetContainerItemInfo` across all bags looking for items matching the known damage pot item IDs. If the player has multiple different pot types in their bags (e.g., an older tier pot and the current season pot), the scan returns whichever it finds first (bag 0 slot 1 wins). The icon displayed may be for a pot the player cannot use (wrong level, wrong spec) or prefers not to use, even though a preferred pot is in a later bag slot.
+
+**Why it happens:**
+Bag scanning with `for bag = 0, NUM_BAG_SLOTS do for slot = 1, GetContainerNumSlots(bag) do` finds the first match. There is no priority ordering.
+
+**How to avoid:**
+Define an explicit priority order in the pot allowlist — either by item ID priority or by current season tier. The bag scan should iterate the allowlist from most-preferred to least-preferred item ID, and for each item ID check if it is present in any bag. This gives a deterministic result that matches player intent. If no preferred pot is found, fall back to question mark icon (not an arbitrary pot icon).
+
+```lua
+-- Ordered list, index 1 = highest priority
+local POT_PRIORITY = { 12345, 23456, 34567 }  -- current season pots, high to low
+
+local function FindBestPotIcon()
+    for _, itemID in ipairs(POT_PRIORITY) do
+        for bag = 0, NUM_BAG_SLOTS do
+            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                local info = C_Container.GetContainerItemInfo(bag, slot)
+                if info and info.itemID == itemID then
+                    return info.iconFileID
+                end
+            end
+        end
+    end
+    return nil  -- no matching pot found
+end
+```
+
+**Warning signs:**
+Icon shows the wrong pot texture when multiple pot types are in bags. Players notice when they use consumable bags and the icon changes unexpectedly.
+
+**Phase to address:**
+Icon resolution phase — bag scan implementation must define priority order from the start.
+
+---
+
+### Meta-Tracker Pitfall 6: Bag Scan During Combat — `C_Container` APIs May Behave Unexpectedly
+
+**What goes wrong:**
+Unlike `GetInventoryItemID`, `C_Container.GetContainerItemInfo` is documented as `AllowedWhenUntainted` and is not in the same secret-value category as combat-restricted APIs. However, calling bag scans during combat can still produce unexpected behavior: item counts change mid-scan (pot is consumed mid-iteration), slot data returns stale results while loot or trading is in progress, and the scan itself adds overhead to an already-busy combat loop.
+
+More critically, if the bag scan is triggered on `UNIT_INVENTORY_CHANGED` (which fires when items are consumed, picked up, or moved), and the trigger happens during combat because a pot was just used, the scan runs in combat and re-resolves the icon — which is exactly the moment when the old pot's icon should be replaced by the active-timer icon, not by a fresh bag scan that returns the next pot's icon.
+
+**Why it happens:**
+`UNIT_INVENTORY_CHANGED` fires in combat when a consumable is used. If the icon refresh is also triggered by this event, it creates a race: (1) cast detected → timer started with pot's icon; (2) inventory changed (pot count decreased) → bag scan runs → new icon set to remaining pot (or question mark if stack depleted) → overwrites the timer's icon or the display's cached icon.
+
+**How to avoid:**
+Separate the icon refresh trigger from combat events. Only refresh bag scan icons on `PLAYER_REGEN_ENABLED` (leaving combat) or on explicit CDM settings open. Do not trigger bag scan on `UNIT_INVENTORY_CHANGED` during combat. During an active timer, the display should show the active-timer icon (the spell icon of the cast that started the timer), not the bag scan icon — so the race window only affects the idle-state icon, which is hidden during an active timer anyway.
+
+**Warning signs:**
+Icon flickers between spell icon and item icon during an active pot timer. Bag scan runs every few seconds during combat (visible via debug logging).
+
+**Phase to address:**
+Icon resolution phase — event routing for `UNIT_INVENTORY_CHANGED` must explicitly exclude combat.
+
+---
+
+### Meta-Tracker Pitfall 7: Icon Transition on Timer Expiry — Stale Active Icon Persists
+
+**What goes wrong:**
+While a timer is active, the display shows the spell icon of the cast spell (the specific trinket or pot buff icon). When the timer expires, the display should revert to the idle icon (equipped trinket icon or bag pot icon). If `GetActiveTimers` removes the expired timer (setting `ns.activeTimers["trinket"] = nil`) but the display continues to use a cached icon reference from the timer object, the spell icon persists in the display until the next explicit refresh.
+
+The display refresh cycle (`UpdateDisplay`) iterates `GetActiveTimers` for live timers and falls back to the DB entry for inactive slots. The DB entry must carry the resolved idle icon — if it was stored at drag-from-Suggested time (when no trinket context was known), it holds the generic icon. When the timer expires, the display reverts to this generic icon rather than the dynamically resolved equipped trinket icon.
+
+**Why it happens:**
+Icon resolution is a runtime concern but the DB entry (which provides the fallback) is set at buff-add time from the Suggested section data. The Suggested section definition in `ns.SUGGESTED_BUFFS` has a static `getCDMSpellID` function for lust, but trinket/pot have no parallel `getIdleIcon` function — so the CDM display falls back to the spell icon of the CDM spellID, not the dynamically resolved item icon.
+
+**How to avoid:**
+Extend the meta-tracker display path with a runtime idle icon resolver. The CDM display for string-keyed timers should call a `ns:GetMetaIdleIcon(key)` function that returns the current cached icon from `ns.metaIcons[key]`. This function is called when no active timer exists for the key, not when constructing the DB entry. The DB entry does not need to carry the icon — the display resolves it live at render time.
+
+```lua
+-- In Display.lua, when rendering a Suggested/meta slot with no active timer:
+local idleIcon = ns:GetMetaIdleIcon(key) or ns:GetSpellIcon(resolvedSpellID)
+```
+
+**Warning signs:**
+After a trinket timer expires, the CDM icon for the trinket slot shows the generic question mark or the spell icon rather than the equipped trinket's item icon.
+
+**Phase to address:**
+Display integration phase — the idle icon path must be defined when the display rendering for meta-trackers is first written.
+
+---
+
+### Meta-Tracker Pitfall 8: Preview Mode Starts Meta-Timer with Wrong Icon
+
+**What goes wrong:**
+`StartAllPreviewTimers` in `BuffEngine.lua` iterates `ns.db.trackedBuffs` and calls `ns:GetSpellIcon(resolvedID)` for each entry. For string-keyed meta-trackers (`"trinket"`, `"pot"`), `ResolveSuggestedSpellID(key)` returns the CDM display spell ID (e.g., a generic trinket spell). The preview timer icon is this spell's icon, not the dynamically resolved equipped trinket icon. This is cosmetically wrong but not a bug — the timer works correctly.
+
+More seriously: if `StartAllPreviewTimers` is called in combat (unlikely but possible if a preview button is exposed in CDM settings), and the code path tries to resolve the meta icon dynamically, it may call `GetInventoryItemID` during combat.
+
+**Why it happens:**
+Preview mode was designed before meta-trackers existed. The icon resolution in `StartAllPreviewTimers` does not call `ns:GetMetaIdleIcon(key)`.
+
+**How to avoid:**
+In `StartAllPreviewTimers`, when the key is a string meta-key, check `ns.metaIcons[key]` first before falling back to the spell icon:
+
+```lua
+local icon
+if type(spellID) == "string" and ns.metaIcons[spellID] then
+    icon = ns.metaIcons[spellID]
+else
+    icon = ns:GetSpellIcon(resolvedID)
+end
+```
+
+The CDM settings open event (which triggers icon resolution) should always run out of combat, so `ns.metaIcons` will be populated by the time preview is triggered.
+
+**Warning signs:**
+Preview mode shows generic trinket spell icon rather than the equipped trinket's item icon.
+
+**Phase to address:**
+Preview integration — update `StartAllPreviewTimers` when meta-trackers are first added, not deferred.
+
+---
+
+### Meta-Tracker Pitfall 9: UNIT_SPELLCAST_SUCCEEDED spellID Is Safe But Must Match Allowlist Exactly
+
+**What goes wrong:**
+`UNIT_SPELLCAST_SUCCEEDED` provides a `spellID` that is documented as `NeverSecret` — it is always a plain numeric value, never a secret value. This is the safe cast detection path for meta-trackers. However, the allowlist (the set of spell IDs that constitute "damage pot" or "on-use trinket") must match the exact spellIDs that appear in `UNIT_SPELLCAST_SUCCEEDED`, which is the on-use ability's spell ID, not the item's item ID.
+
+The trap: many trinket items have multiple associated spells (the use-ability spell, the proc buff spell, and sometimes a shared cooldown trigger spell). Only the use-ability spell ID appears in `UNIT_SPELLCAST_SUCCEEDED`. If the allowlist uses item IDs or proc buff spell IDs instead of the use-ability spell IDs, no casts will ever match.
+
+**Why it happens:**
+Wowhead and warcraftlogs display item IDs prominently and buff spell IDs for aura tracking. The on-use ability spell ID is a third value not always shown in the same place. Developers copy an aura spell ID from a WeakAura and use it in the `UNIT_SPELLCAST_SUCCEEDED` allowlist.
+
+**How to avoid:**
+For each tracked trinket, verify the spell ID by casting the trinket in-game and using a debug print in the `UNIT_SPELLCAST_SUCCEEDED` handler to log the actual emitted spell ID. Cross-reference with Warcraft Wiki's spell pages where the ability is listed under "Spells" for the item. Do not use the item ID or the buff spell ID — use only the cast-event spell ID.
+
+Document the distinction clearly in the allowlist:
+
+```lua
+-- Spell IDs here are the ON-USE ABILITY spell ID from UNIT_SPELLCAST_SUCCEEDED.
+-- NOT the item ID. NOT the proc buff spell ID.
+-- Verify each by casting in-game with debug logging active.
+ns.TRINKET_SPELL_IDS = {
+    [123456] = { duration = 20, label = "Trinket Name" },
+}
+```
+
+**Warning signs:**
+On-use trinket cast fires, debug logging shows `UNIT_SPELLCAST_SUCCEEDED` with a spellID, but no timer is started — the spell ID is not in the allowlist.
+
+**Phase to address:**
+Cast detection phase — spell ID verification must happen before allowlist is shipped.
+
+---
+
+### Meta-Tracker Pitfall 10: Schema Migration Collision — String Keys New to v0.3.0
+
+**What goes wrong:**
+`ns.db.trackedBuffs` uses numeric spell IDs as keys for user-added buffs and string keys for meta-buffs (`"lust"` since v0.2.1, `"trinket"` and `"pot"` new in v0.3.0). If a user has somehow created a tracked buff with the literal label-as-key `"trinket"` or `"pot"` (e.g., via a slash command or old migration artifact), the new meta-tracker DB entry will silently overwrite it.
+
+The v2→v3 migration already handled the `"lust"` collision by checking `ns.db.trackedBuffs["lust"]` and removing it if it was auto-seeded. The same pattern is needed for `"trinket"` and `"pot"`.
+
+**Why it happens:**
+Each new string meta-key risks colliding with any user data stored under that key from a prior session. No schema version guards the new keys.
+
+**How to avoid:**
+Bump `CURRENT_SCHEMA_VERSION` to 4 in `BuffEngine.lua:InitBuffEngine`. Add a migration block for v3→v4 that checks `ns.db.trackedBuffs["trinket"]` and `ns.db.trackedBuffs["pot"]` — if they exist and were auto-seeded (e.g., `section == "hidden"`), remove them so the Suggested section can present them fresh. If the user has moved them to a visible section (user explicitly placed them), preserve the section but not any stale icon or spellID data.
+
+**Warning signs:**
+On first login after v0.3.0 update, trinket or pot meta-tracker slot is missing from CDM Suggested section, or is in an unexpected section. Check DB for pre-existing string keys.
+
+**Phase to address:**
+Data migration — must be the first phase of v0.3.0, before any runtime timer or display code.
+
+---
+
+### Meta-Tracker Pitfall 11: Two Trinket Slots, One Meta-Key — Which Cast Wins?
+
+**What goes wrong:**
+Players equip two trinkets (slots 13 and 14). If both trinkets are on-use and both spell IDs are in the allowlist, two near-simultaneous casts (macro: use trinket 1 then trinket 2) produce two `UNIT_SPELLCAST_SUCCEEDED` events. The second cast overwrites the timer started by the first, losing the first trinket's timer. The display shows the second trinket's remaining duration, not the longer of the two.
+
+If the first trinket has a 20-second buff and the second has a 15-second buff, and the player casts both, the display shows 15 seconds when 20 seconds of the first buff remain.
+
+**Why it happens:**
+The shared-slot design (`ns.activeTimers["trinket"]`) inherently overwrites. The design assumes only one trinket is tracked at a time. This assumption is violated by two-trinket macros.
+
+**How to avoid:**
+On overwrite, compare expiry times and keep whichever expires later:
+
+```lua
+local existing = ns.activeTimers["trinket"]
+if existing and existing.expiresAt > (now + duration) then
+    -- existing timer expires later — do not overwrite
+    return
+end
+-- otherwise overwrite (new cast or new cast expires later)
+ns.activeTimers["trinket"] = { ... }
+```
+
+This "keep longest" policy ensures the display always shows the maximum remaining time, which is the correct behavior for a single-slot meta-tracker. Document this as explicit design: the slot shows the longest-running active trinket buff, not a specific trinket.
+
+**Warning signs:**
+After a two-trinket macro, the displayed timer is shorter than the longest-running trinket buff. Players notice the timer is wrong when they have two long-duration trinkets.
+
+**Phase to address:**
+Timer creation phase — the keep-longest guard should be implemented in the initial overwrite logic.
+
+---
+
+## Phase-Specific Warning Summary for v0.3.0
+
+| Phase Topic | Pitfall | Mitigation |
+|-------------|---------|------------|
+| Data migration | String key `"trinket"`/`"pot"` collides with pre-existing user data | Schema v3→v4 migration checks and cleans these keys before any new runtime code runs |
+| Cast detection | Allowlist uses wrong spell ID type (item ID or proc buff ID) | Verify each spell ID by casting in-game with debug logging; document the "use ability" ID distinction |
+| Timer creation | Missing `source = "meta"` causes aura scan to cancel timer immediately | Assign `source = "meta"` on all meta-tracker timer entries; add `"meta"` branch in `ScanActiveTimersForCancellation` |
+| Timer creation | Two-trinket macro overwrites the longer-running timer | Keep-longest overwrite: only replace if new timer expires later |
+| Icon resolution | `GetInventoryItemID` called in combat returns secret value | Gate all inventory slot queries behind `InCombatLockdown()`; guard return with `issecretvalue()` |
+| Icon resolution | `C_Item.GetItemInfo` returns nil for uncached item | Handle nil with `GET_ITEM_INFO_RECEIVED` async fallback; never store nil as the meta icon |
+| Icon resolution | Bag scan finds multiple pot types — picks wrong one | Priority-ordered allowlist; scan most-preferred ID first |
+| Icon resolution | `UNIT_INVENTORY_CHANGED` triggers bag scan during combat | Only refresh bag scan on `PLAYER_REGEN_ENABLED` or CDM open out of combat |
+| Display | Expired timer leaves spell icon — does not revert to item icon | `GetMetaIdleIcon(key)` function resolves from `ns.metaIcons` cache at render time |
+| Preview | Preview timer uses spell icon instead of equipped item icon | Check `ns.metaIcons[key]` first in `StartAllPreviewTimers` |
+| Schema | New string keys not migrated — Suggested section shows wrong state | Schema v4 migration removes stale auto-seeded entries for `"trinket"` and `"pot"` |
+
+---
+
+## Integration Risks With Existing Aura Scan System
+
+Trinket and pot timers integrate with the same `ScanActiveTimersForCancellation` loop that handles cast-sourced and debuff-sourced (lust) timers. Specific integration risks for meta-trackers:
+
+| Risk | Source | Prevention |
+|------|--------|------------|
+| Meta-timer cancelled by aura scan | `source` field absent or `"cast"` causes `GetPlayerAuraBySpellID("trinket")` type error | Set `source = "meta"` and add bypass branch in cancellation scan |
+| Meta-timer in preview saves/restores incorrectly | `savedPreviewTimers["trinket"]` holds preview timer; `ClearAllTimers` restores it as real | Preview meta-timers have no `source = "meta"` guard during restore — verify `ClearAllTimers` does not restore preview-only meta entries |
+| Icon not updated when CDM settings open refreshes display | CDM settings open triggers display rebuild but meta icon not resolved yet (item not cached) | Ensure `GET_ITEM_INFO_RECEIVED` is handled and triggers display refresh after icon resolves |
+| `issecretvalue` on timer's `castSpellID` if meta-timer stores the actual cast spellID | `castSpellID` field comes from `UNIT_SPELLCAST_SUCCEEDED` which is `NeverSecret` — safe | No guard needed for `castSpellID` specifically; but guard `GetInventoryItemID` result separately |
+| `RefreshMetaIcons` called from `PLAYER_REGEN_ENABLED` while display is updating | Double `UpdateDisplay` in same frame | Set a `metaIconRefreshPending` flag and consolidate the refresh into the next display tick |
+
+---
+
+## Technical Debt Patterns (v0.3.0 additions)
+
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Skip `issecretvalue()` guard on `GetInventoryItemID` result | Simpler icon resolution code | Lua error when CDM settings opened in combat in Midnight | Never |
+| Use item ID as allowlist key instead of use-ability spell ID | Simpler map, matches Wowhead presentation | No casts ever match — meta-tracker never starts a timer | Never |
+| Skip keep-longest overwrite logic | Simpler overwrite | Two-trinket macros show wrong timer duration | Acceptable only if spec explicitly documents single-trinket-only behavior |
+| Trigger bag scan on every `UNIT_INVENTORY_CHANGED` including in combat | Always-fresh pot icon | Bag scan during combat; race with active-timer icon display | Never — gate behind `InCombatLockdown()` |
+| Store nil into `ns.metaIcons` when item is uncached | Simpler error handling | Question mark icon persists permanently until reload once item is cached | Never — use `GET_ITEM_INFO_RECEIVED` fallback |
+| Skip schema v4 migration for `"trinket"` and `"pot"` keys | Saves one migration block | Collision with any pre-existing user data under those keys | Never |
+
+---
+
+## "Looks Done But Isn't" Checklist (v0.3.0 additions)
+
+- [ ] **Source marker:** All meta-tracker timers have `source = "meta"` AND `ScanActiveTimersForCancellation` has a `"meta"` bypass branch — verify by checking aura scan debug output after a trinket cast in M+
+- [ ] **Combat icon gate:** `GetInventoryItemID` is never called when `InCombatLockdown()` is true — verify by adding a debug assertion
+- [ ] **Async icon fallback:** `GET_ITEM_INFO_RECEIVED` is handled and triggers display refresh — verify by equipping a brand-new item and confirming icon appears within one event cycle
+- [ ] **Bag scan priority:** Multiple pot types in bags produce the highest-priority pot's icon — verify by loading all season pot types in bags and confirming correct icon
+- [ ] **Overwrite keeps longest:** Two quick trinket casts produce a timer showing the longer expiry — verify with two different-duration trinkets via macro
+- [ ] **Icon revert on expiry:** After timer expires, display reverts to item icon (not spell icon, not question mark) — verify by waiting for timer to expire with equipped trinket
+- [ ] **Schema migration:** `"trinket"` and `"pot"` keys absent from `ns.db.trackedBuffs` on fresh load; present and in correct section after user drags from Suggested — verify with DB inspection
+- [ ] **Preview with meta-trackers:** Preview mode starts trinket/pot timers with correct item icons (not generic spell icons) — verify via `/tbt preview`
+
+---
+
+## Sources (v0.3.0 section)
+
+- [UNIT_SPELLCAST_SUCCEEDED — Warcraft Wiki](https://warcraft.wiki.gg/wiki/UNIT_SPELLCAST_SUCCEEDED) — `spellID` parameter documented as `NeverSecret` (HIGH confidence — official wiki, current)
+- [Blizzard Whitelists WoW Spells for Midnight Addons — Boosting Ground](https://boosting-ground.com/wow-boosting/news/blizzard-whitelists-spells-for-midnight) — spellID whitelist approach for Midnight addon detection (MEDIUM confidence — news summary of official dev post)
+- [C_Item.GetItemInfo — Warcraft Wiki](https://warcraft.wiki.gg/wiki/API_C_Item.GetItemInfo) — nil on uncached item, async pattern with `GET_ITEM_INFO_RECEIVED`, iconFileDataID as 10th return (HIGH confidence — official wiki, current)
+- [C_Container.GetContainerItemInfo — Warcraft Wiki](https://warcraft.wiki.gg/wiki/API_C_Container.GetContainerItemInfo) — `AllowedWhenUntainted`, returns `iconFileID` and `itemID`, nil on empty slot (HIGH confidence — official wiki, current)
+- [TrinketTracker (Midnight) — CurseForge](https://www.curseforge.com/wow/addons/trinkettracker-midnight) — "in combat, most APIs return secret values; works around by caching out of combat" (MEDIUM confidence — published addon, implying real-world validation)
+- [Patch 12.0.0/Planned API changes — Warcraft Wiki](https://warcraft.wiki.gg/wiki/Patch_12.0.0/Planned_API_changes) — context-based secret restrictions (M+ active, PvP, encounter in progress); inventory/bag APIs not in combat-restricted category (MEDIUM confidence — official wiki, current)
+- [Development clarification: Secret Values — Blizzard Forum](https://us.forums.blizzard.com/en/wow/t/development-clarification-maintaining-ui-accuracy-vs-secret-value-obfuscation-in-midnight/2243547) — combat-restricted vs non-restricted API categories; `issecretvalue` as guard pattern (MEDIUM confidence — official Blizzard post)
+- [MidnightCheck — CurseForge](https://www.curseforge.com/wow/addons/midnightcheck) — "uses only aura reads, bag scans, and inventory APIs — none of which are restricted by Midnight's new secret value system" — implies bag/inventory APIs are generally unrestricted but context qualifications apply (LOW confidence — addon description, not authoritative documentation)
+- [GET_ITEM_INFO_RECEIVED — Warcraft Wiki](https://warcraft.wiki.gg/wiki/GET_ITEM_INFO_RECEIVED) — event fires when server responds with uncached item data; standard async icon resolution pattern (HIGH confidence — official wiki, current)
+- Existing `BuffEngine.lua` — `source = "debuff"` pattern on lust timers as precedent for meta-tracker source markers; `issecretvalue()` guard in `OnUnitAura` as precedent for secret value handling (HIGH confidence — first-party codebase)
+
+---
+
+*v0.3.0 pitfalls researched: 2026-04-11*
 
 ---
 
@@ -304,78 +732,60 @@ The two event systems must coexist without interfering. Specific integration ris
 ### Pitfall 1: CDM Settings Frame Not Initialized When Addon Loads
 
 **What goes wrong:**
-TBT tries to insert a tab into `CooldownViewerSettings` at `ADDON_LOADED` or `PLAYER_ENTERING_WORLD`, but `CooldownViewerSettings` defers its own initialization. The Blizzard source shows CDM waits for all three events before running `LoadCooldownSettings`:
-
-```lua
-EventUtil.ContinueAfterAllEvents(LoadCooldownSettings,
-    "VARIABLES_LOADED", "PLAYER_ENTERING_WORLD", "COOLDOWN_VIEWER_DATA_LOADED");
-```
-
-`COOLDOWN_VIEWER_DATA_LOADED` fires after `PLAYER_ENTERING_WORLD`. Any attempt to read `CooldownViewerSettings:GetLayoutManager()` or `CooldownViewerSettings:GetDataProvider()` before that event will return nil and crash.
+`CooldownViewerSettings` is a Blizzard frame loaded by `Blizzard_CooldownViewer`. If TBT accesses `CooldownViewerSettings` in `ADDON_LOADED` before that Blizzard addon has finished loading, all calls will hit nil and silently fail or error. Specifically, any attempt to call `CooldownViewerSettings:AddLayoutManager()` or access tab-related methods at startup will fail.
 
 **Why it happens:**
-The addon developer sees the CDM frame exists in the global namespace and assumes it is ready. It exists (defined in XML as `parent="UIParent"`), but it has not run its internal data initialization.
+TBT's `ADDON_LOADED` fires when TBT's own files are loaded, which may be before `Blizzard_CooldownViewer` completes. Addon load order within a session is not guaranteed.
 
 **How to avoid:**
-TBT must also wait for `COOLDOWN_VIEWER_DATA_LOADED` before touching CDM internals. Use `EventUtil.ContinueAfterAllEvents` mirroring the CDM pattern, or listen for `COOLDOWN_VIEWER_DATA_LOADED` explicitly before inserting the tab and injecting the content frame.
+Register for and wait on `COOLDOWN_VIEWER_DATA_LOADED` before accessing CDM APIs. This event fires after `Blizzard_CooldownViewer` has fully initialized its layout managers and settings frame. All CDM-dependent initialization must be gated behind this event.
 
 **Warning signs:**
-- Lua error: "attempt to index a nil value" on `CooldownViewerSettings.layoutManager` or `.dataProvider`
-- Tab button appears but content frame is empty or crashes on show
+- Lua error: "attempt to index global 'CooldownViewerSettings' (a nil value)" on login
+- TBT tab never appears in CDM settings
 
 **Phase to address:**
-CDM tab integration phase (Phase 1 of the milestone). Gate all CDM interaction behind `COOLDOWN_VIEWER_DATA_LOADED`.
+CDM tab integration phase (first phase). Gate initialization behind `COOLDOWN_VIEWER_DATA_LOADED` before writing any tab logic.
 
 ---
 
-### Pitfall 2: Tab Insertion Into `TabButtons` parentArray Requires XML Registration
+### Pitfall 2: Injecting Into CDM's `SetDisplayMode` System
 
 **What goes wrong:**
-`CooldownViewerSettingsMixin:SetupTabs` iterates `self.TabButtons` — a parentArray populated at XML load time by the `parentArray="TabButtons"` attribute on child frames. Any tab button created at runtime via `CreateFrame` will NOT be added to `self.TabButtons` automatically.
-
-`SetDisplayMode` also iterates `self.TabButtons` to call `SetChecked`, so a runtime-created tab that is not in that array will never receive the checked/unchecked state update and will appear permanently active or inactive.
+CDM uses `CooldownViewerSettings:SetDisplayMode(mode)` to switch between its own built-in content panels (e.g., "spells", "auras"). If TBT attempts to call `SetDisplayMode("tbt")` or hook into this system to show TBT content, it will trigger an assertion in CDM's mode switching logic because `"tbt"` is not a recognized mode. CDM's tab system is designed for its own internal tabs.
 
 **Why it happens:**
-`parentArray` is an XML-only mechanism. Developers assume they can call `CreateFrame("Frame", CooldownViewerSettings, "CooldownViewerSettingsTabTemplate")` and the frame will self-register.
+The natural instinct is to integrate with CDM's display switching to show/hide TBT content. The CDM source shows `SetDisplayMode` asserts on unknown mode strings.
 
 **How to avoid:**
-Two viable approaches:
-1. Create the tab via XML in a separate TBT `.xml` file, parented to `CooldownViewerSettings` with `parentArray="TabButtons"` — this registers it at load time exactly like the built-in tabs.
-2. Create the tab at runtime and manually append it to `CooldownViewerSettings.TabButtons` before `SetupTabs` is called — but this requires hooking `OnLoad`, which fires before addon code typically runs.
-
-Approach 1 is cleaner. Approach 2 requires careful ordering. Both require knowing that `SetupTabs` only runs once (during `OnLoad`), so runtime insertion after that point requires also calling `tabButton:SetCustomOnMouseUpHandler` directly.
+TBT manages its own content frame visibility. When the TBT tab button is selected, TBT shows its own content frame (parented to `CooldownViewerSettings`, not injected into CDM's display system). CDM's existing tabs are not modified — TBT's tab is purely additive.
 
 **Warning signs:**
-- Tab button renders but clicking it does nothing or errors in `SetDisplayMode`
-- Tab button does not switch between checked/unchecked state when other tabs are selected
+- Lua error: "Unknown mode" or assert failure in CDM code when TBT tab is clicked
+- CDM built-in content (Spells, Auras panels) disappears when TBT tab is selected
 
 **Phase to address:**
-CDM tab integration phase. Decide early on XML vs. runtime approach; do not defer.
+CDM tab integration phase — do not call `SetDisplayMode` with any TBT-specific mode string.
 
 ---
 
-### Pitfall 3: `SetDisplayMode` Asserts on Unknown Display Modes
+### Pitfall 3: Tab Button Must Be in the `TabButtons` `parentArray` — Requires XML
 
 **What goes wrong:**
-`CooldownViewerSettingsMixin:SetDisplayMode` calls:
-```lua
-assertsafe(type(categories) == "table",
-    "Add missing category data for displayMode: " .. tostring(displayMode));
-```
-The local `displayModeToCategories` table only contains `"spells"` and `"auras"`. If TBT adds a third `displayMode` string (e.g., `"tbt"`) and calls `SetDisplayMode("tbt")`, the assertsafe fires and CDM's layout collapses.
+CDM's settings frame uses an XML `parentArray="TabButtons"` attribute to collect all tab button children into an array used by the tab selection logic. If TBT creates its tab button at runtime via `CreateFrame("Button", ...)` without the `parentArray` registration, the tab is not in the `TabButtons` array — `CooldownViewerSettings.TabButtons` will not include TBT's tab, so the "one tab selected at a time" logic will not deselect TBT's tab when another tab is chosen, and vice versa.
 
 **Why it happens:**
-TBT cannot modify `displayModeToCategories` — it is a local variable inside `CooldownViewerSettings.lua`, not exposed to external code.
+Runtime `CreateFrame` cannot set `parentArray` — this is an XML-only attribute. Developers who avoid XML for simplicity miss this integration point.
 
 **How to avoid:**
-TBT must NOT attempt to create a new display mode inside CDM's mode system. Instead, TBT's tab button should manage its own content panel as a separate frame, shown/hidden independently of CDM's `SetDisplayMode`. The TBT tab button should hide CDM's scroll frame and show TBT's own frame when selected; restoring CDM's scroll frame when deselected. Never call `CooldownViewerSettings:SetDisplayMode` with a TBT-owned string.
+Define TBT's tab button in an XML file (e.g., `CDMTab.xml`) using `<Button parentArray="TabButtons" ...>`. This file must be included in the `.toc` and loaded before CDM settings is opened.
 
 **Warning signs:**
-- Lua error: `assertsafe` firing with "Add missing category data for displayMode"
-- CDM settings window goes blank after clicking TBT tab
+- Multiple CDM tabs appear selected simultaneously
+- Clicking away from TBT tab does not deselect it visually
 
 **Phase to address:**
-CDM tab integration phase. Architecture decision: TBT's tab is a visibility toggle for a TBT-owned content frame, not a new display mode injected into CDM internals.
+CDM tab integration phase — XML file and `.toc` entry must be added before writing any Lua tab logic.
 
 ---
 
@@ -558,6 +968,10 @@ ConfigUI replacement phase (same phase as CDM tab integration).
 | Skip `issecretvalue()` guard on aura spellId | Simpler aura scan loop | Lua error in every M+/PvP/encounter event, console spam, potential UI taint | Never |
 | Use `PLAYER_REGEN_ENABLED` to clear aura block flag | Simple single-event reset | Block clears during M+ out-of-combat lulls; errors on next aura scan | Never — use zone change events |
 | Full aura scan on every UNIT_AURA event | Simpler scan logic | CPU spike during large encounters; unnecessary work when only specific auras changed | Acceptable only as a temporary fallback behind an `isFullUpdate` guard |
+| Skip `source = "meta"` on meta-tracker timers | Simpler timer creation | Aura scan calls `GetPlayerAuraBySpellID("trinket")` — type error or silent nil, timer cancelled immediately | Never |
+| Call `GetInventoryItemID` without `InCombatLockdown()` guard | Simpler icon resolution | Lua error or secret value when CDM settings opened in combat | Never |
+| Store nil from uncached `GetItemInfo` as the meta icon | Simpler error path | Question mark icon persists until reload; never resolves | Never — use `GET_ITEM_INFO_RECEIVED` |
+| Use item ID or proc buff ID in cast detection allowlist | Matches Wowhead presentation | No casts ever match; meta-tracker never fires | Never — use the on-use ability spell ID from UNIT_SPELLCAST_SUCCEEDED |
 
 ---
 
@@ -577,6 +991,10 @@ ConfigUI replacement phase (same phase as CDM tab integration).
 | Aura cancellation on zone change | Cancel all timers when `isFullUpdate` fires after zone transition | Suppress cancellation during `PLAYER_ENTERING_WORLD` window; never cancel on `isFullUpdate` alone |
 | Cast-to-aura ordering | Aura scan cancels timer immediately after `UNIT_SPELLCAST_SUCCEEDED` starts it | Grace period: skip cancellation for ~0.5s after cast succeeds |
 | Aura block flag reset | Clear block on `PLAYER_REGEN_ENABLED` (combat drop) | Clear on `ZONE_CHANGED_NEW_AREA` or confirmed non-secret read; M+ is restricted out-of-combat too |
+| Meta-tracker aura scan | Missing `source = "meta"` causes scan to call `GetPlayerAuraBySpellID` with string key | Set `source = "meta"`; add bypass branch in `ScanActiveTimersForCancellation` |
+| Meta-tracker icon resolution | Call `GetInventoryItemID` in combat or without `issecretvalue()` guard | Gate behind `InCombatLockdown()`; wrap result in `issecretvalue()` check |
+| Meta-tracker cast allowlist | Use item ID or proc buff spell ID instead of use-ability spell ID | Verify each spell ID in-game via `UNIT_SPELLCAST_SUCCEEDED` debug logging |
+| Meta-tracker icon revert | Display uses stale spell icon after timer expiry | Render idle icon via `ns:GetMetaIdleIcon(key)` at display time, not at timer-creation time |
 
 ---
 
@@ -589,6 +1007,7 @@ ConfigUI replacement phase (same phase as CDM tab integration).
 | TBT tab `OnUpdate` running cursor tracking when no drag is active | Unnecessary work every frame | Set `OnUpdate` script only during drag; nil it at end | Low impact alone, but consistent with CDM's own pattern |
 | Full aura scan on every `UNIT_AURA` event | CPU spike in raids; UNIT_AURA fires very frequently | Use `removedAuraInstanceIDs` for targeted removal; full scan only on `isFullUpdate` | Large group content with many buff changes per second |
 | UNIT_AURA scanning non-hidden tracked buffs with no active timer | Extra iteration over entries that cannot produce a cancellation | Filter scan to `ns.activeTimers[spellID] ~= nil` first | Low cost per event but accumulates at high fire rate |
+| Bag scan triggered by `UNIT_INVENTORY_CHANGED` during combat | Scan runs every time consumable is used; redundant during active timer | Gate bag scan on `PLAYER_REGEN_ENABLED` only; never in combat | Any combat with potion use |
 
 ---
 
@@ -601,6 +1020,8 @@ ConfigUI replacement phase (same phase as CDM tab integration).
 | TBT tab does not restore the previously selected CDM tab (Spells vs. Auras) when dismissed | Disorienting for users who were on the Spells tab | Cache `CooldownViewerSettings.displayMode` before showing TBT tab; restore it when TBT tab is deselected |
 | Delete drop zone always visible | Clutters the UI for users not in a drag session | Only show delete zone when a drag is active |
 | Aura cancellation silently removes timers without any feedback | User notices timers disappear but does not know why | This is intentional correct behavior; no feedback needed unless debug mode is active |
+| Meta-tracker idle icon shows question mark or wrong spell after timer expiry | User confused by icon changing after buff ends | Resolve idle icon from `ns.metaIcons[key]` cache at render time; cache populated out of combat |
+| Meta-tracker slot shows previous trinket's icon after trinket swap | Stale cached icon from pre-swap equipped item | Register `UNIT_INVENTORY_CHANGED`; refresh icon cache out of combat (defer to `PLAYER_REGEN_ENABLED` if in combat) |
 
 ---
 
@@ -613,6 +1034,9 @@ ConfigUI replacement phase (same phase as CDM tab integration).
 - [ ] **ConfigUI removal:** `/tbt` opens CDM to TBT tab AND Escape still closes UI panels AND no Lua error on `/tbt` — verify all three
 - [ ] **CDM settings one-time copy:** Runs on fresh install AND does not run on second login AND does not run after user manually changes CDM settings — verify all three
 - [ ] **Aura cancellation (v0.2.1):** Timers cancel correctly when buff expires early in open world AND no Lua errors occur in M+/PvP/encounter AND no timers cancelled during zone transitions AND cast grace period prevents immediate cancellation AND block flag correctly stays set for entire M+ key duration — verify all five
+- [ ] **Meta-tracker source marker (v0.3.0):** Trinket and pot timers have `source = "meta"` AND aura scan does not cancel them AND no Lua errors from `GetPlayerAuraBySpellID` with string argument — verify in M+
+- [ ] **Meta-tracker icon gate (v0.3.0):** `GetInventoryItemID` never called in combat AND no Lua errors when CDM settings opened in combat — verify with combat logging
+- [ ] **Meta-tracker icon revert (v0.3.0):** After timer expiry, slot shows equipped item icon (not spell icon, not question mark) — verify by waiting for timer expiry with trinket equipped
 
 ---
 
@@ -630,6 +1054,11 @@ ConfigUI replacement phase (same phase as CDM tab integration).
 | Timers cancelled on every zone transition | MEDIUM | Wrap `isFullUpdate` cancellation in `PLAYER_ENTERING_WORLD` suppression window; requires careful event ordering |
 | Block flag clears mid-M+ causing errors | LOW | Replace `PLAYER_REGEN_ENABLED` reset trigger with `ZONE_CHANGED_NEW_AREA`; 2-line change |
 | Timer disappears immediately after cast | LOW | Add grace period flag on `ns.recentlyCast[spellID]`; 5-line addition |
+| Meta-timer cancelled immediately by aura scan | LOW | Add `source = "meta"` to timer creation and bypass branch in scan; 3-line fix |
+| Lua error from inventory query in combat | LOW | Wrap `GetInventoryItemID` in `InCombatLockdown()` guard; 2-line fix |
+| Question mark icon on uncached item | LOW | Add `GET_ITEM_INFO_RECEIVED` handler and retry logic; 10-line addition |
+| Wrong pot icon from unordered bag scan | LOW | Reorder bag scan to use priority list; 5-line refactor |
+| Stale icon after trinket swap | LOW | Register `UNIT_INVENTORY_CHANGED` and set pending refresh flag; 5-line addition |
 
 ---
 
@@ -653,7 +1082,14 @@ ConfigUI replacement phase (same phase as CDM tab integration).
 | Block flag reset with wrong event | v0.2.1 Phase 1: Block flag logic | Test M+ key active out-of-combat; confirm block stays set |
 | Full scan performance | v0.2.1 Phase 1: Scan optimization | Profile in 25+ player raid; confirm no frame time spike on aura changes |
 | Aura instance ID cache stale after isFullUpdate | v0.2.1 Phase 1: Instance ID cache | Zone change, confirm reverse map is rebuilt cleanly |
+| String key collision (`"trinket"`, `"pot"`) | v0.3.0 Phase 1: Schema migration | Inspect DB before and after update; verify clean key state |
+| Missing `source = "meta"` on meta-timer | v0.3.0 Phase 2: Timer creation | Cast trinket in M+; confirm timer persists through next aura scan event |
+| `GetInventoryItemID` in combat | v0.3.0 Phase 3: Icon resolution | Open CDM settings during combat; confirm no Lua errors |
+| Uncached item nil icon | v0.3.0 Phase 3: Icon resolution | Equip brand-new trinket; confirm icon appears without reload |
+| Bag scan finds wrong pot | v0.3.0 Phase 3: Icon resolution | Load multiple pot types in bags; confirm highest-priority pot icon shown |
+| Timer overwrites longer-running expiry | v0.3.0 Phase 2: Timer creation | Cast two different-duration trinkets via macro; confirm longest timer shown |
+| Idle icon not reverted after expiry | v0.3.0 Phase 4: Display integration | Wait for timer to expire; confirm item icon shown (not spell icon) |
 
 ---
-*Pitfalls research for: WoW addon CDM tab integration, Edit Mode movable elements, drag-and-drop, aura-based timer cancellation (v0.2.1)*
-*Last updated: 2026-04-03*
+*Pitfalls research for: WoW addon CDM tab integration, Edit Mode movable elements, drag-and-drop, aura-based timer cancellation (v0.2.1), trinket/pot meta-trackers (v0.3.0)*
+*Last updated: 2026-04-11*
