@@ -39,7 +39,7 @@ local function RefreshContainerSettings()
 		cachedBarSettings.barWidth = BAR_WIDTH * (bs.barWidth or 100) / 100
 		cachedBarSettings.alpha = (bs.opacity or 100) / 100
 		cachedBarSettings.visibleSetting = (bs.visibility == 2) and 1 or (bs.visibility == 3) and 2 or 0
-		cachedBarSettings.barContent = 0
+		cachedBarSettings.barContent = bs.displayMode or 0
 		cachedBarSettings.hideWhenInactive = bs.hideWhenInactive ~= false
 		cachedBarSettings.timerShown = bs.showTimer ~= false
 		cachedBarSettings.tooltipsShown = bs.showTooltips ~= false

@@ -42,6 +42,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 					barWidth = 100, -- percentage (100 = BAR_WIDTH default of 220px)
 					opacity = 100, -- percentage (100 = fully opaque)
 					visibility = 0, -- 0=Always Visible (show whenever buff is up)
+					displayMode = 0, -- 0=Icon And Name, 1=Icon Only, 2=Name Only
 					hideWhenInactive = true,
 					showTimer = true,
 					showTooltips = true,
@@ -74,6 +75,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 				end
 				if cs.opacity == nil then
 					cs.opacity = 100
+				end
+				if key == "bars" and cs.displayMode == nil then
+					cs.displayMode = 0
 				end
 			end
 		end

@@ -268,6 +268,9 @@ local function CreateSettingsPopup()
 
 		if key == "bars" then
 			cs.barWidth = viewer:GetSettingValue(S.BarWidthScale) or cs.barWidth
+			if S.BarContent then
+				cs.displayMode = viewer:GetSettingValue(S.BarContent) or cs.displayMode
+			end
 		end
 
 		ns.RefreshContainerSettings()
@@ -403,15 +406,21 @@ function ns:ShowSettingsPopup(containerKey)
 		{ text = "In Combat", value = 2 },
 		{ text = "Hidden", value = 3 },
 	}
+	local displayModeOpts = {
+		{ text = "Icon And Name", value = 0 },
+		{ text = "Icon Only", value = 1 },
+		{ text = "Name Only", value = 2 },
+	}
 
 	if containerKey == "bars" then
 		-- TBT Bars order: Icon Size, Icon Padding, Bar Width, Opacity, Visibility,
-		-- Hide When Inactive, Show Timer, Show Tooltips
+		-- Display Mode, Hide When Inactive, Show Timer, Show Tooltips
 		AddSlider("Icon Size", "scale", 50, 200, 5, ShowAsPercentage)
 		AddSlider("Icon Padding", "padding", 0, 20, 1, ShowAsInteger)
 		AddSlider("Bar Width", "barWidth", 50, 200, 1, ShowAsPercentage)
 		AddSlider("Opacity", "opacity", 50, 100, 1, ShowAsPercentage)
 		AddDropdown("Visibility", "visibility", visOpts)
+		AddDropdown("Display Mode", "displayMode", displayModeOpts)
 		AddCheckbox("Hide When Inactive", "hideWhenInactive")
 		AddCheckbox("Show Timer", "showTimer")
 		AddCheckbox("Show Tooltips", "showTooltips")
