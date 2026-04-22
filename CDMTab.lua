@@ -6,18 +6,24 @@ local _, ns = ...
 
 local ICON_PATH = "Interface\\AddOns\\TerribleBuffTracker\\tbt_icon_64x64"
 
+-- Description text for meta-buff tiles in the CDM Suggested section (D-06/D-07 Phase 23).
+-- Kept CDMTab-local — this is settings UX text, not provider concern.
+local META_DESCRIPTIONS = {
+	trinket = "Tracks all current season's on-use trinkets",
+	pot = "Tracks all current season's damage potions",
+	lust = "Matches all Heroism/Bloodlust effects",
+}
+
 ---------------------------------------------------------------------
 -- Preview control (reuses existing ns.configOpen flag from Display.lua)
 ---------------------------------------------------------------------
 
 local function StartPreview()
-	-- D-14 / ICON-05: Refresh at-rest meta-icons (trinket/pot) before preview begins.
-	-- Combat-gated inside RefreshMetaIcons (D-07) — safe to call unconditionally.
-	ns:RefreshMetaIcons()
+	-- D-14 / ICON-05: Refresh provider at-rest state (trinket/pot cache) before preview begins.
+	-- Combat-gated inside RefreshProvidersAtRest (D-07) — safe to call unconditionally.
+	ns:RefreshProvidersAtRest()
 	ns:RefreshTBTSections()
 	ns.configOpen = true
-	-- Signal placeholder icons need a refresh (stale from prior CDM session or live swap).
-	ns.metaIconsDirty = true
 	ns:StartAllPreviewTimers()
 end
 
@@ -73,74 +79,41 @@ local function CreateIconFrame(parent)
 	end)
 
 	f:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-
-		-- For trinket/pot meta-slots, show item tooltip of the resolved at-rest item
-		-- with duration from the corresponding spell table.
-		local META_DESCRIPTIONS = {
-			trinket = "Tracks all current season's on-use trinkets",
-			pot = "Tracks all current season's damage potions",
-			lust = "Matches all Heroism/Bloodlust effects",
-		}
-		local isMetaString = type(self.spellID) == "string"
-		local metaInfo = isMetaString and ns.GetAtRestMetaInfo and ns:GetAtRestMetaInfo(self.spellID) or nil
-
-		local hasTooltip = false
-		if metaInfo and metaInfo.spellID then
-			GameTooltip:SetSpellByID(metaInfo.spellID)
-			hasTooltip = true
-		else
-			-- Lust path (and non-meta regular buffs): class-aware spell tooltip
-			local displaySpellID = ns:ResolveSuggestedSpellID(self.spellID) or self.spellID
-			if displaySpellID and type(displaySpellID) == "number" and C_Spell and C_Spell.GetSpellInfo then
-				local info = C_Spell.GetSpellInfo(displaySpellID)
-				if info and info.name then
-					GameTooltip:SetSpellByID(displaySpellID)
-					hasTooltip = true
-				end
-			end
+		if not self.spellID then
+			return
 		end
-
-		local entry = ns.db and ns.db.trackedBuffs and ns.db.trackedBuffs[self.spellID]
-		local suggested
-		if not entry and self.sectionName == "suggested" then
-			for _, s in ipairs(ns.SUGGESTED_BUFFS) do
-				if s.key == self.spellID then
-					suggested = s
-					break
-				end
-			end
-		end
-
-		if entry or suggested then
-			local displayLabel = (entry and entry.label) or (suggested and suggested.label) or tostring(self.spellID)
-			if not hasTooltip then
-				GameTooltip:SetText(displayLabel, 1, 1, 1)
-			end
-			GameTooltip:AddLine(" ")
+		local info = ns:GetDisplayInfoForKey(self.spellID)
+		if not info then
+			-- Non-meta user spell with no provider info; still try bare tooltip
 			if type(self.spellID) == "number" then
-				GameTooltip:AddLine("Spell ID: " .. self.spellID, 0.8, 0.8, 0.8)
+				ns:ShowBuffTooltip(self, { spellID = self.spellID }, {
+					showSpellID = true,
+				})
 			end
-			-- Duration: for trinket/pot, use resolved at-rest duration; else fall back to stored duration
-			local duration
-			if metaInfo and metaInfo.duration then
-				duration = metaInfo.duration
-			elseif entry and entry.duration and entry.duration > 0 then
-				duration = entry.duration
-			elseif suggested and suggested.duration and suggested.duration > 0 then
-				duration = suggested.duration
-			end
-			if duration then
-				GameTooltip:AddLine("TBT Duration: " .. duration .. "s", 0.8, 0.8, 0.8)
-			end
-			if isMetaString then
-				local desc = META_DESCRIPTIONS[self.spellID]
-				if desc then
-					GameTooltip:AddLine(desc, 0.5, 0.5, 0.5)
-				end
-			end
-			GameTooltip:Show()
+			return
 		end
+
+		-- Build the proc-shaped table and opts for the shared handler
+		local entry = ns.db and ns.db.trackedBuffs and ns.db.trackedBuffs[self.spellID]
+		local duration
+		if info.duration and info.duration > 0 then
+			duration = info.duration
+		elseif entry and entry.duration and entry.duration > 0 then
+			duration = entry.duration
+		end
+
+		local proc = {
+			spellID = info.spellID,
+			label = (entry and entry.label) or info.label,
+			duration = duration,
+		}
+
+		local description = META_DESCRIPTIONS[self.spellID]
+		ns:ShowBuffTooltip(self, proc, {
+			showSpellID = type(info.spellID) == "number",
+			showDuration = duration ~= nil,
+			extraLines = description and { description } or nil,
+		})
 	end)
 
 	f:SetScript("OnLeave", function()
@@ -159,28 +132,30 @@ local function CreateIconFrame(parent)
 						if existing then
 							ns:SetBuffSection(key, targetSection)
 						else
-							for _, suggested in ipairs(ns.SUGGESTED_BUFFS) do
-								if suggested.key == key then
-									local maxOrder = 0
-									for _, e in pairs(ns.db.trackedBuffs) do
-										if e.layoutOrder and e.layoutOrder > maxOrder then
-											maxOrder = e.layoutOrder
+							for _, suggestedKey in ipairs(ns.SUGGESTED_KEYS) do
+								if suggestedKey == key then
+									local info = ns:GetDisplayInfoForKey(suggestedKey)
+									if info then
+										local maxOrder = 0
+										for _, e in pairs(ns.db.trackedBuffs) do
+											if e.layoutOrder and e.layoutOrder > maxOrder then
+												maxOrder = e.layoutOrder
+											end
 										end
+										ns.db.trackedBuffs[key] = {
+											key = suggestedKey,
+											label = info.label,
+											duration = info.duration,
+											section = targetSection,
+											layoutOrder = maxOrder + 1,
+										}
 									end
-									ns.db.trackedBuffs[key] = {
-										key = suggested.key,
-										label = suggested.label,
-										duration = suggested.duration,
-										section = targetSection,
-										layoutOrder = maxOrder + 1,
-										metaBuff = suggested.metaBuff,
-									}
 									break
 								end
 							end
 						end
 						ns:RefreshTBTSections()
-						if ns.previewActive or ns.configOpen then
+						if ns.configOpen then
 							ns:StartAllPreviewTimers()
 						end
 					end
@@ -429,19 +404,9 @@ BeginDrag = function(iconFrame)
 
 	-- Show ghost at cursor; resolve class-aware icon for suggested items
 	local ghost = GetOrCreateGhostFrame()
-	local ghostIconID
-	if type(iconFrame.spellID) == "string" then
-		-- Meta-buffs: try at-rest meta icon (trinket/pot) first, then class-aware spell (lust)
-		local metaIcon = ns.GetAtRestMetaIcon and ns:GetAtRestMetaIcon(iconFrame.spellID) or nil
-		if metaIcon and metaIcon ~= 134400 then
-			ghostIconID = metaIcon
-		else
-			local resolved = ns:ResolveSuggestedSpellID(iconFrame.spellID)
-			ghostIconID = resolved and ns:GetSpellIcon(resolved) or (metaIcon or 134400)
-		end
-	else
-		ghostIconID = ns:GetSpellIcon(iconFrame.spellID)
-	end
+	-- Resolve class-aware / meta-aware icon via unified dispatch (D-15 Phase 23)
+	local ghostInfo = ns:GetDisplayInfoForKey(iconFrame.spellID)
+	local ghostIconID = (ghostInfo and ghostInfo.icon) or ns:GetSpellIcon(iconFrame.spellID) or 134400
 	ghost.Icon:SetTexture(ghostIconID)
 	ghost:Show()
 
@@ -548,22 +513,24 @@ EndDrag = function(commit)
 					ns:SetBuffSection(suggestedKey, targetSection)
 				else
 					-- Not yet tracked: create entry from suggested definition
-					for _, suggested in ipairs(ns.SUGGESTED_BUFFS) do
-						if suggested.key == suggestedKey then
-							local maxOrder = 0
-							for _, e in pairs(ns.db.trackedBuffs) do
-								if e.layoutOrder and e.layoutOrder > maxOrder then
-									maxOrder = e.layoutOrder
+					for _, sk in ipairs(ns.SUGGESTED_KEYS) do
+						if sk == suggestedKey then
+							local info = ns:GetDisplayInfoForKey(sk)
+							if info then
+								local maxOrder = 0
+								for _, e in pairs(ns.db.trackedBuffs) do
+									if e.layoutOrder and e.layoutOrder > maxOrder then
+										maxOrder = e.layoutOrder
+									end
 								end
+								ns.db.trackedBuffs[suggestedKey] = {
+									key = sk,
+									label = info.label,
+									duration = info.duration,
+									section = targetSection,
+									layoutOrder = maxOrder + 1,
+								}
 							end
-							ns.db.trackedBuffs[suggestedKey] = {
-								key = suggested.key,
-								label = suggested.label,
-								duration = suggested.duration,
-								section = targetSection,
-								layoutOrder = maxOrder + 1,
-								metaBuff = suggested.metaBuff,
-							}
 							break
 						end
 					end
@@ -571,7 +538,7 @@ EndDrag = function(commit)
 				-- D-07: Icon stays in Suggested (no removal)
 				wipe(tbtDragState)
 				ns:RefreshTBTSections()
-				if ns.previewActive or ns.configOpen then
+				if ns.configOpen then
 					ns:StartAllPreviewTimers()
 				end
 				PlaySound(SOUNDKIT.UI_CURSOR_DROP_OBJECT)
@@ -746,26 +713,16 @@ function ns:RefreshTBTSections()
 		end
 
 		if def.key == "suggested" then
-			-- Populate from SUGGESTED_BUFFS catalog (D-04, D-09)
-			-- Add square is layoutIndex 1 (always first); catalog starts at 2
-			for i, suggested in ipairs(ns.SUGGESTED_BUFFS) do
+			-- Populate from SUGGESTED_KEYS catalog (D-12 Phase 23).
+			-- Add square is layoutIndex 1 (always first); catalog starts at 2.
+			for i, suggestedKey in ipairs(ns.SUGGESTED_KEYS) do
 				local item = section.itemPool:Acquire()
-				-- Resolve at-rest icon: prefer getCDMSpellID (existing class-aware path for lust),
-				-- fall through to getCDMIcon for itemID-based entries (trinket/pot — Phase 14 fills in),
-				-- final fallback to 134400 question-mark. D-08 plumbing (research Pattern 3).
-				local cdmSpellID = suggested.getCDMSpellID and suggested.getCDMSpellID()
-				local iconID
-				if cdmSpellID then
-					iconID = ns:GetSpellIcon(cdmSpellID)
-				elseif suggested.getCDMIcon then
-					iconID = suggested.getCDMIcon() or 134400
-				else
-					iconID = 134400
-				end
-				item.spellID = suggested.key -- string key "lust"
+				local info = ns:GetDisplayInfoForKey(suggestedKey)
+				local iconID = (info and info.icon) or 134400
+				item.spellID = suggestedKey -- string key "lust" / "trinket" / "pot"
 				item.Icon:SetTexture(iconID)
 				item.sectionName = "suggested"
-				item.suggestedIndex = i -- index into ns.SUGGESTED_BUFFS
+				item.suggestedIndex = i -- index into ns.SUGGESTED_KEYS (D-13)
 				item.layoutIndex = i + 1 -- +1 to leave slot 1 for the Add square
 				item:Show()
 			end
@@ -783,20 +740,10 @@ function ns:RefreshTBTSections()
 			for i, info in ipairs(sorted) do
 				local item = section.itemPool:Acquire()
 				item.spellID = info.spellID
-				-- Resolve icon: meta-buffs with getCDMIcon (trinket/pot) → at-rest icon cache;
-				-- meta-buffs with getCDMSpellID (lust) → class-aware spell icon.
-				local iconID
-				if type(info.spellID) == "string" then
-					local metaIcon = ns.GetAtRestMetaIcon and ns:GetAtRestMetaIcon(info.spellID) or nil
-					if metaIcon and metaIcon ~= 134400 then
-						iconID = metaIcon
-					else
-						local resolved = ns:ResolveSuggestedSpellID(info.spellID)
-						iconID = resolved and ns:GetSpellIcon(resolved) or (metaIcon or 134400)
-					end
-				else
-					iconID = ns:GetSpellIcon(info.spellID)
-				end
+				-- Resolve icon via unified dispatch (D-15 Phase 23). Falls back to GetSpellIcon for
+				-- plain numeric user spells (provider returns nil → direct spell icon lookup).
+				local displayInfo = ns:GetDisplayInfoForKey(info.spellID)
+				local iconID = (displayInfo and displayInfo.icon) or ns:GetSpellIcon(info.spellID) or 134400
 				item.Icon:SetTexture(iconID)
 				item.sectionName = def.key
 				item.layoutIndex = i -- sequential for GridLayoutFrame
@@ -810,7 +757,7 @@ function ns:RefreshTBTSections()
 	ns:UpdateScrollChildHeight()
 
 	-- Refresh preview timers so meta-buff icons/labels reflect current spec
-	if ns.previewActive or ns.configOpen then
+	if ns.configOpen then
 		ns:StartAllPreviewTimers()
 	end
 end

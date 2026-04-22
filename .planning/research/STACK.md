@@ -6,6 +6,429 @@
 
 ---
 
+## v0.2.4 Addition: SpellProvider Abstraction — Lua OOP and Event Dispatch Patterns
+
+**Researched:** 2026-04-18
+**Scope:** Lua 5.1 idioms for class-like abstractions, polymorphic dispatch, event routing, and table pooling in a WoW addon (no external libraries).
+
+---
+
+### Core Pattern: Mixin-Based "Class" Construction
+
+WoW Midnight's runtime is Lua 5.1 with Blizzard's own mixin helpers available as globals. The canonical OOP pattern in Blizzard code is the **mixin table** — a plain table of functions, instantiated with `CreateFromMixins`. This is how all CDM providers (`CooldownViewerItemMixin`, `CooldownViewerItemDataMixin`, `CooldownViewerSettingsDataProviderMixin`) are built.
+
+Source: `CooldownViewer.lua:92` — `CooldownViewerItemMixin = CreateFromMixins(CooldownViewerItemDataMixin, CooldownViewerVisualAlertTargetMixin)` and `CooldownViewerSettingsDataProvider.lua:1` — `CooldownViewerSettingsDataProviderMixin = {}`.
+
+#### `Mixin(target, ...)` — copy methods into an existing table
+
+```lua
+-- Built-in WoW global (C-layer, not defined in SharedXML Lua)
+-- Copies all key/value pairs from each mixin table into target.
+-- Returns target.
+Mixin(target, MixinA, MixinB)
+```
+
+#### `CreateFromMixins(...)` — create a new table from one or more mixins
+
+```lua
+-- Built-in WoW global. Creates a new empty table, then copies all methods
+-- from each mixin into it in left-to-right order (last wins on collisions).
+-- Equivalent to: Mixin({}, ...)
+local instance = CreateFromMixins(SpellProviderMixin)
+```
+
+**Use `CreateFromMixins` for SpellProvider instances.** Each call produces a fresh table with its own state fields — no shared state between instances.
+
+#### `CreateAndInitFromMixin(mixin, ...)` — create + call Init in one step
+
+```lua
+-- Defined in Blizzard_SharedXMLBase/Mixin.lua
+-- Creates instance via CreateFromMixins, then calls instance:Init(...)
+local provider = CreateAndInitFromMixin(UserSpellProviderMixin, spellID, duration, label)
+```
+
+Use this when every provider type has an `Init(...)` constructor. The pattern is: define `SpellProviderBaseMixin` with stub methods, define `ConcreteProviderMixin` with real implementations, then construct with `CreateFromMixins(SpellProviderBaseMixin, ConcreteProviderMixin)`.
+
+---
+
+### SpellProvider Mixin Pattern — Copy-Paste Starting Point
+
+```lua
+-- SpellProvider base "interface" — defines the contract.
+-- Concrete providers are built with CreateFromMixins(SpellProviderBaseMixin, ConcreteMixin).
+local SpellProviderBaseMixin = {}
+
+-- Returns a list of WoW event names this provider needs routed to it.
+-- BuffEngine calls provider:OnTrigger(event, ...) for each listed event.
+function SpellProviderBaseMixin:GetEventInterests()
+    return {} -- override in concrete provider
+end
+
+-- Called by BuffEngine when a registered event fires.
+-- Returns an ActiveProc table if the event triggers a proc, or nil.
+-- Shape: { key=any, icon=number, duration=number, label=string, expiresAt=number, source=string }
+function SpellProviderBaseMixin:OnTrigger(event, ...)
+    return nil -- override in concrete provider
+end
+
+-- Returns display info for CDM tab and config (at-rest state).
+-- Shape: { icon=number, label=string, duration=number, spellID=number|nil }
+function SpellProviderBaseMixin:GetPreviewInfo()
+    return nil -- override in concrete provider
+end
+```
+
+**Why this shape:**
+- `GetEventInterests()` decouples event registration from Core.lua — BuffEngine owns event routing, not each provider.
+- `OnTrigger()` returning a normalized plain table means Display never branches on provider type.
+- `GetPreviewInfo()` feeds both CDMTab (icon grid) and preview timer generation from a single source.
+
+---
+
+### Concrete Provider: UserSpellProvider
+
+```lua
+local UserSpellProviderMixin = {}
+
+function UserSpellProviderMixin:Init(spellID, duration, label)
+    self.spellID  = spellID
+    self.duration = duration
+    self.label    = label
+end
+
+function UserSpellProviderMixin:GetEventInterests()
+    return { "UNIT_SPELLCAST_SUCCEEDED" }
+end
+
+function UserSpellProviderMixin:OnTrigger(event, unit, _, castSpellID)
+    if event ~= "UNIT_SPELLCAST_SUCCEEDED" then return nil end
+    if unit ~= "player" then return nil end
+    if castSpellID ~= self.spellID then return nil end
+
+    local now = GetTime()
+    return {
+        key       = self.spellID,
+        icon      = ns:GetSpellIcon(self.spellID),
+        duration  = self.duration,
+        label     = self.label,
+        expiresAt = now + self.duration,
+        source    = "cast",
+    }
+end
+
+function UserSpellProviderMixin:GetPreviewInfo()
+    return {
+        icon     = ns:GetSpellIcon(self.spellID),
+        label    = self.label,
+        duration = self.duration,
+        spellID  = self.spellID,
+    }
+end
+
+-- Construction:
+-- local providerProto = CreateFromMixins(SpellProviderBaseMixin, UserSpellProviderMixin)
+-- local p = CreateAndInitFromMixin(providerProto, spellID, duration, label)
+```
+
+---
+
+### Concrete Provider: Multi-Spell Provider (Trinket / Pot)
+
+Trinket and Pot providers watch a **set** of spell IDs, not one. The provider holds a lookup table of `spellID -> { duration, itemID }`.
+
+```lua
+local MultiSpellProviderMixin = {}
+
+-- spellTable:   same shape as TRINKET_SPELLS / POT_SPELLS
+-- metaKey:      string ("trinket" or "pot") — used as the ActiveProc key in BuffEngine
+-- atRestIconFn: function() -> iconID  (called per-proc to get at-rest icon)
+function MultiSpellProviderMixin:Init(spellTable, metaKey, atRestIconFn)
+    self.spellTable   = spellTable
+    self.metaKey      = metaKey
+    self.atRestIconFn = atRestIconFn
+end
+
+function MultiSpellProviderMixin:GetEventInterests()
+    return { "UNIT_SPELLCAST_SUCCEEDED" }
+end
+
+function MultiSpellProviderMixin:OnTrigger(event, unit, _, castSpellID)
+    if event ~= "UNIT_SPELLCAST_SUCCEEDED" then return nil end
+    if unit ~= "player" then return nil end
+
+    local def = self.spellTable[castSpellID]
+    if not def then return nil end
+
+    local now       = GetTime()
+    local spellInfo = C_Spell.GetSpellInfo(castSpellID)
+    return {
+        key         = self.metaKey,          -- BuffEngine uses this as the activeProcs table key
+        icon        = ns:GetSpellIcon(castSpellID),
+        atRestIcon  = self.atRestIconFn and self.atRestIconFn() or nil,
+        duration    = def.duration,
+        label       = (spellInfo and spellInfo.name) or self.metaKey,
+        expiresAt   = now + def.duration,
+        source      = "cast",
+        castSpellID = castSpellID,           -- for aura cancellation check
+    }
+end
+
+function MultiSpellProviderMixin:GetPreviewInfo()
+    return {
+        icon     = self.atRestIconFn and self.atRestIconFn() or 134400,
+        label    = self.metaKey,
+        duration = 0, -- sentinel; real duration comes from spellTable at cast time
+    }
+end
+```
+
+---
+
+### Concrete Provider: LustProvider (Aura-Based)
+
+Lust fires from `UNIT_AURA` addedAuras, not a cast. The provider declares `"UNIT_AURA"` in `GetEventInterests`. BuffEngine dispatches to it only after the existing secret/preview guards in `OnUnitAura` pass.
+
+```lua
+local LustProviderMixin = {}
+
+-- debuffToLust: table of debuffSpellID -> lustSpellID  (existing SATED_DEBUFF_TO_LUST)
+function LustProviderMixin:Init(debuffToLust)
+    self.debuffToLust = debuffToLust
+end
+
+function LustProviderMixin:GetEventInterests()
+    return { "UNIT_AURA" }
+end
+
+-- BuffEngine passes (event, unit, updateInfo) for UNIT_AURA.
+-- Returns nil if no lust debuff found in addedAuras.
+function LustProviderMixin:OnTrigger(event, unit, updateInfo)
+    if event ~= "UNIT_AURA" then return nil end
+    if unit ~= "player" then return nil end
+    if not updateInfo or not updateInfo.addedAuras then return nil end
+
+    for _, aura in ipairs(updateInfo.addedAuras) do
+        if not issecretvalue(aura.spellId) then
+            local lustSpellID = self.debuffToLust[aura.spellId]
+            if lustSpellID then
+                local now      = GetTime()
+                local lustInfo = C_Spell.GetSpellInfo(lustSpellID)
+                return {
+                    key       = "lust",
+                    icon      = ns:GetSpellIcon(lustSpellID),
+                    duration  = 40,
+                    label     = (lustInfo and lustInfo.name) or "Lust / Heroism",
+                    expiresAt = now + 40,
+                    source    = "debuff",
+                    lustBuffID = lustSpellID,
+                }
+            end
+        end
+    end
+    return nil
+end
+
+function LustProviderMixin:GetPreviewInfo()
+    -- Reuse existing GetHunterLustSpell / CLASS_LUST_SPELL logic via a helper
+    local classSpellID = ns:GetClassLustSpellID()
+    return {
+        icon     = ns:GetSpellIcon(classSpellID),
+        label    = "Lust / Heroism",
+        duration = 40,
+        spellID  = classSpellID,
+    }
+end
+```
+
+---
+
+### Event Dispatch: Routing by Provider Interest
+
+BuffEngine builds a dispatch table at registration time. This avoids iterating all providers on every event — only interested providers are called for each event.
+
+```lua
+-- In BuffEngine (module-level, not persisted):
+local providers       = {}   -- ordered list of all registered providers
+local eventToProviders = {}  -- event string -> list of providers
+
+-- Call once per provider during InitBuffEngine.
+local function RegisterProvider(provider)
+    table.insert(providers, provider)
+    for _, event in ipairs(provider:GetEventInterests()) do
+        if not eventToProviders[event] then
+            eventToProviders[event] = {}
+        end
+        table.insert(eventToProviders[event], provider)
+    end
+end
+
+-- Called from Core.lua OnEvent after guards (secret check, preview check) pass:
+function ns:DispatchEventToProviders(event, ...)
+    local interested = eventToProviders[event]
+    if not interested then return end
+    for _, provider in ipairs(interested) do
+        local proc = provider:OnTrigger(event, ...)
+        if proc then
+            ns:HandleProc(proc)
+        end
+    end
+end
+```
+
+**Why a dispatch table instead of an `if/elseif` chain:**
+- O(1) lookup per event — scales to N providers without growing the dispatch chain.
+- New providers register themselves; Core.lua never needs a new branch.
+- Same pattern Blizzard uses in CDM's `alertsByEvent` table (`CooldownViewer.lua:453-456`).
+
+**Core.lua integration — replace per-event branches with a single dispatch call:**
+
+```lua
+-- In Core.lua eventFrame OnEvent:
+elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+    local unit, _, spellID = ...
+    ns:DispatchEventToProviders(event, unit, _, spellID)
+elseif event == "UNIT_AURA" then
+    local unit, updateInfo = ...
+    ns:OnUnitAura(updateInfo)           -- secret/preview guards unchanged here
+    ns:DispatchEventToProviders(event, unit, updateInfo)  -- runs after guards pass
+```
+
+`OnUnitAura` keeps the existing `C_Secrets.ShouldAurasBeSecret()` and `previewActive` guards. `DispatchEventToProviders` for `"UNIT_AURA"` is called inside `OnUnitAura` after those guards, not in Core.lua directly — this preserves the existing guard logic without duplication.
+
+---
+
+### ActiveProc Normalized Shape
+
+The goal is zero type-specific branching in Display and CDMTab. The proc table shape is the enforcement mechanism.
+
+**Required fields — all providers produce these, Display consumes only these:**
+
+```lua
+-- proc.key       = any        -- activeProcs table key (spellID number OR string slot key)
+-- proc.icon      = number     -- texture file ID (never nil; 134400 = question mark)
+-- proc.duration  = number     -- seconds
+-- proc.label     = string     -- display name
+-- proc.expiresAt = number     -- GetTime() + duration at cast time
+-- proc.source    = string     -- "cast" | "debuff" (for cancellation routing in BuffEngine)
+```
+
+**Optional fields — BuffEngine-internal only, Display never reads these:**
+
+```lua
+-- proc.lustBuffID   = number  -- LustProvider only; cancellation check
+-- proc.castSpellID  = number  -- MultiSpellProvider only; aura cancellation
+-- proc.atRestIcon   = number  -- MultiSpellProvider only; icon to show after expiry
+```
+
+Display reads only `icon`, `duration`, `label`, `expiresAt`. It never reads `source`, `lustBuffID`, or `castSpellID`. This eliminates the string-key vs. numeric-key branching currently in Display.lua and the duplicated icon resolution chains across provider types.
+
+---
+
+### `HandleProc`: Replace-on-Reproc and Expiry Logic
+
+BuffEngine's `HandleProc` is the single place that decides what to do when a proc arrives. Replace-on-reproc is a natural consequence of using `proc.key` as the table key:
+
+```lua
+function ns:HandleProc(proc)
+    -- Replace-on-reproc: assigning to the same key overwrites the existing timer.
+    -- Lust has a "don't restart if running" guard — implement that here, not in the provider.
+    if proc.key == "lust" then
+        local existing = ns.activeTimers["lust"]
+        if existing and existing.expiresAt > GetTime() then
+            return -- lust already running; ignore new trigger
+        end
+    end
+    ns.activeTimers[proc.key] = proc
+    if ns.UpdateDisplay then ns:UpdateDisplay() end
+end
+```
+
+Trinket and pot do NOT have the lust guard (newest cast always wins — existing behavior).
+
+---
+
+### Table Pooling for ActiveProc Records
+
+The current `wipe()` pattern in Display.lua for module-level accumulator tables (`barTimers`, `iconTimers`, etc.) is correct and must be preserved. Apply the same pattern to any new accumulator tables introduced in BuffEngine passes.
+
+For the proc records themselves: do not pool in v0.2.4. Provider count is < 20; proc allocation frequency is bounded by player cast rate. WoW Lua GC handles small tables at this volume without measurable pressure.
+
+**Only add a proc pool if profiling shows GC pressure.** The pattern if needed:
+
+```lua
+local procPool = {}
+
+local function AcquireProc()
+    local t = table.remove(procPool)
+    if t then wipe(t) return t end
+    return {}
+end
+
+local function ReleaseProc(proc)
+    table.insert(procPool, proc)
+end
+-- Call ReleaseProc(old) before overwriting or nilling ns.activeTimers[key].
+```
+
+---
+
+### Metatable-Based Inheritance: When to Use, When to Avoid
+
+Blizzard code uses `CreateFromMixins` (flat copy), not `__index` metatables for inheritance. Both are valid Lua 5.1 but have different tradeoffs:
+
+| Approach | Method lookup | Memory per instance | Risk |
+|----------|-------------|---------------------|------|
+| `CreateFromMixins` (flat copy) | O(1) direct key | Higher (methods copied per instance) | None — each instance owns its copy |
+| `__index` metatable chain | O(1) + one indirection | Lower (methods shared in prototype) | Accidental shared state if methods mutate the prototype table |
+
+**Use `CreateFromMixins` for SpellProvider.** Provider count is < 20. Flat copies are cheaper to reason about in WoW's restricted execution environment and match all existing Blizzard addon OOP.
+
+**Avoid `__index` metatable chains** in this codebase unless a concrete memory budget forces it (it won't at this scale).
+
+If metatables are needed for other purposes (e.g., read-only sentinel tables), the correct Lua 5.1 form is:
+
+```lua
+-- Read-only table via __newindex (example only — not for providers)
+local function MakeReadOnly(t)
+    return setmetatable({}, {
+        __index    = t,
+        __newindex = function(_, k, _)
+            error("attempt to write to read-only table key: " .. tostring(k), 2)
+        end,
+    })
+end
+```
+
+---
+
+### What NOT to Add
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| External OOP library (30log, middleclass, classic) | No external libs; WoW sandbox blocks `require` | `CreateFromMixins` (built-in WoW global) |
+| `__index` metatable inheritance chains for providers | Blizzard doesn't use them; no memory benefit at < 20 instances; harder to reason about in restricted env | Flat mixin copies via `CreateFromMixins` |
+| Rebuilding the dispatch table per-frame or per-event | Dispatch table is static after `InitBuffEngine`; never rebuild | Build once at init, reuse forever |
+| Allocating accumulator tables inside `UpdateDisplay` hot path | Already solved with module-level + `wipe()` in Display.lua | Keep existing pattern; extend to new passes |
+| Storing proc records in SavedVariables | Active procs are runtime-only; stale on reload | Runtime `activeTimers` table only |
+| `COMBAT_LOG_EVENT_UNFILTERED` in any provider's `GetEventInterests` | Disabled in Midnight (CLAUDE.md) | `UNIT_SPELLCAST_SUCCEEDED` or `UNIT_AURA` |
+
+---
+
+### Sources (v0.2.4 Research)
+
+All findings verified against local Blizzard source at `C:\Users\jonat\Repositories\wow-ui-source` and existing TBT source:
+
+- `Interface/AddOns/Blizzard_SharedXMLBase/Mixin.lua` — `CreateAndInitFromMixin`, `SecureMixin` implementations; confirms `CreateFromMixins` is a C-layer global, not defined in Lua
+- `Interface/AddOns/Blizzard_CooldownViewer/CooldownViewer.lua:92` — `CooldownViewerItemMixin = CreateFromMixins(...)` canonical CDM provider construction pattern
+- `Interface/AddOns/Blizzard_CooldownViewer/CooldownViewer.lua:453-456` — `alertsByEvent[event]` dispatch table pattern (event string maps to list of handlers)
+- `Interface/AddOns/Blizzard_CooldownViewer/CooldownViewerSettingsDataProvider.lua:1-28` — `CooldownViewerSettingsDataProviderMixin` as a stateful mixin with `EventRegistry` subscriptions
+- `Interface/AddOns/Blizzard_SharedXML/EventUtil.lua` — `EventRegistry:RegisterFrameEventAndCallback` as Blizzard's event routing mechanism (reference pattern; TBT uses `SetScript("OnEvent")` directly)
+- `TerribleBuffTracker/BuffEngine.lua` — existing `OnSpellCastSucceeded`, `OnUnitAura`, `StartLustTimer` as the baseline being refactored; `wipe()` accumulator pattern confirmed
+- `TerribleBuffTracker/Core.lua` — existing `eventFrame:SetScript("OnEvent", ...)` flat dispatch chain being replaced by provider-based dispatch
+- `TerribleBuffTracker/Display.lua` — module-level `barTimers`, `iconTimers` + `wipe()` pattern confirmed correct for hot-path tables
+
+---
+
 ## v0.3.0 Addition: Trinket and Pot Meta-Tracker Icon APIs
 
 **Researched:** 2026-04-11

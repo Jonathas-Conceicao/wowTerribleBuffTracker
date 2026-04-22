@@ -1,241 +1,35 @@
 local _, ns = ...
 
 -- Runtime-only guard flags (not persisted to SavedVariables)
-ns.auraCheckBlocked = false
-ns.previewActive = false
+-- D-15: One-shot debug-log flag. Set to true on first C_Secrets.ShouldAurasBeSecret()==true of a session.
+-- Cleared on combat-end and zone-change via ns:ClearSecretGateLog (Core.lua call sites).
+ns.secretGateLogged = false
 ns.debugLogging = false
 
--- Preview save/restore: stores real active timers while preview is running (D-07)
-local savedPreviewTimers = {}
+-- Phase 21 (D-01/D-02/D-03): preview procs live in a SEPARATE table from real procs.
+-- ns.activeTimers (declared in Core.lua) holds ONLY real procs with source="cast"/"debuff".
+-- ns.previewTimers holds ONLY preview procs (no source field). Table separation provides
+-- identity — no need for `isPreview` flag or `source="preview"` marker. ns:GetActiveTimers()
+-- merges both with real-priority.
+ns.previewTimers = {}
 
--- Maps Sated-family debuff spellID -> corresponding lust buff spellID (D-13)
-ns.SATED_DEBUFF_TO_LUST = {
-	[57724] = 2825, -- Sated -> Bloodlust
-	[57723] = 32182, -- Exhaustion -> Heroism (covers Heroism + Drums)
-	[80354] = 80353, -- Temporal Displacement -> Time Warp
-	[390435] = 390386, -- Exhaustion (Evoker) -> Fury of the Aspects
-	[264689] = 264667, -- Fatigued -> Primal Rage (Hunter pet)
-}
-
--- Lust buffs that share a Sated debuff — ALL must be absent before cancelling the timer.
--- Keyed by the "display" lustBuffID stored in the timer; value is a list of buff spellIDs to check.
-local SHARED_LUST_BUFFS = {
-	[32182] = { 32182, 1243972 }, -- Heroism + Void-touched Drums share Exhaustion (57723)
-	[2825] = { 2825 }, -- Bloodlust
-	[264667] = { 264667, 466904 }, -- Primal Rage + Harrier's Cry (MM Hunter) share Fatigued
-	[80353] = { 80353 }, -- Time Warp
-	[390386] = { 390386 }, -- Fury of the Aspects
-}
-
--- Maps classFilename -> class-specific lust spellID (D-14)
--- Hunter uses Primal Rage by default; MM Hunter (spec ID 254) uses Harrier's Cry
-local function GetHunterLustSpell()
-	local specIndex = GetSpecialization()
-	if specIndex then
-		local specID = GetSpecializationInfo(specIndex)
-		if specID == 254 then -- Marksmanship
-			return 466904 -- Harrier's Cry
-		end
-	end
-	return 264667 -- Primal Rage (BM/Survival)
-end
-
-ns.CLASS_LUST_SPELL = {
-	SHAMAN = 2825, -- Bloodlust
-	MAGE = 80353, -- Time Warp
-	EVOKER = 390386, -- Fury of the Aspects
-}
-
--- Static lookup: spellID -> { duration, itemID } for tracked on-use trinkets (D-01).
--- Names are comments only (D-04); labels come from C_Spell.GetSpellInfo at cast time.
--- Source: trinket_info.csv. Duration is used at cast time; SUGGESTED_BUFFS.duration=0 is a sentinel (D-07).
-local TRINKET_SPELLS = {
-	-- Light Company Guidon
-	[1259633] = { duration = 15, itemID = 249344 },
-	-- Vaelgor's Final Stare
-	[1260459] = { duration = 15, itemID = 249346 },
-	-- Emberwing Feather
-	[1250508] = { duration = 15, itemID = 250144 },
-	-- Algeth'ar Puzzle Box
-	[383781] = { duration = 20, itemID = 193701 },
-	-- Echo of L'ura
-	[250768] = { duration = 45, itemID = 151340 },
-	-- Radiant Sunstone
-	[1254624] = { duration = 20, itemID = 252411 },
-	-- Freightrunner's Flask
-	[1250533] = { duration = 15, itemID = 250215 },
-	-- Seed of Radiant Hope
-	[1263644] = { duration = 12, itemID = 250254 },
-	-- Void Execution Mandate
-	[1250557] = { duration = 20, itemID = 250225 },
-}
-
--- Static lookup: spellID -> { duration, itemID } for tracked damage potions (D-01).
--- Source: pots_info.csv.
-local POT_SPELLS = {
-	-- Light's Potential
-	[1236616] = { duration = 30, itemID = 241308 },
-	-- Potion of Recklessness
-	[1236994] = { duration = 30, itemID = 241288 },
-	-- Draught of Rampant Abandon
-	[1236998] = { duration = 30, itemID = 241292 },
-	-- Void-Shrouded Tincture
-	[1236551] = { duration = 12, itemID = 241302 },
-}
-
--- Derived at module load (D-02): itemID -> true sets for O(1) equipment/bag lookup in Phase 14.
--- Do NOT hand-maintain; regenerate by iterating the parent spell tables.
-local TRINKET_ITEM_IDS = {}
-for _, def in pairs(TRINKET_SPELLS) do
-	TRINKET_ITEM_IDS[def.itemID] = true
-end
-
-local POT_ITEM_IDS = {}
-for _, def in pairs(POT_SPELLS) do
-	POT_ITEM_IDS[def.itemID] = true
-end
-
-ns.TRINKET_SPELLS = TRINKET_SPELLS
-ns.POT_SPELLS = POT_SPELLS
-ns.TRINKET_ITEM_IDS = TRINKET_ITEM_IDS
-ns.POT_ITEM_IDS = POT_ITEM_IDS
-
--- D-08: Ordered fallback iteration in CSV order. pairs() doesn't guarantee order
--- so we hard-code the insertion order matching trinket_info.csv / pots_info.csv.
--- If TRINKET_SPELLS / POT_SPELLS gain entries, keep these arrays in sync.
-local TRINKET_FALLBACK_ORDER = { 249344, 249346, 250144, 193701, 151340, 252411, 250215, 250254, 250225 }
-local POT_FALLBACK_ORDER = { 241308, 241288, 241292, 241302 }
-
--- D-01: Eager-cached at-rest resolution for meta-slots. Populated by ns:RefreshMetaIcons.
--- Detection scans items (equipped trinkets / bag pots), but icon and tooltip resolve
--- to the matching buff SPELL (via reverse lookup itemID → spellID). This keeps the
--- visual coherent across ilvl/quality differences of the source item.
-ns.metaIcons = { trinket = nil, pot = nil } -- texture only (back-compat)
-ns.metaAtRest = {
-	trinket = { icon = nil, spellID = nil, duration = nil },
-	pot = { icon = nil, spellID = nil, duration = nil },
-}
-
--- Reverse lookup: given an itemID, find the matching buff spellID in a spell table.
-local function FindSpellByItemID(spellTable, itemID)
-	if not itemID then
-		return nil, nil
-	end
-	for spellID, def in pairs(spellTable) do
-		if def.itemID == itemID then
-			return spellID, def.duration
-		end
-	end
-	return nil, nil
-end
-
--- D-02/D-03: Single scan entry point. Called from CDMTab StartPreview only.
--- D-07: Combat-gated. If locked down, leave cache as-is.
--- Resolution: scan finds itemID → reverse-lookup to spellID → icon/tooltip/duration
--- all derive from the buff spell (not the item).
-function ns:RefreshMetaIcons()
+-- Thin wrapper. Combat-gates once at entry (PITFALL-5), then iterates all registered
+-- providers calling each one's RefreshAtRest method. Meta-providers (Trinket/Pot)
+-- perform the actual inventory scan inside their own RefreshAtRest; Lust/UserSpell
+-- providers inherit the base no-op from SpellProviderBaseMixin.
+function ns:RefreshProvidersAtRest()
 	if InCombatLockdown() then
 		return
 	end
-
-	-- Trinket scan (D-05): equipped slots 13/14, first match wins
-	local trinketItemID
-	for _, slot in ipairs({ INVSLOT_TRINKET1, INVSLOT_TRINKET2 }) do
-		local equipped = GetInventoryItemID("player", slot)
-		if equipped and TRINKET_ITEM_IDS[equipped] then
-			trinketItemID = equipped
-			break
-		end
+	for _, provider in ipairs(ns.providers) do
+		provider:RefreshAtRest()
 	end
-	-- D-08: Fallback to first CSV entry whose buff spell icon resolves
-	if not trinketItemID then
-		for _, itemID in ipairs(TRINKET_FALLBACK_ORDER) do
-			trinketItemID = itemID
-			break -- first entry is the fallback; spell icon resolution happens below
-		end
-	end
-	local trinketSpellID, trinketDuration = FindSpellByItemID(TRINKET_SPELLS, trinketItemID)
-	local trinketIcon = trinketSpellID and ns:GetSpellIcon(trinketSpellID) or nil
-	ns.metaIcons.trinket = trinketIcon
-	ns.metaAtRest.trinket.icon = trinketIcon
-	ns.metaAtRest.trinket.spellID = trinketSpellID
-	ns.metaAtRest.trinket.duration = trinketDuration
-
-	-- Pot scan (D-06): bag iteration over POT_ITEM_IDS in CSV order, first count>0 wins
-	local potItemID
-	for _, itemID in ipairs(POT_FALLBACK_ORDER) do
-		if (C_Item.GetItemCount(itemID) or 0) > 0 then
-			potItemID = itemID
-			break
-		end
-	end
-	if not potItemID then
-		potItemID = POT_FALLBACK_ORDER[1] -- D-08 fallback: first CSV entry
-	end
-	local potSpellID, potDuration = FindSpellByItemID(POT_SPELLS, potItemID)
-	local potIcon = potSpellID and ns:GetSpellIcon(potSpellID) or nil
-	ns.metaIcons.pot = potIcon
-	ns.metaAtRest.pot.icon = potIcon
-	ns.metaAtRest.pot.spellID = potSpellID
-	ns.metaAtRest.pot.duration = potDuration
 end
 
--- D-10: Public read accessor. Returns 134400 (?-icon) when cache is nil.
-function ns:GetAtRestMetaIcon(key)
-	return ns.metaIcons[key] or 134400
-end
-
--- Return resolved at-rest spellID and duration for tooltip/display.
-function ns:GetAtRestMetaInfo(key)
-	return ns.metaAtRest[key]
-end
-
--- Registry of suggested buff definitions for CDM tab Suggested section (D-04, D-09)
-ns.SUGGESTED_BUFFS = {
-	{
-		key = "lust",
-		label = "Lust / Heroism",
-		duration = 40,
-		metaBuff = true,
-		getCDMSpellID = function()
-			local _, classFilename = UnitClass("player")
-			if classFilename == "HUNTER" then
-				return GetHunterLustSpell()
-			end
-			return ns.CLASS_LUST_SPELL[classFilename] or 2825
-		end,
-	},
-}
-
--- Trinket meta-tracker (D-06). getCDMIcon calls ns:GetAtRestMetaIcon (Phase 14).
--- duration=0 is a sentinel (D-07) — real duration comes from ns.TRINKET_SPELLS[spellID].duration at cast time.
-ns.SUGGESTED_BUFFS[#ns.SUGGESTED_BUFFS + 1] = {
-	key = "trinket",
-	label = "Trinket",
-	duration = 0,
-	metaBuff = true,
-	getCDMSpellID = function()
-		return nil
-	end,
-	getCDMIcon = function()
-		return ns:GetAtRestMetaIcon("trinket")
-	end,
-}
-
--- Damage pot meta-tracker (D-06). Same plumbing as trinket; itemID scanning is bag-based
--- in Phase 14 (C_Item.GetItemCount against ns.POT_ITEM_IDS).
-ns.SUGGESTED_BUFFS[#ns.SUGGESTED_BUFFS + 1] = {
-	key = "pot",
-	label = "Damage Pot",
-	duration = 0,
-	metaBuff = true,
-	getCDMSpellID = function()
-		return nil
-	end,
-	getCDMIcon = function()
-		return ns:GetAtRestMetaIcon("pot")
-	end,
-}
+-- Ordered list of meta-buff keys for CDM tab Suggested section.
+-- Per-key display data (icon, label, duration, spellID) comes from ns:GetDisplayInfoForKey;
+-- description text is CDMTab-local (META_DESCRIPTIONS in CDMTab.lua).
+ns.SUGGESTED_KEYS = { "lust", "trinket", "pot" }
 
 function ns:InitBuffEngine()
 	-- Schema v3 is terminal for v0.2.3 (DATA-03 reconciliation).
@@ -302,137 +96,47 @@ function ns:GetSpellIcon(spellID)
 	return 134400 -- Question mark icon fallback
 end
 
--- D-06: Shared helper — returns numeric CDM spellID for a string key, or nil.
--- For non-string keys (numeric spellIDs), returns nil (caller uses key as-is).
-function ns:ResolveSuggestedSpellID(key)
-	if type(key) ~= "string" then
-		return nil
-	end
-	for _, suggested in ipairs(ns.SUGGESTED_BUFFS) do
-		if suggested.key == key and suggested.getCDMSpellID then
-			return suggested.getCDMSpellID()
-		end
-	end
-	return nil
-end
-
 function ns:OnSpellCastSucceeded(spellID)
-	-- D-02: Meta-slot fan-out happens FIRST, before the regular trackedBuffs[spellID] path.
-	-- Trinket/pot spellIDs never collide with regular tracked buffs; first match wins.
-
-	-- Trinket fan-out (D-01, D-03, D-04, D-06, D-08)
-	local trinketDef = ns.TRINKET_SPELLS[spellID]
-	if trinketDef then
-		local metaEntry = ns.db.trackedBuffs["trinket"]
-		if not metaEntry or metaEntry.section == "hidden" then
-			return
-		end
-		-- D-04: Remove any existing timer occupying the same meta-slot
-		for existingID, existingTimer in pairs(ns.activeTimers) do
-			if existingTimer.metaSlot == "trinket" then
-				ns.activeTimers[existingID] = nil
-			end
-		end
-		local now = GetTime()
-		local spellInfo = C_Spell.GetSpellInfo(spellID)
-		local label = (spellInfo and spellInfo.name) or metaEntry.label or "Trinket"
-		ns.activeTimers[spellID] = {
-			spellID = spellID,
-			expiresAt = now + trinketDef.duration,
-			startedAt = now,
-			duration = trinketDef.duration,
-			icon = ns:GetSpellIcon(spellID),
-			label = label,
-			section = metaEntry.section or "bars",
-			layoutOrder = metaEntry.layoutOrder,
-			source = "cast",
-			metaSlot = "trinket",
-		}
-		if ns.UpdateDisplay then
-			ns:UpdateDisplay()
-		end
-		return
-	end
-
-	-- Pot fan-out (same shape as trinket, metaSlot = "pot")
-	local potDef = ns.POT_SPELLS[spellID]
-	if potDef then
-		local metaEntry = ns.db.trackedBuffs["pot"]
-		if not metaEntry or metaEntry.section == "hidden" then
-			return
-		end
-		-- D-04: Remove any existing timer occupying the same meta-slot
-		for existingID, existingTimer in pairs(ns.activeTimers) do
-			if existingTimer.metaSlot == "pot" then
-				ns.activeTimers[existingID] = nil
-			end
-		end
-		local now = GetTime()
-		local spellInfo = C_Spell.GetSpellInfo(spellID)
-		local label = (spellInfo and spellInfo.name) or metaEntry.label or "Damage Pot"
-		ns.activeTimers[spellID] = {
-			spellID = spellID,
-			expiresAt = now + potDef.duration,
-			startedAt = now,
-			duration = potDef.duration,
-			icon = ns:GetSpellIcon(spellID),
-			label = label,
-			section = metaEntry.section or "bars",
-			layoutOrder = metaEntry.layoutOrder,
-			source = "cast",
-			metaSlot = "pot",
-		}
-		if ns.UpdateDisplay then
-			ns:UpdateDisplay()
-		end
-		return
-	end
-
-	-- Existing regular-buff path (preserved verbatim)
-	local entry = ns.db.trackedBuffs[spellID]
-	if not entry then
-		return
-	end
-	if entry.section == "hidden" then
-		return
-	end
-
-	local now = GetTime()
-	ns.activeTimers[spellID] = {
-		spellID = spellID,
-		expiresAt = now + entry.duration,
-		startedAt = now,
-		duration = entry.duration,
-		icon = ns:GetSpellIcon(spellID),
-		label = entry.label or ("Spell " .. spellID),
-		section = entry.section or "bars",
-		source = "cast",
-	}
-
-	if ns.UpdateDisplay then
-		ns:UpdateDisplay()
-	end
+	-- PROV-02, D-18/D-19: OnSpellCastSucceeded has zero branches. All cast-triggered buff
+	-- detection (trinket, pot, user-spell) is dispatched to providers via GetEventInterests.
+	-- See Providers.lua for TrinketProvider, PotProvider, UserSpellProvider definitions.
+	ns:DispatchEventToProviders("UNIT_SPELLCAST_SUCCEEDED", "player", nil, spellID)
 end
 
 function ns:GetActiveTimers()
+	-- Phase 21 (D-05/D-06/D-17/D-18): merge preview + active with real-priority. Same-key
+	-- collision resolves to the real proc from ns.activeTimers. Lazy cleanup of expired
+	-- entries during iteration. Display.lua sees an unchanged interface — a sorted list.
 	local now = GetTime()
 	local result = {}
 
-	-- Clean up expired and collect active
-	for spellID, timer in pairs(ns.activeTimers) do
-		if timer.expiresAt <= now then
-			ns.activeTimers[spellID] = nil
+	-- 1. Preview entries first (filter expired; lazy cleanup)
+	for key, proc in pairs(ns.previewTimers) do
+		if proc.expiresAt > now then
+			result[key] = proc
 		else
-			table.insert(result, timer)
+			ns.previewTimers[key] = nil
 		end
 	end
 
-	-- Sort by remaining time, shortest first
-	table.sort(result, function(a, b)
+	-- 2. Real active entries override previews for same key (real-priority per D-05)
+	for key, proc in pairs(ns.activeTimers) do
+		if proc.expiresAt <= now then
+			ns.activeTimers[key] = nil
+		else
+			result[key] = proc
+		end
+	end
+
+	-- 3. Flatten to sorted list (ascending by expiresAt — shortest remaining time first)
+	local sorted = {}
+	for _, proc in pairs(result) do
+		table.insert(sorted, proc)
+	end
+	table.sort(sorted, function(a, b)
 		return a.expiresAt < b.expiresAt
 	end)
-
-	return result
+	return sorted
 end
 
 function ns:AddTrackedBuff(spellID, duration, label)
@@ -526,86 +230,47 @@ function ns:SetBuffSection(spellID, section)
 end
 
 function ns:StartAllPreviewTimers()
-	-- D-07: Save real timers before preview overwrites them. Capture on EVERY call —
-	-- real cast timers can be added between preview rebuilds (e.g. user casts a
-	-- trinket while CDM is open and a section rebuild fires). Real timers have
-	-- source="cast" (trinket/pot/regular) or source="debuff" (lust); preview timers
-	-- have no source field.
-	wipe(savedPreviewTimers)
-	for k, v in pairs(ns.activeTimers) do
-		if v.source then
-			savedPreviewTimers[k] = v
-		end
-	end
-
-	ns.previewActive = true
+	-- Phase 21 (D-07/D-08/D-09): additive preview. Writes to ns.previewTimers (never to
+	-- ns.activeTimers). Skips keys with a live real proc so real beats preview at insertion
+	-- time (D-05 priority enforced twice: here and in ns:GetActiveTimers merge). Sole data
+	-- source is ns:GetDisplayInfoForKey(key) — provider owns icon/label/duration/spellID
+	-- resolution (D-08).
+	wipe(ns.previewTimers)
 	local now = GetTime()
-	wipe(ns.activeTimers)
-
-	for spellID, entry in pairs(ns.db.trackedBuffs) do
+	for key, entry in pairs(ns.db.trackedBuffs) do
 		if entry.section ~= "hidden" then
-			-- D-06: Use shared helper to resolve icon and label for meta-buff string keys
-			local resolvedID = ns:ResolveSuggestedSpellID(spellID) or spellID
-			local timerLabel = entry.label or ("Spell " .. tostring(spellID))
-			if type(resolvedID) == "number" then
-				local info = C_Spell.GetSpellInfo(resolvedID)
-				if info and info.name then
-					timerLabel = info.name
+			-- Skip if a live real proc already owns this key (D-05 priority at insertion time)
+			local real = ns.activeTimers[key]
+			if not (real and real.expiresAt > now) then
+				local info = ns:GetDisplayInfoForKey(key)
+				if info then
+					ns.previewTimers[key] = {
+						key = key,
+						spellID = info.spellID, -- numeric (D-10); Display tooltip handler uses uniformly
+						duration = info.duration,
+						expiresAt = now + info.duration,
+						startedAt = now,
+						label = info.label,
+						section = entry.section,
+						layoutOrder = entry.layoutOrder,
+						-- NO aliveBuffs (previews not in ns.activeTimers), NO icon (Display derives it D-33)
+					}
 				end
 			end
-			-- Phase 14: meta-slots with at-rest icon cache (trinket/pot) use GetAtRestMetaIcon.
-			-- Lust falls through to GetSpellIcon via the resolved class-aware spellID.
-			local previewIcon
-			if type(spellID) == "string" then
-				local metaIcon = ns:GetAtRestMetaIcon(spellID)
-				if metaIcon and metaIcon ~= 134400 then
-					previewIcon = metaIcon
-				else
-					previewIcon = ns:GetSpellIcon(resolvedID)
-					if (not previewIcon or previewIcon == 134400) and metaIcon then
-						previewIcon = metaIcon
-					end
-				end
-			else
-				previewIcon = ns:GetSpellIcon(resolvedID)
-			end
-			ns.activeTimers[spellID] = {
-				spellID = spellID,
-				expiresAt = now + entry.duration,
-				startedAt = now,
-				duration = entry.duration,
-				icon = previewIcon,
-				label = timerLabel,
-				section = entry.section or "bars",
-			}
 		end
 	end
-
-	-- D-07: Merge real timers back on top (real timers visible and override preview for same key)
-	for k, v in pairs(savedPreviewTimers) do
-		if v.expiresAt > now then
-			ns.activeTimers[k] = v
-		end
-	end
-
 	if ns.UpdateDisplay then
 		ns:UpdateDisplay()
 	end
 end
 
 function ns:ClearAllTimers()
-	ns.previewActive = false
-
-	-- D-07: Restore real timers instead of wiping everything
-	wipe(ns.activeTimers)
-	local now = GetTime()
-	for k, v in pairs(savedPreviewTimers) do
-		if v.expiresAt > now then
-			ns.activeTimers[k] = v
-		end
-	end
-	wipe(savedPreviewTimers)
-
+	-- Phase 21 (D-11/D-12): preview-scoped wipe. Real procs in ns.activeTimers are untouched —
+	-- they continue their natural countdown. This is the architectural fix for the pre-existing
+	-- mid-CDM real-cast-loss bug identified in Phase 20 verification (a trinket cast between
+	-- StartAllPreviewTimers and ClearAllTimers used to be snapshotted at open time and restored
+	-- at close time — any mid-preview cast was lost). Separate tables eliminate the bug.
+	wipe(ns.previewTimers)
 	if ns.UpdateDisplay then
 		ns:UpdateDisplay()
 	end
@@ -615,46 +280,28 @@ function ns:ScanActiveTimersForCancellation()
 	local cancelledCount = 0
 	local cancelledLabels
 
-	for spellID, timer in pairs(ns.activeTimers) do
-		local shouldCancel = false
-
-		if timer.source == "cast" then
-			-- Cast-originated: check if buff aura is still present
-			local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
-			if aura == nil then
-				shouldCancel = true
+	for key, timer in pairs(ns.activeTimers) do
+		-- D-09/D-11: Data-driven cancellation. aliveBuffs is the list of buff spellIDs to
+		-- check — if ANY is present, the proc is alive; if NONE are present, cancel.
+		-- Defensive: skip procs with missing or empty aliveBuffs (opaque — never cancel
+		-- what we can't verify). No branching on timer.source (D-10).
+		if timer.aliveBuffs and #timer.aliveBuffs > 0 then
+			local anyPresent = false
+			for _, buffID in ipairs(timer.aliveBuffs) do
+				if C_UnitAuras.GetPlayerAuraBySpellID(buffID) then
+					anyPresent = true
+					break
+				end
 			end
-		elseif timer.source == "debuff" and timer.lustBuffID then
-			-- Lust meta-buff: check ALL buffs that share the same Sated debuff.
-			-- E.g., Heroism and Drums both trigger Exhaustion — only cancel if BOTH are absent.
-			local buffsToCheck = SHARED_LUST_BUFFS[timer.lustBuffID]
-			if buffsToCheck then
-				local anyPresent = false
-				for _, buffID in ipairs(buffsToCheck) do
-					if C_UnitAuras.GetPlayerAuraBySpellID(buffID) then
-						anyPresent = true
-						break
+			if not anyPresent then
+				ns.activeTimers[key] = nil
+				cancelledCount = cancelledCount + 1
+				if ns.debugLogging then
+					if not cancelledLabels then
+						cancelledLabels = {}
 					end
+					table.insert(cancelledLabels, timer.label or tostring(key))
 				end
-				if not anyPresent then
-					shouldCancel = true
-				end
-			else
-				-- Fallback: unknown lustBuffID, check directly
-				if not C_UnitAuras.GetPlayerAuraBySpellID(timer.lustBuffID) then
-					shouldCancel = true
-				end
-			end
-		end
-
-		if shouldCancel then
-			ns.activeTimers[spellID] = nil
-			cancelledCount = cancelledCount + 1
-			if ns.debugLogging then
-				if not cancelledLabels then
-					cancelledLabels = {}
-				end
-				table.insert(cancelledLabels, timer.label or tostring(spellID))
 			end
 		end
 	end
@@ -674,70 +321,29 @@ function ns:ScanActiveTimersForCancellation()
 	end
 end
 
-function ns:StartLustTimer(lustSpellID)
-	local entry = ns.db.trackedBuffs["lust"]
-	if not entry or entry.section == "hidden" then
-		return
-	end
-	-- Don't restart if lust timer already running
-	local existing = ns.activeTimers["lust"]
-	if existing and existing.expiresAt > GetTime() then
-		return
-	end
-	local now = GetTime()
-	-- D-16: Use actual detected lust spell's icon and name
-	local lustLabel = "Lust / Heroism"
-	local lustInfo = C_Spell.GetSpellInfo(lustSpellID)
-	if lustInfo and lustInfo.name then
-		lustLabel = lustInfo.name
-	end
-	ns.activeTimers["lust"] = {
-		spellID = "lust",
-		lustBuffID = lustSpellID, -- actual lust buff spellID for cancellation check
-		expiresAt = now + 40,
-		startedAt = now,
-		duration = 40,
-		icon = ns:GetSpellIcon(lustSpellID),
-		label = lustLabel,
-		section = entry.section or "bars",
-		source = "debuff",
-	}
-	if ns.debugLogging then
-		print("|cff00ccffTBT Debug|r: Lust detected (spellID " .. lustSpellID .. "), timer started.")
-	end
-	if ns.UpdateDisplay then
-		ns:UpdateDisplay()
-	end
-end
-
 function ns:OnUnitAura(updateInfo)
-	-- LUST-01: Detect Sated-family debuffs BEFORE secret gate.
-	-- Sated debuffs are allowlisted (never secret) so this is safe even in combat/M+.
-	-- Must run before the ShouldAurasBeSecret() return to detect lust in restricted contexts.
-	if updateInfo and updateInfo.addedAuras and not ns.previewActive then
-		for _, aura in ipairs(updateInfo.addedAuras) do
-			-- D-11: Per-entry secret check before table index with spellId
-			if not issecretvalue(aura.spellId) then
-				local lustSpellID = ns.SATED_DEBUFF_TO_LUST[aura.spellId]
-				if lustSpellID then
-					ns:StartLustTimer(lustSpellID)
-				end
-			end
-		end
-	end
+	-- Phase 19 (D-14): Provider dispatch runs FIRST — unconditional. LustProvider reads addedAuras
+	-- internally, performs per-entry issecretvalue(aura.spellId) checks (D-10), and applies the
+	-- provider-internal no-restart guard (D-12). The dispatcher has NO gate logic (D-04) so
+	-- LUST-01 pre-gate ordering is preserved by architecture: Sated-detection runs before the
+	-- ShouldAurasBeSecret() scan gate below, satisfying PITFALL-6.
+	ns:DispatchEventToProviders("UNIT_AURA", "player", updateInfo)
 
-	-- AURA-02: Gate on secret restriction (must be FIRST check for scan logic)
+	-- AURA-02 / D-14: Gate the cancellation SCAN on secret restriction. The dispatch above
+	-- already completed — these gates apply only to ScanActiveTimersForCancellation.
+	-- secretGateLogged (D-15) is a one-shot debug-log flag; cleared by ns:ClearSecretGateLog
+	-- from Core.lua's PLAYER_REGEN_ENABLED and ZONE_CHANGED_NEW_AREA handlers.
 	if C_Secrets.ShouldAurasBeSecret() then
-		if not ns.auraCheckBlocked then
-			ns.auraCheckBlocked = true
+		if not ns.secretGateLogged then
+			ns.secretGateLogged = true
 			if ns.debugLogging then
-				print("|cff00ccffTBT Debug|r: aura check blocked — ShouldAurasBeSecret() returned true")
+				print("|cff00ccffTBT Debug|r: aura scan blocked — ShouldAurasBeSecret() returned true")
 			end
 		end
 		return
 	end
 
-	-- ZONE-02 / D-05: Suppress on isFullUpdate (zone boundary / loading screen transient)
+	-- ZONE-02: Suppress on isFullUpdate (zone boundary / loading screen transient)
 	if updateInfo and updateInfo.isFullUpdate then
 		if ns.debugLogging then
 			print("|cff00ccffTBT Debug|r: UNIT_AURA isFullUpdate suppressed")
@@ -745,18 +351,21 @@ function ns:OnUnitAura(updateInfo)
 		return
 	end
 
-	-- D-02: Skip scan while preview timers are active
-	if ns.previewActive then
-		return
-	end
-
+	-- Phase 21 (D-15): preview guard removed. ScanActiveTimersForCancellation iterates
+	-- ns.activeTimers ONLY — preview procs live in a separate ns.previewTimers table and
+	-- are invisible to the scan by construction (D-19/D-20). No leakage possible because
+	-- preview procs carry no aliveBuffs field; the defensive guard in ScanActiveTimersForCancellation
+	-- skips procs with missing/empty aliveBuffs (D-11).
 	ns:ScanActiveTimersForCancellation()
 end
 
-function ns:ClearAuraBlock()
-	local wasBlocked = ns.auraCheckBlocked
-	ns.auraCheckBlocked = false
-	if ns.debugLogging and wasBlocked then
-		print("|cff00ccffTBT Debug|r: aura check unblocked")
+-- D-16: Clears the one-shot secret-gate debug-log flag so re-entering a secret
+-- context logs the "aura scan blocked" message once again. Called from Core.lua
+-- in PLAYER_REGEN_ENABLED (combat end) and ZONE_CHANGED_NEW_AREA handlers.
+function ns:ClearSecretGateLog()
+	local wasLogged = ns.secretGateLogged
+	ns.secretGateLogged = false
+	if ns.debugLogging and wasLogged then
+		print("|cff00ccffTBT Debug|r: secret-gate log cleared")
 	end
 end

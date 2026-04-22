@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.4 — SpellProvider Refactor
+
+Internal file reworking — no user-visible changes.
+
+- Bumped WoW interface version to 12.0.5 (120005)
+
 ## v0.2.3 — Trinket & Pot Meta-Trackers
 
 ### New Features

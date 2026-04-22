@@ -105,9 +105,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			ns:OnUnitAura(updateInfo)
 		end
 	elseif event == "PLAYER_REGEN_ENABLED" then
-		ns:ClearAuraBlock()
+		ns:ClearSecretGateLog()
 	elseif event == "ZONE_CHANGED_NEW_AREA" then
-		ns:ClearAuraBlock()
+		ns:ClearSecretGateLog()
 	end
 end)
 

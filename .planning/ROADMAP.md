@@ -5,6 +5,7 @@
 - [x] **v0.2.0 Config & Edit Mode Rework** — Phases 1-6 (shipped 2026-03-30) — [archive](milestones/v0.2.0-ROADMAP.md)
 - [x] **v0.2.1 Aura-Based Timer Cancellation** — Phases 7-11 (shipped 2026-04-04) — [archive](milestones/v0.2.1-ROADMAP.md)
 - [x] **v0.2.3 Trinket & Pot Meta-Trackers** — Phases 12-16 (shipped 2026-04-13) — [archive](milestones/v0.2.3-ROADMAP.md)
+- [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
 
@@ -41,3 +42,33 @@
 - [x] **Phase 16: Cleanup** — stylua pass, dead-code scan (no-op), CHANGELOG v0.2.3 entry, PROJECT.md Validated block, .pkgmeta release-notes annotation
 
 </details>
+
+<details>
+<summary>v0.2.4 SpellProvider Refactor (Phases 17-24) — SHIPPED 2026-04-22</summary>
+
+- [x] **Phase 17: Provider Skeleton + UserSpellProvider** — Providers.lua with interface contract; UserSpellProvider wired through dispatch loop
+- [x] **Phase 18: TrinketProvider + PotProvider + BuffEngine Dispatch** — All cast-triggered providers active; BuffEngine dispatch loop replaces hardcoded branches; activeProcs lifecycle established
+- [x] **Phase 19: LustProvider + UNIT_AURA Dispatch** — LustProvider with pre-gate ordering; UNIT_AURA routed through provider dispatch; all four providers complete
+- [x] **Phase 20: GetDisplayInfo + Dispatch Helper** — GetDisplayInfo on all four providers; ns:GetDisplayInfoForKey exported; provider-owned RefreshAtRest (PROV-F3 pulled forward); trinket/pot 0-second preview bug fixed at provider layer
+- [x] **Phase 21: Preview Mode Migration** — Additive preview architecture; separate ns.previewTimers; fixes mid-CDM real-cast loss as architectural side-effect
+- [x] **Phase 22: Display.lua Unification** — Zero type-specific branches; single shared tooltip handler; per-widget icon cache
+- [x] **Phase 23: CDMTab.lua Unification** — All icon/tooltip resolution through ns:GetDisplayInfoForKey; META_DESCRIPTIONS demoted to file-local
+- [x] **Phase 24: Cleanup** — Dead code removal (3 shims + 2 exports), RefreshMetaIcons → RefreshProvidersAtRest rename, stylua pass, v0.2.4 CHANGELOG, interface 120005 bump
+
+</details>
+
+## Backlog
+
+### Phase 999.1: Edit Mode container selects on click-release instead of click-down (BACKLOG)
+
+**Goal:** Match Blizzard's native Edit Mode selection behavior — TBT containers (bars/buffs) should highlight and open settings popup on mouse-DOWN, not mouse-UP. Currently the container only appears selected after releasing the click, which makes drags feel laggy because the highlight doesn't appear during the drag motion.
+
+**Requirements:** TBD
+
+**Context:**
+- Reported in v0.2.4 Phase 18 human-verify session (2026-04-21)
+- Affected files: `EditModeFrames.lua` — check OnMouseDown vs OnMouseUp handlers on `TBTBarContainer` / `TBTBuffContainer`
+- Reference: Blizzard's `EditModeSystemTemplates.lua` in `wow-ui-source` at `C:\Users\jonat\Repositories\wow-ui-source`
+
+Plans:
+- [ ] TBD (promote with `/gsd:review-backlog` when ready)
