@@ -1,4 +1,4 @@
-## Interface: 120005
+## Interface: 120100
 ## Title: TerribleBuffTracker
 ## Notes: Manual buff/cooldown timer tracking for WoW Midnight
 ## Author: Jonathas-Conceicao
