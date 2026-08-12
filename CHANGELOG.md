@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.5 — 12.1 Compatibility
+
+Bumped WoW interface version to 12.1 (120100).
+
+### Fixes
+- Fixed the Lua error thrown in combat on 12.1
+- Lust / Heroism tracking keeps working in combat, and a lust that was
+  already running when it is first seen now shows the correct
+  remaining time instead of restarting at 40s
+- The Sated debuff lingering after a lust ends can no longer start a
+  phantom timer
+- Timer cancellation no longer acts on a buff whose aura cannot be
+  read
+
 ## v0.2.4 — SpellProvider Refactor
 
 Internal file reworking — no user-visible changes.
