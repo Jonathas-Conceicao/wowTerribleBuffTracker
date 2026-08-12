@@ -428,8 +428,10 @@ local PotProvider = CreateFromMixins(SpellProviderBaseMixin, PotProviderMixin)
 -- Gate handling (D-09/D-10/D-11):
 --   * NO top-level C_Secrets.ShouldAurasBeSecret() check — Sated debuff spellIDs are Blizzard-allowlisted
 --     as safe to read even when secrets are active. This is the original LUST-01 rationale.
---   * Per-entry issecretvalue(aura.spellId) defensive check IS preserved — required in case the
---     individual aura spellId itself is a secret-value opaque handle.
+--   * addedAuras is iterated ONLY when readable — the whole UNIT_AURA payload is secret while aura
+--     restrictions are active, so OnTrigger falls back to reading the Sated debuffs by spell ID.
+--   * Per-entry issecretvalue(aura.spellId) defensive check IS preserved on the readable path —
+--     required in case the individual aura spellId itself is a secret-value opaque handle.
 --   * NO ns.previewActive check — providers run normally during preview. This is a behavior change
 --     from v0.2.3 (old StartLustTimer was guarded by `not ns.previewActive` in the caller).
 --     Intentional prep for Phase 21 / LIFE-03 (additive preview rewrite).
@@ -438,13 +440,69 @@ local PotProvider = CreateFromMixins(SpellProviderBaseMixin, PotProviderMixin)
 -- return nil without writing a new proc. Dispatcher remains dumb — no "no-refresh" mode.
 local LustProviderMixin = {}
 
+local LUST_DURATION = 40
+
+-- Shared ActiveProc builder for both detection paths (D-08 shape).
+-- startedAt is when the lust buff went out: GetTime() for a freshly added Sated debuff, or the
+-- Sated debuff's derived application time on the fallback path.
+local function BuildLustProc(entry, lustSpellID, startedAt)
+	local lustInfo = C_Spell.GetSpellInfo(lustSpellID)
+	local lustLabel = (lustInfo and lustInfo.name) or "Lust / Heroism"
+	if ns.debugLogging then
+		print("|cff00ccffTBT Debug|r: Lust detected (spellID " .. lustSpellID .. "), timer started.")
+	end
+	return {
+		key = "lust",
+		spellID = lustSpellID, -- numeric (D-03); was "lust" string
+		duration = LUST_DURATION,
+		expiresAt = startedAt + LUST_DURATION,
+		startedAt = startedAt,
+		section = entry.section or "bars",
+		layoutOrder = entry.layoutOrder,
+		label = lustLabel,
+		aliveBuffs = SHARED_LUST_BUFFS_LOCAL[lustSpellID] or { lustSpellID }, -- D-07
+	}
+end
+
+-- Derives when an aura was applied from its own duration/expirationTime. Returns nil when either
+-- field is secret or the aura carries no duration (permanent auras).
+local function GetAuraAppliedAt(aura)
+	local duration, expirationTime = aura.duration, aura.expirationTime
+	if issecretvalue(duration) or issecretvalue(expirationTime) then
+		return nil
+	end
+	if not duration or duration <= 0 or not expirationTime or expirationTime <= 0 then
+		return nil
+	end
+	return expirationTime - duration
+end
+
+-- Fallback used when the UNIT_AURA payload is secret: read the Sated debuffs by spell ID, which
+-- stays legal for the never-secret spells (ns:ReadPlayerAura asks first). Presence alone is not
+-- enough — Sated lingers ~600s after a 40s lust, so the aura's own application time decides whether
+-- the lust it came from is still up: no phantom timers off the Sated tail, and a lust that landed
+-- before we could read it still gets the correct remaining time.
+local function ScanSatedBySpellID(entry, now)
+	for satedID, lustSpellID in pairs(ns.SATED_DEBUFF_TO_LUST) do
+		local aura, readable = ns:ReadPlayerAura(satedID)
+		if readable and aura then
+			local appliedAt = GetAuraAppliedAt(aura)
+			if appliedAt and appliedAt + LUST_DURATION > now then
+				return BuildLustProc(entry, lustSpellID, appliedAt)
+			end
+		end
+	end
+	return nil
+end
+
 function LustProviderMixin:GetEventInterests()
 	return { "UNIT_AURA" }
 end
 
 -- Args from UNIT_AURA: unit (string), updateInfo (table with addedAuras field)
--- Iterates updateInfo.addedAuras, returns the first Sated-matching proc (single proc, not a list per D-08),
--- or nil if no match / no-restart guard trips / entry hidden.
+-- Scans updateInfo.addedAuras when readable, otherwise reads the Sated debuffs by spell ID.
+-- Returns the first Sated-matching proc (single proc, not a list per D-08), or nil if no match /
+-- no-restart guard trips / entry hidden / aura data unreadable.
 function LustProviderMixin:OnTrigger(event, unit, updateInfo)
 	if event ~= "UNIT_AURA" then
 		return nil
@@ -452,7 +510,7 @@ function LustProviderMixin:OnTrigger(event, unit, updateInfo)
 	if unit ~= "player" then
 		return nil
 	end
-	if not updateInfo or not updateInfo.addedAuras then
+	if not updateInfo then
 		return nil
 	end
 
@@ -468,37 +526,30 @@ function LustProviderMixin:OnTrigger(event, unit, updateInfo)
 		return nil
 	end
 
-	-- Scan addedAuras for a Sated-family debuff. First match wins.
-	for _, aura in ipairs(updateInfo.addedAuras) do
-		-- D-10: per-entry secret check; table index with aura.spellId only if safe.
-		if not issecretvalue(aura.spellId) then
-			local lustSpellID = ns.SATED_DEBUFF_TO_LUST[aura.spellId]
-			if lustSpellID then
-				local now = GetTime()
-				local lustLabel = "Lust / Heroism"
-				local lustInfo = C_Spell.GetSpellInfo(lustSpellID)
-				if lustInfo and lustInfo.name then
-					lustLabel = lustInfo.name
+	-- Fast path: scan addedAuras for a Sated-family debuff. First match wins.
+	-- Readability is checked on the LIST, not per entry — ipairs on a secret table errors before
+	-- any per-entry guard could run.
+	local addedAuras = updateInfo.addedAuras
+	if ns:CanReadTable(addedAuras) then
+		for _, aura in ipairs(addedAuras) do
+			-- D-10: per-entry secret check; table index with aura.spellId only if safe.
+			if not issecretvalue(aura.spellId) then
+				local lustSpellID = ns.SATED_DEBUFF_TO_LUST[aura.spellId]
+				if lustSpellID then
+					return BuildLustProc(entry, lustSpellID, GetTime())
 				end
-				if ns.debugLogging then
-					print("|cff00ccffTBT Debug|r: Lust detected (spellID " .. lustSpellID .. "), timer started.")
-				end
-				return {
-					key = "lust",
-					spellID = lustSpellID, -- numeric (D-03); was "lust" string
-					duration = 40,
-					expiresAt = now + 40,
-					startedAt = now,
-					section = entry.section or "bars",
-					layoutOrder = entry.layoutOrder,
-					label = lustLabel,
-					aliveBuffs = SHARED_LUST_BUFFS_LOCAL[lustSpellID] or { lustSpellID }, -- D-07
-				}
 			end
 		end
+		return nil
 	end
 
-	return nil
+	-- Readable payload carrying no additions: nothing could have been applied, skip the poll.
+	if not issecretvalue(addedAuras) and addedAuras == nil then
+		return nil
+	end
+
+	-- Payload is secret (in combat): fall back to the by-spell-ID Sated read.
+	return ScanSatedBySpellID(entry, GetTime())
 end
 
 -- D-04/D-05/D-06/D-07: Class-aware fresh resolution — no cache needed. Hunter uses MM-spec-aware
@@ -520,7 +571,7 @@ function LustProviderMixin:GetDisplayInfo(key)
 	return {
 		icon = ns:GetSpellIcon(lustSpellID),
 		label = label,
-		duration = 40,
+		duration = LUST_DURATION,
 		spellID = lustSpellID,
 	}
 end

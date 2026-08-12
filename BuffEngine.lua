@@ -13,6 +13,42 @@ ns.debugLogging = false
 -- merges both with real-priority.
 ns.previewTimers = {}
 
+-- Secret-safe aura reads. While aura restrictions are active (combat, encounter, M+, PvP) the whole
+-- UNIT_AURA payload arrives as secret values, and addon code may only store or pass a secret —
+-- iterating, indexing, comparing or boolean-testing one throws. Every restricted aura read in this
+-- addon goes through the two helpers below.
+
+-- True when a table from a restricted API can be iterated/indexed by addon code.
+-- type() and canaccesstable() are both safe to call on secrets.
+function ns:CanReadTable(t)
+	return type(t) == "table" and canaccesstable(t)
+end
+
+-- Secret-safe single-aura read. Per-spell "never secret" flags outrank the blanket restriction, so
+-- lookups by spell ID still return real data for allowlisted spells (the Sated debuffs are). The
+-- secrecy predicate MUST be asked first: a hidden aura returns no values, so a bare nil cannot tell
+-- "absent" from "hidden".
+-- Returns: aura, true  — readable, aura present
+--          nil, true   — readable, aura absent
+--          nil, false  — unreadable; presence is UNKNOWN and must never be read as absence
+function ns:ReadPlayerAura(spellID)
+	if C_Secrets.ShouldSpellAuraBeSecret(spellID) then
+		return nil, false
+	end
+	local aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
+	-- issecretvalue() first: it is safe on nil and on secrets, unlike the == comparison below.
+	if issecretvalue(aura) then
+		return nil, false
+	end
+	if aura == nil then
+		return nil, true
+	end
+	if not ns:CanReadTable(aura) then
+		return nil, false
+	end
+	return aura, true
+end
+
 -- Thin wrapper. Combat-gates once at entry (PITFALL-5), then iterates all registered
 -- providers calling each one's RefreshAtRest method. Meta-providers (Trinket/Pot)
 -- perform the actual inventory scan inside their own RefreshAtRest; Lust/UserSpell
@@ -287,13 +323,20 @@ function ns:ScanActiveTimersForCancellation()
 		-- what we can't verify). No branching on timer.source (D-10).
 		if timer.aliveBuffs and #timer.aliveBuffs > 0 then
 			local anyPresent = false
+			-- An aura read can be unreadable per spell even past the gate in OnUnitAura. Unknown
+			-- presence must not be read as absence, so one unreadable buff aborts this proc's check.
+			local allReadable = true
 			for _, buffID in ipairs(timer.aliveBuffs) do
-				if C_UnitAuras.GetPlayerAuraBySpellID(buffID) then
+				local aura, readable = ns:ReadPlayerAura(buffID)
+				if not readable then
+					allReadable = false
+					break
+				elseif aura then
 					anyPresent = true
 					break
 				end
 			end
-			if not anyPresent then
+			if allReadable and not anyPresent then
 				ns.activeTimers[key] = nil
 				cancelledCount = cancelledCount + 1
 				if ns.debugLogging then
@@ -343,8 +386,12 @@ function ns:OnUnitAura(updateInfo)
 		return
 	end
 
-	-- ZONE-02: Suppress on isFullUpdate (zone boundary / loading screen transient)
-	if updateInfo and updateInfo.isFullUpdate then
+	-- ZONE-02: Suppress on isFullUpdate (zone boundary / loading screen transient).
+	-- isFullUpdate arrives secret while auras are restricted and a boolean test on a secret throws,
+	-- so issecretvalue() gates the test; unknown counts as "not a full update" (the secret gate
+	-- above has already returned in that case).
+	local isFullUpdate = updateInfo and updateInfo.isFullUpdate
+	if not issecretvalue(isFullUpdate) and isFullUpdate then
 		if ns.debugLogging then
 			print("|cff00ccffTBT Debug|r: UNIT_AURA isFullUpdate suppressed")
 		end
