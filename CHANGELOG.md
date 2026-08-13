@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.6 — CDM Tab Placement Fix
+
+### Fixes
+- The TBT tab no longer sits behind 12.1's new "Group Buffs" tab — it is
+  now anchored under whichever Blizzard tab is bottom-most, so a tab added
+  by a future patch pushes ours down instead of covering it
+- The Group Buffs tab no longer stays highlighted while the TBT panel is open
+
 ## v0.2.5 — 12.1 Compatibility
 
 Bumped WoW interface version to 12.1 (120100).

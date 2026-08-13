@@ -4,7 +4,9 @@
 	<Script file="CDMTab.lua"/>
 
 	<!-- TBT tab button: inherits visual template but does NOT use parentArray
-	     to avoid tainting CDM's secure TabButtons iteration. -->
+	     to avoid tainting CDM's secure TabButtons iteration.
+	     The anchor below is a load-time placeholder only — CDMTab.lua re-anchors
+	     the tab under the bottom-most Blizzard tab, whichever those turn out to be. -->
 	<Frame name="TBTSettingsTab" parent="CooldownViewerSettings"
 	       inherits="LargeSideTabButtonTemplate">
 		<Size x="43" y="55"/>

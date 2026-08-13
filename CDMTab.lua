@@ -940,6 +940,74 @@ function ns:BuildAllSections()
 end
 
 ---------------------------------------------------------------------
+-- Tab placement
+---------------------------------------------------------------------
+
+-- Vertical gap Blizzard uses between CDM side tabs.
+local TAB_GAP = -3
+
+-- Bottom-first fallback, used only if tab discovery comes up empty.
+local KNOWN_CDM_TABS = { "GroupBuffsTab", "AurasTab", "SpellsTab" }
+
+-- Reusable discovery buffer — refilled per call, never handed out beyond the callers below.
+local cdmTabs = {}
+
+local function CollectCDMTabs(...)
+	for i = 1, select("#", ...) do
+		local child = select(i, ...)
+		-- Every CDM tab template carries a displayMode key ("spells"/"auras"/"groupBuffs"/...);
+		-- no other child of the settings frame does, and ours has none, so it self-excludes.
+		if type(child.displayMode) == "string" then
+			cdmTabs[#cdmTabs + 1] = child
+		end
+	end
+end
+
+-- Returns Blizzard's CDM side tabs, discovered by walking the settings frame's children.
+-- Discovery is by child + displayMode rather than CooldownViewerSettings.TabButtons on purpose —
+-- that array is off limits per the taint rule at the top of this file. Walking children costs
+-- nothing here (called on settings open, not per frame) and needs no edit when a patch adds a tab.
+local function GetCDMTabs()
+	wipe(cdmTabs)
+	if not CooldownViewerSettings then
+		return cdmTabs
+	end
+	CollectCDMTabs(CooldownViewerSettings:GetChildren())
+	if #cdmTabs == 0 then
+		for _, name in ipairs(KNOWN_CDM_TABS) do
+			local tabButton = CooldownViewerSettings[name]
+			if tabButton then
+				cdmTabs[#cdmTabs + 1] = tabButton
+			end
+		end
+	end
+	return cdmTabs
+end
+
+-- Re-anchors our tab under the bottom-most Blizzard tab, so a tab added by a patch pushes ours
+-- down instead of being covered by it. Falls back to the last discovered tab while the settings
+-- window has never been shown and frame rects are still unresolved.
+local function AnchorTabBelowCDMTabs()
+	local tabs = GetCDMTabs()
+	local anchorTo, lowestBottom
+	for _, tabButton in ipairs(tabs) do
+		local bottom = tabButton:GetBottom()
+		if not bottom then
+			anchorTo = tabs[#tabs]
+			break
+		end
+		if not lowestBottom or bottom < lowestBottom then
+			anchorTo, lowestBottom = tabButton, bottom
+		end
+	end
+	if not anchorTo then
+		return -- XML anchor stays in effect
+	end
+	TBTSettingsTab:ClearAllPoints()
+	TBTSettingsTab:SetPoint("TOP", anchorTo, "BOTTOM", 0, TAB_GAP)
+end
+
+---------------------------------------------------------------------
 -- Tab init
 ---------------------------------------------------------------------
 
@@ -1069,6 +1137,9 @@ function ns:InitCDMTab()
 		local isShown = CooldownViewerSettings:IsVisible()
 		if isShown and not cdmWasShown then
 			cdmWasShown = true
+			-- Re-anchor here rather than only at init: tab rects are resolved once the window has
+			-- been shown, and this picks up any tab set change without hooking CDM (taint).
+			AnchorTabBelowCDMTabs()
 			StartPreview()
 		elseif not isShown and cdmWasShown then
 			cdmWasShown = false
@@ -1088,6 +1159,7 @@ function ns:InitCDMTab()
 		end)
 	end)
 
+	AnchorTabBelowCDMTabs()
 	tab:Show()
 end
 
@@ -1102,19 +1174,23 @@ function ns:ShowTBTPanel()
 	-- context), never from CDM's secure OnShow/OnHide/SetDisplayMode paths.
 	-- The taint fix was removing HookScript on CooldownViewerSettings, not
 	-- avoiding Hide/Show on CooldownScroll.
+	-- Hide every CDM content pane; which one is up depends on its display mode.
 	if CooldownViewerSettings.CooldownScroll then
 		CooldownViewerSettings.CooldownScroll:Hide()
+	end
+	if CooldownViewerSettings.GroupBuffFilter then
+		CooldownViewerSettings.GroupBuffFilter:Hide()
 	end
 	ns.tbtPanel:Show()
 	ns.tbtPanel:SetFrameLevel(CooldownViewerSettings:GetFrameLevel() + 10)
 
-	-- Uncheck CDM tabs, check ours
+	-- Uncheck CDM tabs, check ours. Discovered rather than named so a tab added by a patch is
+	-- unchecked too (12.1's Group Buffs tab was staying lit behind our panel).
 	TBTSettingsTab:SetChecked(true)
-	if CooldownViewerSettings.SpellsTab then
-		CooldownViewerSettings.SpellsTab:SetChecked(false)
-	end
-	if CooldownViewerSettings.AurasTab then
-		CooldownViewerSettings.AurasTab:SetChecked(false)
+	for _, tabButton in ipairs(GetCDMTabs()) do
+		if tabButton.SetChecked then
+			tabButton:SetChecked(false)
+		end
 	end
 end
 
@@ -1122,8 +1198,15 @@ function ns:HideTBTPanel()
 	if ns.tbtPanel then
 		ns.tbtPanel:Hide()
 	end
+	-- Restore whichever pane CDM's current display mode owns — the cooldown list belongs to the
+	-- Spells/Auras modes, the group buff filter to the Group Buffs mode. Mirrors SetDisplayMode,
+	-- which our hook runs after, so blindly showing CooldownScroll would cover the filter pane.
+	local isGroupBuffs = CooldownViewerSettings.displayMode == "groupBuffs"
 	if CooldownViewerSettings.CooldownScroll then
-		CooldownViewerSettings.CooldownScroll:Show()
+		CooldownViewerSettings.CooldownScroll:SetShown(not isGroupBuffs)
+	end
+	if CooldownViewerSettings.GroupBuffFilter then
+		CooldownViewerSettings.GroupBuffFilter:SetShown(isGroupBuffs)
 	end
 	TBTSettingsTab:SetChecked(false)
 end
