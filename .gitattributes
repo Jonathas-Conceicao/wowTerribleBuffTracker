@@ -1,0 +1,38 @@
+# Line endings are declared explicitly here so they no longer depend on each
+# contributor's local core.autocrlf setting, and so a line-ending-only change
+# stops being invisible to git.
+#
+# Why this file exists (Phase 30, D-08/D-10): with core.autocrlf=true and no
+# .gitattributes, every text file hashes as LF in the index while sitting as
+# CRLF in the worktree. A tool that reflowed only a file's line endings
+# therefore produced a literally empty `git diff` — the change left no trace.
+# Two .lua files drifted to LF that way before anyone noticed, and the two
+# flavour TOCs drifted apart from each other for the same reason.
+# stylua.toml removed the most likely cause; this removes the blind spot.
+#
+# This commit changes no file contents. Every text file already hashes as LF
+# in the index, which is exactly what `text=auto` normalizes to, so the
+# declarations below only affect what gets written to the worktree on checkout.
+
+# Baseline: normalize everything text-like to LF inside the repository.
+* text=auto
+
+# Addon source. The WoW client and stylua both read these. CRLF in the
+# worktree, matching how the project has always been edited.
+*.lua text eol=crlf
+*.xml text eol=crlf
+*.toc text eol=crlf
+
+# Windows-only scripts. cmd.exe is the fussiest consumer in the repo, so these
+# are pinned rather than left to inference.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Read by the Linux CI runner and the BigWigs packager. LF.
+*.yml text eol=lf
+.pkgmeta-* text eol=lf
+stylua.toml text eol=lf
+
+# Binary. Never convert.
+*.png binary
+*.blp binary

@@ -123,3 +123,108 @@ SlashCmdList["TERRIBLEBUFFTRACKER"] = function(msg)
 		ns:SelectTBTTab()
 	end
 end
+
+---------------------------------------------------------------------
+-- TOOL-01 (Phase 27.1) — append the hovered spell's numeric ID to every
+-- spell tooltip in the game UI. The API is verified present on both
+-- flavors at Blizzard_SharedXMLGame/Tooltip/TooltipDataHandler.lua
+-- (Forever on the forever-beta branch of BigWigsMods/WoWUI, retail 12.1
+-- in the local wow-ui-source clone), so one shared implementation serves
+-- both with no branch (D-01). The guard below is an existence check on
+-- the API symbol itself — a capability check, not a client-identity
+-- check — so a future client lacking it degrades to a silent no-op
+-- rather than a load error (D-05). No tooltip:Show() call is needed
+-- here: ProcessInfo shows the tooltip on the line right after it runs
+-- the post-calls.
+--
+-- Scope (user request, 2026-09-18): spells AND auras/buffs, never items.
+-- Enum.TooltipDataType is an engine-side enum with no generated-doc entry
+-- on either flavour, so a given member may simply not exist on Forever.
+-- Registering per-member would then error at load, so instead we register
+-- once for AllTypes and filter on tooltipData.type against an allow-set
+-- built defensively — a member that does not exist contributes nothing
+-- and costs nothing, and items are excluded by never being added.
+--
+-- Spell and aura IDs are labelled differently on purpose. TBT detects
+-- casts via UNIT_SPELLCAST_SUCCEEDED, so the ID that belongs in the Add
+-- dialog is the CAST spell's ID. A buff's own aura ID is frequently a
+-- different number, and printing both under one label would invite adding
+-- the wrong one and then wondering why the timer never fires.
+---------------------------------------------------------------------
+
+if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
+	local SPELL_TYPE = Enum.TooltipDataType.Spell
+	local AURA_TYPES = {}
+	for _, member in ipairs({ "UnitAura", "UnitBuff", "UnitDebuff" }) do
+		local value = Enum.TooltipDataType[member]
+		if value ~= nil then
+			AURA_TYPES[value] = true
+		end
+	end
+
+	TooltipDataProcessor.AddTooltipPostCall(TooltipDataProcessor.AllTypes or "ALL", function(tooltip, tooltipData)
+		if not (tooltip and tooltip.AddLine and tooltipData) then
+			return
+		end
+		local dataType = tooltipData.type
+		local isSpell = SPELL_TYPE ~= nil and dataType == SPELL_TYPE
+		local isAura = AURA_TYPES[dataType] == true
+		if not (isSpell or isAura) then
+			return
+		end
+		local id = tooltipData.id
+		-- issecretvalue() FIRST, before any comparison or concatenation — it is safe on nil
+		-- and on secrets, unlike everything below (same rule as BuffEngine.lua's aura read).
+		-- In combat an aura tooltip's id arrives as a SECRET number: type() still reports
+		-- "number", so a type check alone passes and gives false confidence, and the first
+		-- ~= or .. against it throws once execution is tainted by this addon. Observed
+		-- 2026-09-18 hovering a buff in combat.
+		--
+		-- Consequence, and it is a platform limit rather than something to work around: no
+		-- ID line appears for a restricted aura while in combat. Out of combat it shows
+		-- normally, and an aura whose spell is on Blizzard's never-secret allowlist still
+		-- shows even in combat — which is why this gates on the VALUE being secret rather
+		-- than on C_Secrets.ShouldAurasBeSecret(), a blanket combat gate that would
+		-- needlessly suppress the allowlisted case too.
+		if issecretvalue(id) or type(id) ~= "number" then
+			return
+		end
+		tooltip:AddLine((isAura and "Aura spell ID: " or "Spell ID: ") .. id, 0.8, 0.8, 0.8)
+
+		-- A spell and aura tooltip agree on this number because tooltipData.id IS the
+		-- spell ID in both cases — one field, not two that coincide. The divergence that
+		-- actually matters for tracking is a spell override: the ID a tooltip shows can
+		-- differ from the base spell, and UNIT_SPELLCAST_SUCCEEDED may report the other
+		-- one. Surface both sides whenever the client says they differ, so a mismatch is
+		-- visible at hover time instead of showing up as a timer that never fires.
+		-- Existence-checked (capability, not client identity) and pcall'd because these
+		-- can reject an ID the client does not fully know. Tooltips fire on hover, not
+		-- per frame, so this is not a hot path.
+		local function RelatedID(fn)
+			if type(fn) ~= "function" then
+				return nil
+			end
+			local ok, other = pcall(fn, id)
+			-- Same rule again, and it is needed independently: even with a non-secret id,
+			-- these APIs can hand back a secret number, and `other ~= id` then throws. The
+			-- pcall does NOT cover it — the call succeeds (ok == true) and the comparison
+			-- after it is what raises. So screen the return value before comparing it.
+			if not ok or issecretvalue(other) or type(other) ~= "number" then
+				return nil
+			end
+			if other ~= id then
+				return other
+			end
+			return nil
+		end
+
+		local base = RelatedID(C_Spell and C_Spell.GetBaseSpell)
+		if base then
+			tooltip:AddLine("Base spell ID: " .. base, 0.9, 0.7, 0.4)
+		end
+		local override = RelatedID(C_Spell and C_Spell.GetOverrideSpell)
+		if override then
+			tooltip:AddLine("Override spell ID: " .. override, 0.9, 0.7, 0.4)
+		end
+	end)
+end

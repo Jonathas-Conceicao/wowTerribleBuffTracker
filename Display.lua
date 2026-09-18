@@ -72,18 +72,30 @@ ns.RefreshContainerSettings = RefreshContainerSettings
 
 function ns:ShowBuffTooltip(frame, proc, opts)
 	GameTooltip_SetDefaultAnchor(GameTooltip, frame)
-	if proc and type(proc.spellID) == "number" then
-		GameTooltip:SetSpellByID(proc.spellID)
+	local spellID = (proc and type(proc.spellID) == "number") and proc.spellID or nil
+	-- PAR-02 (D-13/D-14/D-15/D-16): a numeric spellID is not proof the client knows the
+	-- spell. SetSpellByID on an unknown spell populates nothing while GameTooltip:Show()
+	-- still renders an empty frame — the Forever lust defect found 2026-09-18. The fix
+	-- lives here, not in LustProviderMixin, because the provider is correct to name its
+	-- class-appropriate lust spell (changing it would break retail's working tooltip).
+	-- This probe is defensive on every flavor, not Forever-specific — any client can fail
+	-- to resolve any ID. TBT's own ID line below is suppressed when the spell resolves
+	-- because Core.lua's TOOL-01 post-call already added it during SetSpellByID.
+	local spellResolves = spellID ~= nil and C_Spell.GetSpellInfo(spellID) ~= nil
+	local addedIDLine = false
+	if spellResolves then
+		GameTooltip:SetSpellByID(spellID)
 	else
 		GameTooltip:SetText((proc and proc.label) or "Unknown", 1, 1, 1)
 	end
 	if opts then
-		if opts.showSpellID and proc and type(proc.spellID) == "number" then
+		if opts.showSpellID and spellID and not spellResolves then
 			GameTooltip:AddLine(" ")
-			GameTooltip:AddLine("Spell ID: " .. proc.spellID, 0.8, 0.8, 0.8)
+			GameTooltip:AddLine("Spell ID: " .. spellID, 0.8, 0.8, 0.8)
+			addedIDLine = true
 		end
 		if opts.showDuration and proc and proc.duration and proc.duration > 0 then
-			if not opts.showSpellID then
+			if not addedIDLine then
 				GameTooltip:AddLine(" ")
 			end
 			GameTooltip:AddLine("TBT Duration: " .. proc.duration .. "s", 0.8, 0.8, 0.8)

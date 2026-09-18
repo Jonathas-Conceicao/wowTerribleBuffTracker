@@ -17,6 +17,10 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        flavor: [mainline, camelot]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,3 +30,5 @@ jobs:
           # Extract only the first ## section from CHANGELOG.md (current version)
           awk '/^## /{if(found) exit; found=1} found' CHANGELOG.md > RELEASE_NOTES.md
       - uses: BigWigsMods/packager@v2
+        with:
+          args: -m .pkgmeta-${{ matrix.flavor }} -g ${{ matrix.flavor }} -n "{package-name}-{project-version}-{game-type}"

@@ -31,7 +31,9 @@ end
 -- Shape: { icon=number, label=string, duration=number, spellID=number }
 -- spellID is ALWAYS numeric; for string-keyed providers, the provider resolves to its concrete
 -- at-rest spellID (equipped trinket buff / bag pot buff / class-aware lust spell).
--- duration is REAL — never 0 sentinel.
+-- String-keyed providers (trinket/pot) return a neutral placeholder — spellID nil, duration 0,
+-- icon 134400 — when nothing resolves at rest (D-03/D-04, Phase 27). Callers must therefore test
+-- duration > 0 rather than assume a real duration.
 -- Override in concrete provider. Default returns nil.
 function SpellProviderBaseMixin:GetDisplayInfo(key)
 	return nil
@@ -42,6 +44,16 @@ end
 -- guard at provider level is D-18 — inside concrete providers that touch restricted APIs.
 -- D-19 / PITFALL-5: GetDisplayInfo MUST NOT call inventory APIs; only RefreshAtRest does.
 function SpellProviderBaseMixin:RefreshAtRest() end
+
+-- META-01 (Phase 27.1, D-09/D-12): answers whether this provider's catalog has anything to show
+-- on the current client. Providers that carry no spell catalog are always displayable, so
+-- UserSpellProvider and any future provider inherit "always shown" and only providers that
+-- deliberately override can be hidden. This mechanism hides tiles whose catalog the *client*
+-- cannot resolve; it names no client and no flavor, so a client that later ships those spells
+-- makes the tile reappear automatically with no code change.
+function SpellProviderBaseMixin:HasResolvableCatalog()
+	return true
+end
 
 -- Expose on namespace so other providers (future) and tests can reference the base.
 ns.SpellProviderBaseMixin = SpellProviderBaseMixin
@@ -157,8 +169,7 @@ for _, def in pairs(POT_SPELLS) do
 	POT_ITEM_IDS[def.itemID] = true
 end
 
--- Ordered fallback iteration in CSV order (consumed by TrinketProvider:RefreshAtRest / PotProvider:RefreshAtRest below).
-local TRINKET_FALLBACK_ORDER = { 249344, 249346, 250144, 193701, 151340, 252411, 250215, 250254, 250225 }
+-- Still the pot scan's real iteration order (Providers.lua PotProviderMixin:RefreshAtRest below).
 local POT_FALLBACK_ORDER = { 241308, 241288, 241292, 241302 }
 
 -- Namespace exports for the data tables (consumed by tests and future provider extensions).
@@ -180,6 +191,37 @@ local function FindSpellByItemID(spellTable, itemID)
 		end
 	end
 	return nil, nil
+end
+
+-- META-01 (Phase 27.1, D-09): answers "does this client know any spell in this catalog?" for a
+-- spellID-keyed table. Deliberately NOT an inventory or equipment test — the catalogs below
+-- resolve via C_Spell.GetSpellInfo on retail even with nothing equipped or bagged, so this must
+-- stay a pure client-capability check. A false result means the catalog is unusable on this
+-- client, not that the player happens to own nothing.
+local function AnyCatalogSpellResolves(catalog)
+	for spellID in pairs(catalog) do
+		if C_Spell.GetSpellInfo(spellID) then
+			return true
+		end
+	end
+	return false
+end
+
+-- Phase 27 / D-03/D-04: Shared neutral placeholder for string-keyed providers when nothing
+-- resolves at rest. Returns a non-nil table so the `if info then` gates at CDMTab.lua:137 and
+-- CDMTab.lua:518 still fire and both Suggested tiles stay draggable — a literal nil would make
+-- them permanently un-addable. duration is 0, not nil, because BuffEngine.lua:283 computes
+-- `expiresAt = now + info.duration` unconditionally inside its own `if info then`; a nil
+-- duration would throw there. 0 is the codebase's existing unresolved-duration sentinel
+-- (see the no-entry branch of the numeric-key provider's GetDisplayInfo above; CDMTab.lua:98's
+-- duration > 0 check).
+local function UnresolvedDisplayInfo(label)
+	return {
+		icon = 134400,
+		label = label,
+		duration = 0,
+		spellID = nil,
+	}
 end
 
 -- Lust data tables. Consumed by LustProvider:OnTrigger (below) and ScanActiveTimersForCancellation
@@ -278,8 +320,9 @@ end
 -- via ns:GetSpellIcon + C_Spell.GetSpellInfo. Single source of truth: spellID is the key.
 TrinketProviderMixin.atRest = { spellID = nil, duration = nil }
 
--- D-14: Scans equipped INVSLOT_TRINKET1/2; reverse-looks up to buff spellID; falls back to
--- first CSV entry. Writes ONLY { spellID, duration } to cache.
+-- D-14: Scans equipped INVSLOT_TRINKET1/2; reverse-looks up to buff spellID. Writes ONLY
+-- { spellID, duration } to cache; leaves it honestly nil when no equipped trinket matches
+-- TRINKET_ITEM_IDS (Phase 27 / D-05 — no unconditional hardcoded fallback assignment).
 -- D-17/D-18: ns:RefreshProvidersAtRest wrapper combat-gates; defensive double-gate here for any
 -- future caller that invokes RefreshAtRest directly.
 -- PITFALL-5: inventory APIs here, NEVER in GetDisplayInfo.
@@ -295,25 +338,19 @@ function TrinketProviderMixin:RefreshAtRest()
 			break
 		end
 	end
-	if not trinketItemID then
-		trinketItemID = TRINKET_FALLBACK_ORDER[1]
-	end
 	local spellID, duration = FindSpellByItemID(TRINKET_SPELLS, trinketItemID)
 	self.atRest.spellID = spellID
 	self.atRest.duration = duration
 end
 
 -- D-04/D-05/D-06/D-07/D-16: Read cache; derive icon + label from spellID; return real duration.
--- First-call fallback (D-16 step 5): if cache unpopulated, resolve from first CSV entry so the
--- method never returns nil in normal operation.
+-- Phase 27 / D-03/D-04: if the cache is unpopulated (no equipped trinket resolved), returns the
+-- neutral placeholder below — never a CSV-order guess, and still never nil.
 function TrinketProviderMixin:GetDisplayInfo(key)
 	local spellID = self.atRest.spellID
 	local duration = self.atRest.duration
 	if not spellID then
-		spellID, duration = FindSpellByItemID(TRINKET_SPELLS, TRINKET_FALLBACK_ORDER[1])
-	end
-	if not spellID then
-		return nil
+		return UnresolvedDisplayInfo("Trinket")
 	end
 	local spellInfo = C_Spell.GetSpellInfo(spellID)
 	local label = (spellInfo and spellInfo.name) or "Trinket"
@@ -323,6 +360,12 @@ function TrinketProviderMixin:GetDisplayInfo(key)
 		duration = duration,
 		spellID = spellID,
 	}
+end
+
+-- META-01: trinket tiles stay visible whenever any spell in TRINKET_SPELLS resolves on this
+-- client, regardless of whether a matching trinket is actually equipped (D-09).
+function TrinketProviderMixin:HasResolvableCatalog()
+	return AnyCatalogSpellResolves(TRINKET_SPELLS)
 end
 
 ns.TrinketProviderMixin = TrinketProviderMixin
@@ -377,7 +420,9 @@ end
 -- D-13: Minimal at-rest cache.
 PotProviderMixin.atRest = { spellID = nil, duration = nil }
 
--- D-14: Scans bags via C_Item.GetItemCount in CSV order; first count>0 wins.
+-- D-14: Scans bags via C_Item.GetItemCount in CSV order; first count>0 wins. Leaves the cache
+-- honestly nil when no bagged potion matches (Phase 27 / D-05 — no unconditional hardcoded
+-- fallback assignment).
 -- D-17/D-18: combat-gated.
 function PotProviderMixin:RefreshAtRest()
 	if InCombatLockdown() then
@@ -390,23 +435,18 @@ function PotProviderMixin:RefreshAtRest()
 			break
 		end
 	end
-	if not potItemID then
-		potItemID = POT_FALLBACK_ORDER[1]
-	end
 	local spellID, duration = FindSpellByItemID(POT_SPELLS, potItemID)
 	self.atRest.spellID = spellID
 	self.atRest.duration = duration
 end
 
--- D-04/D-05/D-06/D-07/D-16.
+-- D-04/D-05/D-06/D-07/D-16. Phase 27 / D-03/D-04: unpopulated cache returns the neutral
+-- placeholder below — never a CSV-order guess, and still never nil.
 function PotProviderMixin:GetDisplayInfo(key)
 	local spellID = self.atRest.spellID
 	local duration = self.atRest.duration
 	if not spellID then
-		spellID, duration = FindSpellByItemID(POT_SPELLS, POT_FALLBACK_ORDER[1])
-	end
-	if not spellID then
-		return nil
+		return UnresolvedDisplayInfo("Damage Pot")
 	end
 	local spellInfo = C_Spell.GetSpellInfo(spellID)
 	local label = (spellInfo and spellInfo.name) or "Damage Pot"
@@ -416,6 +456,12 @@ function PotProviderMixin:GetDisplayInfo(key)
 		duration = duration,
 		spellID = spellID,
 	}
+end
+
+-- META-01: pot tiles stay visible whenever any spell in POT_SPELLS resolves on this client,
+-- regardless of whether a matching potion is actually bagged (D-09).
+function PotProviderMixin:HasResolvableCatalog()
+	return AnyCatalogSpellResolves(POT_SPELLS)
 end
 
 ns.PotProviderMixin = PotProviderMixin
@@ -576,6 +622,23 @@ function LustProviderMixin:GetDisplayInfo(key)
 	}
 end
 
+-- META-01: cannot reuse AnyCatalogSpellResolves — SHARED_LUST_BUFFS_LOCAL's values are variant
+-- arrays, not definition tables, so this walks primaries and variants directly. The MM-Hunter
+-- variant 466904 is a spell GetDisplayInfo can actually name, so it must be part of the test.
+function LustProviderMixin:HasResolvableCatalog()
+	for primarySpellID, variants in pairs(SHARED_LUST_BUFFS_LOCAL) do
+		if C_Spell.GetSpellInfo(primarySpellID) then
+			return true
+		end
+		for _, variantSpellID in ipairs(variants) do
+			if C_Spell.GetSpellInfo(variantSpellID) then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 ns.LustProviderMixin = LustProviderMixin
 local LustProvider = CreateFromMixins(SpellProviderBaseMixin, LustProviderMixin)
 
@@ -595,6 +658,10 @@ local keyToProvider = {
 	lust = LustProvider,
 }
 
+-- META-01 (D-10): memoises ns:IsSuggestedKeyResolvable answers per key, for the lifetime of the
+-- session. Module-local — never exported.
+local catalogResolvable = {}
+
 -- ns:GetDisplayInfoForKey(key)
 -- Returns { icon, label, duration, spellID } for any provider key, or nil if unresolvable.
 -- String keys ("trinket"/"pot"/"lust") route via keyToProvider; numeric keys route to UserSpellProvider.
@@ -605,6 +672,27 @@ function ns:GetDisplayInfoForKey(key)
 		return p and p:GetDisplayInfo(key) or nil
 	end
 	return UserSpellProvider:GetDisplayInfo(key)
+end
+
+-- ns:IsSuggestedKeyResolvable(key)
+-- META-01 (D-09/D-10): answers whether a Suggested-section key is worth rendering on this
+-- client. ns:RefreshTBTSections has eleven call sites and redraws the Suggested section on
+-- every CDM open and after every drag, so the catalog walk must happen once per key for the
+-- session and the render path must only read this cache. The first call can only arrive from
+-- a user-triggered CDM open, long after PLAYER_ENTERING_WORLD, so the client's spell data is
+-- fully loaded by then and a sticky one-shot answer is safe — no invalidation hook is added.
+function ns:IsSuggestedKeyResolvable(key)
+	local cached = catalogResolvable[key]
+	if cached ~= nil then
+		return cached
+	end
+	local p = keyToProvider[key]
+	if not p then
+		return true
+	end
+	local result = (p:HasResolvableCatalog() and true) or false
+	catalogResolvable[key] = result
+	return result
 end
 
 -- Build eventToProviders map once after ns.providers is populated.

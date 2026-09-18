@@ -230,7 +230,16 @@ local function GetOrCreateGhostFrame()
 		ghostIcon:SetAllPoints(tbtGhostFrame)
 		tbtGhostFrame.Icon = ghostIcon
 		tbtGhostFrame:SetScript("OnUpdate", function(self)
-			local x, y = GetScaledCursorPositionForFrame(topLevel)
+			-- PAR-02: GetScaledCursorPositionForFrame is an engine-side global present on
+			-- Midnight but ABSENT on Forever (build 1.60.1.69893), so this OnUpdate called a
+			-- nil value every frame of every drag — 53 errors in one session, 2026-09-18.
+			-- Replaced with the same GetCursorPosition/GetScale idiom the other three cursor
+			-- sites in this file already use (SectionHitTest, the marker update, and the
+			-- reorder hit test), which removes the engine dependency instead of shimming it
+			-- and leaves one cursor idiom in the file. No flavor check needed.
+			local scale = topLevel:GetScale()
+			local x, y = GetCursorPosition()
+			x, y = x / scale, y / scale
 			self:ClearAllPoints()
 			self:SetPoint("TOPLEFT", topLevel, "BOTTOMLEFT", x, y)
 		end)
@@ -715,16 +724,29 @@ function ns:RefreshTBTSections()
 		if def.key == "suggested" then
 			-- Populate from SUGGESTED_KEYS catalog (D-12 Phase 23).
 			-- Add square is layoutIndex 1 (always first); catalog starts at 2.
+			local suggestedSlot = 1
 			for i, suggestedKey in ipairs(ns.SUGGESTED_KEYS) do
-				local item = section.itemPool:Acquire()
-				local info = ns:GetDisplayInfoForKey(suggestedKey)
-				local iconID = (info and info.icon) or 134400
-				item.spellID = suggestedKey -- string key "lust" / "trinket" / "pot"
-				item.Icon:SetTexture(iconID)
-				item.sectionName = "suggested"
-				item.suggestedIndex = i -- index into ns.SUGGESTED_KEYS (D-13)
-				item.layoutIndex = i + 1 -- +1 to leave slot 1 for the Add square
-				item:Show()
+				-- META-01 (Phase 27.1): skip a tile when none of that provider's catalog
+				-- spells resolve on this client (D-09). Answered by the memoised
+				-- ns:IsSuggestedKeyResolvable, so this render path never iterates a catalog
+				-- no matter how often ns:RefreshTBTSections runs — every CDM open and after
+				-- every drag, add, move and delete (D-10). Skipping is display-only;
+				-- ns.db.trackedBuffs is deliberately untouched, so a user who already tracks
+				-- a meta key keeps it (D-11). The condition is client-capability-shaped, so a
+				-- client that later ships those spells shows the tile again with no code
+				-- change (D-12).
+				if ns:IsSuggestedKeyResolvable(suggestedKey) then
+					suggestedSlot = suggestedSlot + 1
+					local item = section.itemPool:Acquire()
+					local info = ns:GetDisplayInfoForKey(suggestedKey)
+					local iconID = (info and info.icon) or 134400
+					item.spellID = suggestedKey -- string key "lust" / "trinket" / "pot"
+					item.Icon:SetTexture(iconID)
+					item.sectionName = "suggested"
+					item.suggestedIndex = i -- index into ns.SUGGESTED_KEYS (D-13)
+					item.layoutIndex = suggestedSlot
+					item:Show()
+				end
 			end
 		else
 			-- Collect and sort by layoutOrder for within-section ordering

@@ -1,0 +1,16 @@
+# Pins line endings to Windows (CRLF) so a bare `stylua <file>` invocation is
+# correct by default and no caller has to remember `--line-endings Windows`.
+#
+# Root cause this fixes (Phase 30, D-08): `core.autocrlf=true` with no
+# `.gitattributes` means every tracked .lua file hashes as `i/lf` in git's
+# index. A bare `stylua <file>` previously reflowed the working-tree file to
+# LF, and because the index was already `i/lf`, that reflow produced a
+# literally empty `git diff` — the conversion left no trace. Two files were
+# hit by this before it was noticed.
+#
+# Every other option is deliberately left at stylua's own defaults, because
+# that is what this repo's prior `--line-endings Windows` runs already used.
+# Adding any other setting (column_width, indent_type, indent_width,
+# quote_style, call_parentheses, [sort_requires], etc.) could reformat all
+# six Lua files and turn this line-ending fix into a whole-tree style change.
+line_endings = "Windows"

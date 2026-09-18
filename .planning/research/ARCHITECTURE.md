@@ -1,478 +1,262 @@
-# Architecture Research
+# Architecture Research: WoW Forever Cross-Flavor Support
 
-**Domain:** WoW Midnight addon — SpellProvider/ActiveProc refactor (v0.2.4)
-**Researched:** 2026-04-18
-**Confidence:** HIGH (read directly from codebase; no external APIs involved)
+**Domain:** WoW addon multi-flavor packaging (retail Midnight + WoW Forever/`camelot` beta)
+**Researched:** 2026-09-18
+**Confidence:** HIGH (TOC/packager mechanics verified against BigWigs packager source and warcraft.wiki.gg; MEDIUM on Forever-beta-specific client behavior, which is explicitly gated on in-game verification per the milestone context)
 
 ## Standard Architecture
 
-### System Overview — Before (v0.2.3)
+### System Overview
 
 ```
-Core.lua
-  UNIT_SPELLCAST_SUCCEEDED  ──────────────────────────────────────────┐
-  UNIT_AURA                 ──────────────────────────────────────┐   │
-                                                                   │   │
-BuffEngine.lua                                                     │   │
-  ns.activeTimers (keyed by spellID or "lust"/"trinket"/"pot")    │   │
-  OnSpellCastSucceeded()        ◄────────────────────────────────────┘
-    ├── TRINKET_SPELLS[id]?  ──► trinket branch (numeric key, metaSlot)
-    ├── POT_SPELLS[id]?      ──► pot branch     (numeric key, metaSlot)
-    └── trackedBuffs[id]?    ──► user-spell branch (numeric key, no metaSlot)
-  OnUnitAura()                  ◄──────────────────────────────────┘
-    ├── SATED_DEBUFF_TO_LUST?  ──► StartLustTimer() (string key "lust")
-    └── ScanActiveTimersForCancellation()
-  StartAllPreviewTimers()  — divergent icon/label resolution for string vs numeric keys
-  GetAtRestMetaInfo()      — trinket/pot only
-  ResolveSuggestedSpellID() — lust only
-
-Display.lua
-  UpdateDisplay()  20Hz OnUpdate
-    ├── active timer?  timer.icon (numeric or string key, metaSlot alias)
-    └── placeholder?
-          ├── GetSuggestedAtRestIcon()  ──► trinket/pot path
-          └── ResolveSuggestedSpellID() ──► lust path
-  tooltip: two parallel codepaths (bar OnEnter / icon OnEnter) — duplicated
-
-CDMTab.lua
-  RefreshTBTSections()
-    ├── suggested section: getCDMSpellID() or getCDMIcon() dispatch
-    └── user sections: string-key check → GetAtRestMetaIcon / ResolveSuggestedSpellID
-  BeginDrag ghost: string-key check → GetAtRestMetaIcon / ResolveSuggestedSpellID
-  tooltip OnEnter: string-key check → metaInfo / ResolveSuggestedSpellID / label-only
+┌──────────────────────────────────────────────────────────────────────┐
+│  Repo root (ONE shared Lua/XML file set — CLAUDE.md hard constraint) │
+│  Core.lua  BuffEngine.lua  Providers.lua  EditModeFrames.lua          │
+│  Display.lua  CDMTab.xml  CDMTab.lua  tbt_icon_64x64.blp              │
+├──────────────────────────────────────────────────────────────────────┤
+│  Two manifest files (the ONLY duplicated artifacts)                   │
+│  TerribleBuffTracker_Mainline.toc (Interface 120100)                  │
+│  TerribleBuffTracker_Camelot.toc  (Interface 16001)                   │
+│  — WoW client picks ONE by filename suffix matching its own flavor,   │
+│    per warcraft.wiki.gg TOC_format and BigWigs packager's flavor map  │
+├──────────────────────────────────────────────────────────────────────┤
+│  Install tooling (client-topology aware, tooling only)                │
+│  scripts/install.bat → enumerates _retail_ / _classic_beta_ dirs,     │
+│  copies the shared file set + BOTH TOCs into each present target      │
+├──────────────────────────────────────────────────────────────────────┤
+│  Release tooling (flavor-blind — the packager does the flavor work)   │
+│  scripts/release.bat (tag+push, unchanged) → GitHub Actions           │
+│  → BigWigsMods/packager@v2 discovers both TOCs by suffix, uploads     │
+│    per-flavor artifacts to CurseForge/Wago from ONE tag                │
+└──────────────────────────────────────────────────────────────────────┘
 ```
-
-**Problem summary:** Three branches in `OnSpellCastSucceeded`, icon resolution logic duplicated 6+ times across three files, `StartAllPreviewTimers` has its own special-cased loop, timer shape has optional fields (`metaSlot`, `lustBuffID`, `source`) that create implicit contracts only some consumers respect.
-
----
-
-### System Overview — After (v0.2.4 target)
-
-```
-Core.lua  (unchanged event routing)
-  UNIT_SPELLCAST_SUCCEEDED  ──► BuffEngine: ns:OnSpellCastSucceeded(spellID)
-  UNIT_AURA                 ──► BuffEngine: ns:OnUnitAura(updateInfo)
-
-Providers.lua  (NEW FILE)
-  ns.providers = { UserSpellProvider, TrinketProvider, PotProvider, LustProvider }
-  Each provider implements:
-    provider.events[]          — which WoW events it cares about
-    provider:OnTrigger(event, payload) → ActiveProc or nil
-    provider:GetPreviewProcs() → list of ActiveProc (one per enabled DB slot)
-    provider:GetPreviewInfo(key) → { icon, label, duration } for CDM at-rest rendering
-
-ActiveProc shape (plain table, uniform across all providers):
-  {
-    key       = string|number,   -- unique display slot (DB key or "trinket"/"pot")
-    icon      = number,          -- texture ID, always resolved by provider
-    label     = string,          -- display name, always resolved by provider
-    duration  = number,
-    expiresAt = number,          -- GetTime() + duration
-    startedAt = number,
-    section   = string,          -- "bars" | "buffs"
-    layoutOrder = number,
-  }
-
-BuffEngine.lua  (simplified)
-  ns.activeProcs = {}            -- replaces ns.activeTimers
-  ns:OnSpellCastSucceeded(id)  ──► for each provider: if id in provider.events → OnTrigger
-  ns:OnUnitAura(info)          ──► for each provider: if UNIT_AURA in provider.events → OnTrigger
-  ns:GetActiveProcs()          ──► expiry sweep + sort, returns list of ActiveProc
-  StartAllPreviewTimers()      ──► for each provider: merge GetPreviewProcs()
-  ScanActiveTimersForCancellation() — remains, but dispatch is per-proc source field
-
-Display.lua  (no type-specific branching)
-  UpdateDisplay()  20Hz
-    proc.icon, proc.label, proc.key used directly — no resolution chains
-  tooltip: single implementation, calls provider:GetPreviewInfo(proc.key)
-
-CDMTab.lua  (simplified)
-  RefreshTBTSections() — at-rest icons from provider:GetPreviewInfo(key).icon
-  BeginDrag ghost icon  — same source
-  tooltip OnEnter       — same source
-```
-
----
 
 ### Component Responsibilities
 
-| Component | Responsibility | New vs Modified |
-|-----------|----------------|-----------------|
-| `Providers.lua` | Houses all SpellProvider implementations; registers `ns.providers` | NEW FILE |
-| `UserSpellProvider` | Watches `UNIT_SPELLCAST_SUCCEEDED`; emits procs for `ns.db.trackedBuffs` numeric entries | NEW (extracted from `OnSpellCastSucceeded` branch 3) |
-| `TrinketProvider` | Watches `UNIT_SPELLCAST_SUCCEEDED`; matches `TRINKET_SPELLS`; emits procs on "trinket" key | NEW (extracted from branch 1) |
-| `PotProvider` | Watches `UNIT_SPELLCAST_SUCCEEDED`; matches `POT_SPELLS`; emits procs on "pot" key | NEW (extracted from branch 2) |
-| `LustProvider` | Watches `UNIT_AURA`; matches `SATED_DEBUFF_TO_LUST`; emits procs on "lust" key | NEW (extracted from `OnUnitAura`) |
-| `BuffEngine.lua` | Routes events to providers; owns `ns.activeProcs` lifecycle; expiry sweep | MODIFIED (simplified) |
-| `Display.lua` | Consumes `ns:GetActiveProcs()` only; zero type-specific branching | MODIFIED (simplified) |
-| `CDMTab.lua` | Calls `provider:GetPreviewInfo(key)` for at-rest icons and tooltips | MODIFIED (simplified) |
-| `Core.lua` | Event routing — unchanged | UNMODIFIED |
-| `EditModeFrames.lua` | Container positioning — unchanged | UNMODIFIED |
-
----
+| Component | Responsibility | Change for v0.3 |
+|-----------|----------------|------------------|
+| `TerribleBuffTracker.toc` | Single manifest, one Interface value | REMOVED — replaced by two flavor TOCs |
+| `TerribleBuffTracker_Mainline.toc` | Retail/Midnight manifest, Interface 120100 | NEW |
+| `TerribleBuffTracker_Camelot.toc` | Forever manifest, Interface 16001 | NEW |
+| `Core.lua` / `BuffEngine.lua` / `Providers.lua` / `EditModeFrames.lua` / `Display.lua` / `CDMTab.lua` / `CDMTab.xml` | All addon logic, shared verbatim | NO CHANGE NEEDED (bytes identical, loaded by whichever TOC the client selects) |
+| `scripts/install.bat` | Deploy to local WoW installs | MODIFIED — loop over candidate flavor dirs |
+| `scripts/release.bat` | Tag + push | NO CHANGE NEEDED — flavor-blind by design |
+| `.github/workflows/release.yml` / BigWigs packager | Build + upload per-flavor artifacts | NO CHANGE NEEDED — packager already flavor-aware by TOC suffix |
+| `.pkgmeta` | Packaging ignore rules | NO CHANGE NEEDED — ignore list is flavor-agnostic |
 
 ## Recommended Project Structure
 
 ```
 TerribleBuffTracker/
-├── Core.lua              # event routing — unmodified
-├── Providers.lua         # NEW: all SpellProvider implementations + ns.providers registry
-├── BuffEngine.lua        # simplified: proc lifecycle, event dispatch to providers
-├── Display.lua           # simplified: consumes ActiveProc shape only
-├── CDMTab.lua            # simplified: uses provider:GetPreviewInfo for icon/tooltip
-├── EditModeFrames.lua    # unmodified
-├── CDMTab.xml            # unmodified
+├── TerribleBuffTracker_Mainline.toc   # Interface 120100 — retail/Midnight
+├── TerribleBuffTracker_Camelot.toc    # Interface 16001  — Forever beta
+├── Core.lua
+├── BuffEngine.lua
+├── Providers.lua
+├── EditModeFrames.lua
+├── Display.lua
+├── CDMTab.xml
+├── CDMTab.lua
+├── tbt_icon_64x64.blp
+├── .pkgmeta
+├── scripts/
+│   ├── install.bat
+│   └── release.bat
+└── .github/workflows/release.yml
 ```
 
-### Why a single Providers.lua (not one file per provider)
+No new folders. No `Mainline/` or `Camelot/` subtree — the whole point of the split-TOC approach (as opposed to a folder-per-flavor layout some multi-flavor addons use) is that the Lua/XML tree stays flat and single-copy, and only the two small manifest files fork.
 
-The four providers are small (20-40 lines each) and tightly coupled to the same data tables (`TRINKET_SPELLS`, `POT_SPELLS`, `SATED_DEBUFF_TO_LUST`) that already live in `BuffEngine.lua`. Splitting into four files adds load-order friction for negligible organizational gain. One file keeps all provider logic visible together, making it easy to add a new season's data without hunting across files.
+### Structure Rationale
 
-If providers grow substantially (e.g. complex aura-scan chains), splitting is a valid future step.
-
----
+- **Two TOCs at repo root, not nested:** WoW's client-side flavor selection (documented at warcraft.wiki.gg/wiki/TOC_format) works by filename suffix matching against `<AddonFolderName>_<Suffix>.toc` sitting directly inside the addon's own folder — it does not support per-flavor subfolders for this mechanism. Both TOCs must sit next to the Lua files they reference.
+- **No `Mainline/` or `Camelot/` Lua trees:** the milestone's hard constraint is "no flavor-forked source files"; introducing parallel folders (even if only for TOCs) would need per-directory `install.bat` logic and be pure structural overhead the milestone doesn't need.
 
 ## Architectural Patterns
 
-### Pattern 1: Provider Interface
+### Pattern 1: Split flavor TOCs referencing one shared file set
 
-**What:** Each provider is a table with a defined interface. BuffEngine calls through the interface; providers never call back into BuffEngine (no circular deps).
+**What:** Two manifest files with identical `Author/Notes/SavedVariables/file list` and *only* `## Interface:` (and file name) differing. Both list every Lua/XML file the addon has, verbatim, in the same load order.
+**When to use:** Exactly TBT's situation — one code path must run unmodified on two Interface ranges, and you want deterministic per-flavor Interface declaration rather than relying on comma-form parsing.
+**Trade-offs:** Pro — CurseForge/Wago and the WoW client itself both understand this natively (verified: BigWigs packager's `game_flavor` array explicitly maps `["camelot"]="forever"`, and the `_Camelot` suffix is Blizzard/community-documented, not a BigWigs invention). Con — two files can drift; needs the sync discipline covered in "File Topology" below.
 
-**When to use:** Any time you need to add a new trigger source without touching the routing loop.
+**Example — `TerribleBuffTracker_Mainline.toc`:**
+```
+## Interface: 120100
+## Title: TerribleBuffTracker
+## Notes: Manual buff/cooldown timer tracking for WoW Midnight
+## Author: Jonathas-Conceicao
+## Version: @project-version@
+## URL: https://github.com/Jonathas-Conceicao/wowTerribleBuffTracker.git
+## Category: Buffs & Debuffs, Combat
+## X-Curse-Project-ID: 1480617
+## X-Wago-ID: 5NR8YzK3
+## IconTexture: Interface\AddOns\TerribleBuffTracker\tbt_icon_64x64
+## SavedVariables: TerribleBuffTrackerDB
 
-**Trade-offs:** Interface discipline required — Lua has no enforcement. Compensate with explicit assertions in dev builds.
-
-**Example:**
-```lua
--- Providers.lua
-local UserSpellProvider = {}
-
--- Events this provider needs routed to it
-UserSpellProvider.events = { "UNIT_SPELLCAST_SUCCEEDED" }
-
--- Returns ActiveProc or nil. Called by BuffEngine for each matching event.
-function UserSpellProvider:OnTrigger(event, spellID)
-    if event ~= "UNIT_SPELLCAST_SUCCEEDED" then return nil end
-    local entry = ns.db.trackedBuffs[spellID]
-    if not entry or entry.section == "hidden" then return nil end
-    local now = GetTime()
-    return {
-        key       = spellID,
-        icon      = ns:GetSpellIcon(spellID),
-        label     = entry.label or ("Spell " .. spellID),
-        duration  = entry.duration,
-        expiresAt = now + entry.duration,
-        startedAt = now,
-        section   = entry.section,
-        layoutOrder = entry.layoutOrder,
-    }
-end
-
--- Returns { icon, label, duration } for at-rest display (CDM tab, placeholder bars).
--- Never nil — always returns a best-guess value.
-function UserSpellProvider:GetPreviewInfo(key)
-    local entry = ns.db.trackedBuffs[key]
-    if not entry then return { icon = 134400, label = tostring(key), duration = 0 } end
-    return {
-        icon     = ns:GetSpellIcon(key),
-        label    = entry.label or ("Spell " .. key),
-        duration = entry.duration,
-    }
-end
-
--- Returns list of ActiveProc for preview mode (one per enabled DB slot this provider owns).
-function UserSpellProvider:GetPreviewProcs()
-    local now = GetTime()
-    local result = {}
-    for spellID, entry in pairs(ns.db.trackedBuffs) do
-        if type(spellID) == "number" and entry.section ~= "hidden" then
-            result[#result+1] = {
-                key       = spellID,
-                icon      = ns:GetSpellIcon(spellID),
-                label     = entry.label or ("Spell " .. spellID),
-                duration  = entry.duration,
-                expiresAt = now + entry.duration,
-                startedAt = now,
-                section   = entry.section,
-                layoutOrder = entry.layoutOrder,
-            }
-        end
-    end
-    return result
-end
+Core.lua
+BuffEngine.lua
+Providers.lua
+EditModeFrames.lua
+Display.lua
+CDMTab.xml
 ```
 
-### Pattern 2: Replace-on-Reproc in BuffEngine
+**`TerribleBuffTracker_Camelot.toc`** is byte-identical except `## Interface: 16001` on line 1. (Whether Forever additionally wants `## AllowLoadGameType: standard, camelot` is a Forever-TOC convention Blizzard's own Forever TOCs declare per PROJECT.md's Context section — carry it on the Camelot TOC only, since it is a Forever-only directive; harmless if the retail client ignores an unknown key on the Mainline TOC too, but there is no reason to add noise to a file that doesn't need it.)
 
-**What:** BuffEngine's dispatch loop replaces any existing proc at the same key. This is the "shared slot" semantic that trinket, pot, and lust all require. Providers return a proc; BuffEngine installs it unconditionally.
+### Pattern 2: Sync-checked duplicate manifests (not a generator)
 
-**When to use:** Always — providers never write to `ns.activeProcs` directly.
+**What:** Because the constraint is "one shared file set," the two TOCs' file-list *bodies* (everything after the `##` header block) must always be identical, modulo the `## Interface:` line and possibly `## AllowLoadGameType:`. Rather than building a template/codegen step (which the WeakAuras/BigWigs precedent shows even large multi-flavor addons don't bother with when the file lists are meant to differ *intentionally* — they hand-maintain divergent TOCs because their flavors genuinely need different files), TBT should add a cheap **diff-based CI/lint guard**, because TBT's file lists are supposed to be identical, so any difference is a bug by definition, not a legitimate flavor fork.
+**When to use:** Whenever "no flavor-forked source files" is a load-bearing constraint and you have >1 manifest.
+**Trade-offs:** Pro — a two-line `diff` catches "forgot to add NewFile.lua to the Camelot TOC" at commit time instead of at Forever runtime (where a missing file just silently doesn't load — no error, just broken behavior, since WoW does not warn about files present in one TOC and absent from another). Con — none meaningful; this is a ~5-line script.
 
-**Example:**
-```lua
--- BuffEngine.lua
-function ns:OnSpellCastSucceeded(spellID)
-    for _, provider in ipairs(ns.providers) do
-        for _, event in ipairs(provider.events) do
-            if event == "UNIT_SPELLCAST_SUCCEEDED" then
-                local proc = provider:OnTrigger("UNIT_SPELLCAST_SUCCEEDED", spellID)
-                if proc then
-                    ns.activeProcs[proc.key] = proc
-                    if ns.UpdateDisplay then ns:UpdateDisplay() end
-                    return  -- first matching provider wins; matches existing fan-out behavior
-                end
-            end
-        end
-    end
-end
+**Example — where it belongs:** `scripts/install.bat` is the natural home for a *guard*, not `release.bat` — install.bat already runs before every local test cycle, so a mismatch is caught immediately during dev, not just at release time. A minimal PowerShell/batch approach:
+```bat
+:: In install.bat, before copying: strip the ## header lines and compare bodies
+for /f "skip=11 delims=" %%A in ('type "%SOURCE%TerribleBuffTracker_Mainline.toc"') do echo %%A>>"%TEMP%\m.txt"
+for /f "skip=11 delims=" %%A in ('type "%SOURCE%TerribleBuffTracker_Camelot.toc"') do echo %%A>>"%TEMP%\c.txt"
+fc "%TEMP%\m.txt" "%TEMP%\c.txt" >nul || (echo WARNING: TOC file lists differ between flavors! & exit /b 1)
 ```
+A `.github/workflows` lint job duplicating this check is optional belt-and-suspenders for PRs that don't run install.bat locally, but is not required for a solo-maintainer repo where install.bat runs on every deploy — one guard, in the tool that's already always run, is enough. Do not add a second one in CI unless multiple contributors start submitting PRs without running install.bat first.
 
-Note on `return` after first match: this preserves the existing v0.2.3 behavior where trinket/pot fan-out returns early and never falls through to the user-buff path. Provider order in `ns.providers` encodes this priority (TrinketProvider, PotProvider, then UserSpellProvider).
+### Pattern 3: Provider-level graceful absence, not flavor branching
 
-### Pattern 3: GetPreviewInfo Replaces Divergent Icon Resolution
-
-**What:** All at-rest icon resolution (placeholder bars, CDM tab sections, drag ghosts, tooltips) is delegated to `provider:GetPreviewInfo(key)`. Callers pass the DB key; the responsible provider returns `{ icon, label, duration }`. Callers need zero knowledge of whether the key is a numeric spell, "lust", "trinket", or "pot".
-
-**When to use:** Any time code outside a provider needs the icon or label for a configured slot that has no active proc.
-
-**Eliminates these duplicated call chains (6 sites across Display.lua and CDMTab.lua):**
-- `GetSuggestedAtRestIcon(key)` — Display.lua bar placeholder
-- `GetSuggestedAtRestIcon(key)` — Display.lua icon placeholder
-- `ResolveSuggestedSpellID / GetAtRestMetaIcon` — CDMTab.lua suggested section
-- `GetAtRestMetaIcon / ResolveSuggestedSpellID` — CDMTab.lua user sections
-- `GetAtRestMetaIcon / ResolveSuggestedSpellID` — CDMTab.lua BeginDrag ghost
-- `GetAtRestMetaInfo / ResolveSuggestedSpellID` — CDMTab.lua tooltip
-
-**After refactor:**
-```lua
--- CDMTab.lua — suggested section, user sections, ghost, tooltip: all become:
-local function GetPreviewInfoForKey(key)
-    for _, provider in ipairs(ns.providers) do
-        if provider:OwnsKey(key) then
-            return provider:GetPreviewInfo(key)
-        end
-    end
-    return { icon = 134400, label = tostring(key), duration = 0 }
-end
-```
-
-`OwnsKey(key)` is a trivial per-provider check:
-- `UserSpellProvider`: `type(key) == "number"`
-- `TrinketProvider`: `key == "trinket"`
-- `PotProvider`: `key == "pot"`
-- `LustProvider`: `key == "lust"`
-
-### Pattern 4: Cancellation Source Field Preserved
-
-**What:** `ScanActiveTimersForCancellation` already dispatches on `timer.source`. Under the new architecture, providers declare their proc's source field. The function is unchanged; providers just need to set it correctly.
-
-| Provider | source field | Cancellation behavior |
-|----------|-------------|----------------------|
-| `UserSpellProvider` | `"cast"` | Cancelled when aura absent (existing) |
-| `TrinketProvider` | `"cast"` | Cancelled when aura absent — SAFE because trinket buff auras are readable (not secret) |
-| `PotProvider` | `"cast"` | Cancelled when aura absent |
-| `LustProvider` | `"debuff"` | Cancelled via SHARED_LUST_BUFFS check (existing) |
-
-**Note on TrinketProvider source:** The existing code uses `source = "cast"` for trinket procs and the `metaSlot` field for slot identity. This is correct behavior and should be preserved exactly — do not change to a new source value.
-
----
+**What:** TBT's `Providers.lua` already resolves every piece of Forever-irrelevant data (trinket/pot spell IDs, equipped-item lookups, class lust spells) through `RefreshAtRest()` → `GetDisplayInfo()`, both of which read live client state (`GetInventoryItemID`, `C_Item.GetItemCount`, `C_Spell.GetSpellInfo`) rather than asserting the retail-only IDs exist. On Forever, `TRINKET_SPELLS[spellID]` / `POT_SPELLS[spellID]` lookups in `OnTrigger` (Providers.lua lines 250, 350) simply never match — Forever characters cannot cast retail season trinket/pot spell IDs — so `OnTrigger` returns `nil` for those events, precisely the same "no match" path already used for any spell not in the static table. Nothing in that path throws or logs.
+**When to use:** This is *already* TBT's architecture; the finding is that it needs no new pattern, only verification that the boundary conditions covered below hold on Forever's own Cooldown Manager and equipment/class model.
+**Trade-offs:** N/A — this is a "no change needed" finding, detailed below.
 
 ## Data Flow
 
-### Cast-Triggered Proc (UserSpell / Trinket / Pot)
+### Provider resolution flow (why Forever mostly "just works")
 
 ```
-UNIT_SPELLCAST_SUCCEEDED (spellID)
-    ↓
-Core.lua: ns:OnSpellCastSucceeded(spellID)
-    ↓
-BuffEngine.lua: iterate ns.providers in priority order
-    ↓
-provider:OnTrigger("UNIT_SPELLCAST_SUCCEEDED", spellID) → ActiveProc or nil
-    ↓ (proc returned)
-ns.activeProcs[proc.key] = proc     -- overwrites any existing proc at same key
-    ↓
-ns:UpdateDisplay()
-    ↓
-Display.lua: proc.icon, proc.label, proc.key used directly — no resolution
+UNIT_SPELLCAST_SUCCEEDED (any flavor)
+    → ns:DispatchEventToProviders (Providers.lua:633)
+        → TrinketProvider:OnTrigger  → TRINKET_SPELLS[spellID] lookup → nil on Forever (no retail item exists)
+        → PotProvider:OnTrigger      → POT_SPELLS[spellID] lookup    → nil on Forever
+        → LustProvider:OnTrigger     → UNIT_AURA path, not this event → unaffected
+        → UserSpellProvider:OnTrigger → ns.db.trackedBuffs[spellID] (USER data, flavor-agnostic) → works identically
+
+CDM tab open (CDMTab.lua:RefreshTBTSections, StartPreview)
+    → ns:RefreshProvidersAtRest() → TrinketProviderMixin:RefreshAtRest / PotProviderMixin:RefreshAtRest
+        → GetInventoryItemID(player, INVSLOT_TRINKET1/2) → not in TRINKET_ITEM_IDS on Forever → falls through
+        → trinketItemID = TRINKET_FALLBACK_ORDER[1] (Providers.lua:298-300) → ALWAYS resolves to a
+          retail item, even on Forever — this is the one place fallback-to-wrong-flavor-data happens
+    → Display.lua GetDisplayInfoForKey("trinket"/"pot") renders whatever atRest resolved to
 ```
 
-### Aura-Triggered Proc (Lust)
+### Key Data Flows
 
-```
-UNIT_AURA (updateInfo)
-    ↓
-Core.lua: ns:OnUnitAura(updateInfo)
-    ↓
-BuffEngine.lua: iterate ns.providers with UNIT_AURA in events
-    ↓
-LustProvider:OnTrigger("UNIT_AURA", updateInfo)
-    → checks addedAuras for SATED_DEBUFF_TO_LUST match
-    → returns ActiveProc with key="lust" or nil
-    ↓ (proc returned)
-ns.activeProcs["lust"] = proc
-    ↓
-ns:UpdateDisplay()
-```
+1. **Cast-triggered procs (trinket/pot):** silently no-op on Forever because the static ID tables never match a spell Forever can produce. This is graceful *by omission* — Providers.lua never needed a flavor check because the data itself is retail-exclusive and simply won't appear in Forever's event stream.
+2. **At-rest placeholder icon (trinket/pot, Suggested section + empty-slot render):** this is the one flow that is NOT naturally graceful. `RefreshAtRest` has no "nothing equipped/in bags AND nothing in the fallback list matches this character" case — it always falls back to `TRINKET_FALLBACK_ORDER[1]` / `POT_FALLBACK_ORDER[1]`, so on Forever the Suggested-section trinket/pot tiles and any user who has dragged "trinket"/"pot" into Bars/Buffs will show a **retail item's icon and label** at rest, even though that item can never be equipped/consumed on Forever. `GetDisplayInfo` (Providers.lua:309-326, 402-419) always returns a non-nil result once any CSV entry exists, by design (D-16 "never returns nil in normal operation") — so this isn't a crash or blank slot, it's a *plausible-looking but wrong* placeholder. That is a genuine Forever-parity gap, not a crash risk.
+3. **Lust:** `CLASS_LUST_SPELL` + `GetHunterLustSpell` (Providers.lua:211-227) key off `UnitClass`/`GetSpecializationInfo`, which are core client APIs present on every flavor; class lust spell IDs (Bloodlust 2825, Heroism 32182, Time Warp 80353, Fury of the Aspects 390386, Primal Rage 264667) are old, stable spells that predate the flavor split and are virtually certain to exist on Forever's spellbook (Forever is described in PROJECT.md as Classic-inspired but running Midnight-style API/expansion content, not a pre-Wrath-only ruleset) — LOW-confidence assumption, flagged as something to verify in-game rather than something to architect around.
+4. **CDM tab injection (CDMTab.lua):** reads `CooldownViewerSettings`, `BuffBarCooldownViewer`, `BuffIconCooldownViewer`, atlas textures (`UI-HUD-CoolDownManager-*`) — all Blizzard_CooldownViewer assets. PROJECT.md's Context section already confirms Forever ships `Blizzard_CooldownViewer` including `GroupBuffFilter.lua`; CDMTab.lua's `GetCDMTabs()` discovery-by-`displayMode`-field walk (lines 955-985) is itself flavor-resilient by construction — it was written to survive Blizzard adding/removing tabs on retail, and that same resilience covers Forever shipping a different tab set (e.g., no Group Buffs tab) without any addon-side change.
 
-### At-Rest Display (No Active Proc)
+## Scaling Considerations
 
-```
-Display.lua: UpdateDisplay() — slot has no active proc
-    ↓
-GetPreviewInfoForKey(slot.spellID)
-    ↓
-ns.providers: find provider where provider:OwnsKey(slot.spellID) == true
-    ↓
-provider:GetPreviewInfo(slot.spellID) → { icon, label, duration }
-    ↓
-bar.icon:SetTexture(info.icon)
-bar.label:SetText(info.label)
-```
+Not applicable in the traditional sense (this is a single-user local addon, not a scaled service). The equivalent axis here is **flavor count**, not user count:
 
-### Preview Mode
-
-```
-CDMTab.lua: StartPreview() → ns:StartAllPreviewTimers()
-    ↓
-BuffEngine.lua: wipe(ns.activeProcs)
-    for each provider: procs = provider:GetPreviewProcs()
-        for each proc: ns.activeProcs[proc.key] = proc
-    merge savedPreviewTimers (real casts override preview)
-    ↓
-ns:UpdateDisplay()
-```
-
----
-
-## Integration Points — Exact Change Surface
-
-### New: Providers.lua
-
-New file, loaded after BuffEngine.lua (add to .toc before Display.lua).
-
-Defines all four providers and registers them:
-
-```lua
-ns.providers = { TrinketProvider, PotProvider, LustProvider, UserSpellProvider }
-```
-
-Provider order matters: TrinketProvider and PotProvider must come before UserSpellProvider so their `OnTrigger` wins when a trinket spellID matches both `TRINKET_SPELLS` and (hypothetically) `trackedBuffs`.
-
-Exports one helper to ns namespace:
-```lua
-ns.GetPreviewInfoForKey  -- used by Display.lua and CDMTab.lua
-```
-
-### Modified: BuffEngine.lua
-
-Remove: all three branches from `OnSpellCastSucceeded`  
-Remove: `StartLustTimer`, `StartTrinketTimer` (inline via provider)  
-Remove: `GetSuggestedAtRestIcon`, `GetAtRestMetaIcon` (moved to providers)  
-Remove: `ResolveSuggestedSpellID` (callers use `GetPreviewInfoForKey` instead)  
-Keep: `ns.activeProcs` (renamed from `ns.activeTimers`), `GetActiveTimers`/`GetActiveProcs`, `ScanActiveTimersForCancellation`, `ClearAllTimers`, `StartAllPreviewTimers`, schema migration, `AddTrackedBuff`, `RemoveTrackedBuff`, `SetBuffSection`  
-Keep: `TRINKET_SPELLS`, `POT_SPELLS`, `TRINKET_ITEM_IDS`, `POT_ITEM_IDS` (still needed by TrinketProvider and PotProvider — or move to Providers.lua if preferred)  
-Keep: `SATED_DEBUFF_TO_LUST`, `SHARED_LUST_BUFFS` (needed by LustProvider)  
-Keep: `ns.metaAtRest`, `ns.metaIcons`, `RefreshMetaIcons` — consumed by CDMTab StartPreview  
-Modify: `OnSpellCastSucceeded` becomes a 10-line dispatch loop  
-Modify: `OnUnitAura` keeps its lust-before-secret-gate ordering but delegates the lust proc creation to LustProvider  
-Modify: `StartAllPreviewTimers` iterates `ns.providers` instead of duplicating resolution logic
-
-### Modified: Display.lua
-
-Remove: `GetSuggestedAtRestIcon` (function at line 87)  
-Remove: The two divergent placeholder icon paths (bar path lines ~478-507, icon path lines ~655-665)  
-Replace with: single call to `ns.GetPreviewInfoForKey(slot.spellID)`  
-Remove: The parallel tooltip implementations (bar OnEnter lines ~168-191, icon OnEnter lines ~235-257)  
-Replace with: single shared tooltip function that calls `ns.GetPreviewInfoForKey(slot.spellID)`  
-Keep: all frame creation, pool management, container sizing, combat tracking — none of this touches type-specific logic
-
-### Modified: CDMTab.lua
-
-Remove: `GetAtRestMetaIcon / ResolveSuggestedSpellID` chains in `RefreshTBTSections` (both suggested and user sections)  
-Remove: Same chains in `BeginDrag` ghost icon setup  
-Remove: `metaInfo / ResolveSuggestedSpellID` tooltip logic in `CreateIconFrame OnEnter`  
-Replace all with: `ns.GetPreviewInfoForKey(spellID)` call  
-Keep: drag-and-drop state machine, `addSuggestedToSection`, `StartPreview`/`StopPreview`, section structure — no changes to these
-
-### Unmodified: Core.lua, EditModeFrames.lua, CDMTab.xml
-
----
-
-## Build Order — Migration Steps
-
-Each step leaves the addon in a runnable state. Test at each numbered step before proceeding.
-
-| Step | File | Work | Validates |
-|------|------|------|-----------|
-| 1 | `Providers.lua` (new) | Create file; stub all four providers with identity-only `OwnsKey` and placeholder `GetPreviewInfo` returning `{ icon=134400, label="stub", duration=0 }`. Register `ns.providers`. Add to .toc. | File loads; no errors |
-| 2 | `Providers.lua` | Implement `UserSpellProvider:OnTrigger` and `GetPreviewProcs` (exact translation from `OnSpellCastSucceeded` branch 3 and `StartAllPreviewTimers` numeric loop). | User buffs still work |
-| 3 | `BuffEngine.lua` | Replace `OnSpellCastSucceeded` with provider dispatch loop. Remove old branches but keep `TRINKET_SPELLS`, `POT_SPELLS` accessible for providers. | User buff cast detection still works; trinket/pot temporarily broken (TrinketProvider/PotProvider still stubbed) |
-| 4 | `Providers.lua` | Implement `TrinketProvider:OnTrigger` and `GetPreviewProcs` (translation of branch 1). | Trinket detection restored |
-| 5 | `Providers.lua` | Implement `PotProvider:OnTrigger` and `GetPreviewProcs` (translation of branch 2). | Pot detection restored |
-| 6 | `Providers.lua` | Implement `LustProvider:OnTrigger` and `GetPreviewProcs` (translation of `StartLustTimer` + `OnUnitAura` lust block). Modify `BuffEngine:OnUnitAura` to delegate lust proc creation to provider. | Lust detection still works |
-| 7 | `Providers.lua` | Implement all four `GetPreviewInfo` methods with full icon/label resolution. Implement `ns.GetPreviewInfoForKey` dispatch helper. | At-rest info available |
-| 8 | `BuffEngine.lua` | Replace `StartAllPreviewTimers` to iterate providers. Remove `StartLustTimer`, `ResolveSuggestedSpellID`, `GetAtRestMetaIcon`. | Preview mode works with unified path |
-| 9 | `Display.lua` | Remove `GetSuggestedAtRestIcon`. Replace both placeholder icon paths and both tooltip OnEnter handlers with `ns.GetPreviewInfoForKey`. | Display renders correctly; zero divergent codepaths |
-| 10 | `CDMTab.lua` | Replace all six icon/tooltip resolution chains with `ns.GetPreviewInfoForKey`. | CDM tab renders correctly |
-| 11 | Cleanup | Remove dead code (`ns.metaIcons`, `GetSuggestedAtRestIcon`, `ResolveSuggestedSpellID`, etc.) only after confirming no remaining callers. Run stylua. | Clean compile |
-
-**Incremental safety:** Steps 1-6 keep the existing BuffEngine branches active in parallel with the new provider dispatch. Only at step 3 does the old path get removed — at that point, if providers are correctly translated, behavior is identical. Steps 7-10 are purely display-layer and cannot break timer correctness.
-
-**Key risk at step 3:** If `OnSpellCastSucceeded` dispatch loop iterates in wrong provider order, a trinket spellID could match `UserSpellProvider` (if the user somehow added that spellID manually). Guard: TrinketProvider and PotProvider must be first in `ns.providers`.
-
----
+| Scale | Architecture Adjustments |
+|-------|--------------------------|
+| 2 flavors (this milestone: Mainline + Camelot) | Two hand-maintained TOCs + a diff guard in install.bat. Sufficient. |
+| 3+ flavors (hypothetical future Classic Era / Cata Classic support) | Still no code fork needed if the API surface stays this thin; the diff guard remains valid at N TOCs (compare N-1 diffs against a designated "reference" TOC). Only revisit templating/codegen if TOC *metadata* (not just file list) needs to diverge per flavor (e.g., different `X-Curse-Project-ID` per flavor listing) — TBT does not have that need today. |
+| Flavor-specific feature divergence (e.g., a Forever-only Suggested-section item) | This is the point where `WOW_PROJECT_ID` branching or a genuine file fork becomes justified — see Runtime Flavor Detection below. Explicitly out of scope for v0.3. |
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Providers write directly to ns.activeProcs
+### Anti-Pattern 1: Adding `WOW_PROJECT_ID` flavor branches pre-emptively
 
-**What people do:** Have `provider:OnTrigger` store the proc in `ns.activeProcs` itself and return nothing.
+**What people do:** Sprinkle `if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then ... else ... end` guards into `Core.lua`/`Providers.lua` "just in case" Forever needs different behavior somewhere, before any concrete Forever bug is known.
+**Why it's wrong:** v0.3 is scoped as metadata-and-tooling-only with a parity-only fix budget (PROJECT.md Constraints: "Parity only"). Every speculative branch is a code path that has to be tested on both flavors forever, for a divergence that doesn't exist yet. It also directly contradicts the milestone's "no flavor-forked source files" constraint in spirit if not in literal file count — an `if` branch is a fork, just an inline one.
+**Instead:** Ship identical Lua on both flavors. If in-game verification (the milestone's own Phase gate) surfaces a real Forever-only failure, add the narrowest possible runtime capability check (e.g. `if C_CooldownViewer and C_CooldownViewer.SomeAPI then`) rather than a flavor-ID branch — feature/API-presence checks survive a Forever API being backported or changed without touching TBT, whereas a `WOW_PROJECT_ID` check would need a code change every time Blizzard's flavor taxonomy shifts (see the Runtime Flavor Detection section: Forever doesn't even have a confirmed `WOW_PROJECT_ID` constant yet).
 
-**Why it's wrong:** BuffEngine can no longer enforce replace-on-reproc consistently. The "shared slot" logic gets scattered back into each provider. The interface becomes stateful and order-dependent.
+### Anti-Pattern 2: Folding the retail-only trinket/pot fallback silently instead of flagging it
 
-**Do this instead:** Providers return a proc table or nil. BuffEngine owns all writes to `ns.activeProcs`. One place, one policy.
+**What people do:** See that `RefreshAtRest` never returns nil and conclude "no crash, no problem," shipping v0.3 with Forever showing a retail trinket icon/name in the Suggested section.
+**Why it's wrong:** It's not a crash, but it is a Forever user seeing UI that references gear/consumables their character can never obtain — confusing, and arguably a parity *regression* relative to "the feature doesn't exist for you" (which is what happens for the analogous case of a spell simply never firing). Silently wrong data is worse than an empty slot.
+**Instead:** This is the one piece of `Providers.lua` that genuinely may need a defensive read (not a flavor branch) during the in-game verification phase — e.g. gate `RefreshAtRest`'s hard fallback (`TRINKET_FALLBACK_ORDER[1]`) behind "did the fallback item's spell/item actually resolve via `C_Spell.GetSpellInfo`/`C_Item.GetItemInfo` on this client," so an unresolvable retail-only fallback yields "no trinket at rest" (empty/placeholder-off) instead of a wrong one. This is a defensive-read fix in the spirit of the existing `issecretvalue`/fail-safe guard patterns CLAUDE.md already mandates for Secret Values — not a new architectural component, and not flavor-forked, since the same check protects retail too (e.g. a fresh level-1 character with nothing equipped and no CSV item in bags).
 
-### Anti-Pattern 2: Provider per-file decomposition
+## Integration Points
 
-**What people do:** Create `UserSpellProvider.lua`, `TrinketProvider.lua`, etc.
+### External Services
 
-**Why it's wrong:** Each provider needs `TRINKET_SPELLS`, `SATED_DEBUFF_TO_LUST`, and other data tables. Spreading across files either duplicates data or creates cross-file namespace pollution. The providers are small enough that the organizational cost outweighs the benefit.
+| Service | Integration Pattern | Notes |
+|---------|---------------------|-------|
+| WoW client (flavor TOC loader) | Filename-suffix match: client tries `<Folder>_<FlavorSuffix>.toc` before falling back to `<Folder>.toc` | Confirmed at warcraft.wiki.gg/wiki/TOC_format: `_Camelot.toc` is the documented Forever suffix, matching what PROJECT.md already asserts from the BigWigs packager mapping. Both sources agree — HIGH confidence on the *documented* behavior; the milestone correctly still treats "does the current Forever beta build actually implement this documented rule" as unverified, since beta clients can lag or deviate from documented final behavior. |
+| BigWigs packager (`BigWigsMods/packager@v2`) | Discovers TOCs via regex `<pkg>[-_](Mainline|Classic|Vanilla|BCC|TBC|Wrath|WOTLKC|Cata|Mists|Camelot)\.toc$`, maps suffix → internal game-flavor key via a lookup table that includes `["camelot"]="forever"` | No workflow YAML change needed — this discovery is unconditional in the packager itself, already shipped in `@v2`, not something TBT's `.github/workflows/release.yml` has to opt into. |
+| CurseForge / Wago upload targets | Packager derives per-flavor game-version tags from each TOC's own `## Interface:` value after running it through `toc_to_type()` (`16???` → `forever`) | Confirmed from packager source: this conversion table is exactly what PROJECT.md's Context section already states (`16???` → Forever); no new secrets/config needed unless CF/Wago require Forever to be explicitly enabled as a game on the project dashboard (an account-side toggle outside the repo, not a repo change). |
 
-**Do this instead:** All providers in `Providers.lua`. If a provider grows beyond ~60 lines of logic (not counting data tables), revisit.
+### Internal Boundaries
 
-### Anti-Pattern 3: Calling GetPreviewInfo inside the 20Hz UpdateDisplay for active procs
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| `install.bat` ↔ WoW client install layout | Filesystem copy into `%PROGRAMFILES(x86)%\World of Warcraft\_retail_\...` and (new) `..._classic_beta_\...` | Both are sibling folders under the same WoW root today (`%PROGRAMFILES(x86)%\World of Warcraft\`); enumerate as a list of `(root-relative subfolder)` pairs, not two hardcoded absolute paths, so a third flavor later is a one-line addition. |
+| `release.bat` ↔ GitHub Actions | `git tag` + `git push` only — no flavor information crosses this boundary at all | Confirms Q5's answer: nothing in `release.bat` is flavor-aware today, and nothing needs to become so; flavor fan-out happens entirely inside the packager step, downstream of the tag. |
+| `Providers.lua` ↔ `Display.lua`/`CDMTab.lua` | `ns:GetDisplayInfoForKey(key)` contract (Providers.lua:602-608) | This is the exact seam that already absorbs flavor differences for free — every caller in Display.lua and CDMTab.lua goes through this one function, so a future Forever-aware fallback fix (Anti-Pattern 2) is a one-function change, not a call-site sweep. |
 
-**What people do:** Unify active and inactive display by always calling `GetPreviewInfo` instead of reading from the proc's own fields.
+## Answers to the Six Questions (classification summary)
 
-**Why it's wrong:** `GetPreviewInfo` for TrinketProvider calls `ns:GetAtRestMetaIcon` which scans equipped slots. At 20Hz this is unnecessary work — the active proc already has the resolved icon baked in at cast time.
+### 1. File topology — MODIFIED (TOC layer only)
 
-**Do this instead:** Active proc path reads `proc.icon` and `proc.label` directly. `GetPreviewInfo` is called only in the placeholder path (slot has no active proc), which is already gated by the `hideWhenInactive` dirty-check.
+- **Duplicated:** exactly two files, `TerribleBuffTracker_Mainline.toc` and `TerribleBuffTracker_Camelot.toc`. Nothing else forks.
+- **Shared:** every `.lua`/`.xml`/`.blp` file — `Core.lua`, `BuffEngine.lua`, `Providers.lua`, `EditModeFrames.lua`, `Display.lua`, `CDMTab.xml`, `CDMTab.lua`, `tbt_icon_64x64.blp` — referenced identically by both TOCs.
+- **Keeping them in sync:** a diff-based guard belongs in `scripts/install.bat` (runs on every local deploy, the highest-frequency checkpoint in this solo-maintainer's workflow per CLAUDE.md's "Deploy to WoW with `./scripts/install.bat`" instruction) — compare the two TOCs' file-list bodies (everything after the metadata header) and fail loudly on mismatch. A duplicate CI lint step is optional, not required, for a single-maintainer repo; add it only if the project gains contributors who might skip local `install.bat` runs.
+- **New component:** the sync-guard logic (≈5 lines inside `install.bat`, see Pattern 2).
 
-### Anti-Pattern 4: Removing ns.metaAtRest before verifying RefreshMetaIcons callers
+### 2. Runtime flavor detection — NO CHANGE NEEDED (do not add it this milestone)
 
-**What people do:** Delete `ns.metaAtRest`, `ns.metaIcons`, and `RefreshMetaIcons` as part of cleanup since TrinketProvider encapsulates icon resolution.
+- `WOW_PROJECT_ID` and its documented sibling constants (`WOW_PROJECT_MAINLINE=1`, `WOW_PROJECT_CLASSIC=2`, `WOW_PROJECT_WOWLABS=3`, `WOW_PROJECT_BURNING_CRUSADE_CLASSIC=5`, `WOW_PROJECT_WRATH_CLASSIC=11`, `WOW_PROJECT_CATACLYSM_CLASSIC=14`, `WOW_PROJECT_MISTS_CLASSIC=19`) do **not** currently include a documented Forever/`camelot` value (warcraft.wiki.gg, checked live — MEDIUM confidence this is current, since Forever is beta and the wiki may not yet have been updated with whatever ID Blizzard assigns it internally).
+- TBT needs **zero** runtime flavor branching for this milestone: nothing in `Core.lua`, `Providers.lua`, `Display.lua`, or `CDMTab.lua` currently needs to know which flavor it's on — every Forever-vs-retail difference so far identified (trinket/pot spell IDs simply not matching, CDM tab set possibly differing) is already handled by data-absence and structural discovery, not by conditionals that would need a flavor value to select a branch.
+- Adding `WOW_PROJECT_ID` checks now would be premature: there is no known behavior that needs to differ *by flavor* as opposed to differing *by what's actually present in the client at runtime* (item in bags, tab existing, spell known). The latter is checked directly (already how the code works) and is strictly more correct than the former, because it also correctly handles edge cases within a single flavor (e.g., a retail character with no trinket equipped and no potions in bags — the exact same "nothing resolved" case Forever hits for a different reason).
+- **What would later justify adding it:** a confirmed Forever behavior that is genuinely flavor-conditioned rather than state-conditioned — e.g., if Forever's Cooldown Manager exposes a structurally different API that can't be feature-detected (no such case is known today), or if a future milestone adds a Forever-exclusive feature that must never run on retail regardless of API presence. Until then, `WOW_PROJECT_ID` is dead-weight complexity per CLAUDE.md's own "No refactors during cleanup phases" / minimal-footprint ethos.
 
-**Why it's wrong:** `CDMTab.lua:StartPreview` calls `ns:RefreshMetaIcons()` before opening the CDM settings panel to pre-warm icon caches. If TrinketProvider's `GetPreviewInfo` uses `ns.metaAtRest` internally, removing `RefreshMetaIcons` breaks the cache warm-up path.
+### 3. Graceful degradation without forking — MODIFIED (one narrow defensive read; everything else NO CHANGE NEEDED)
 
-**Do this instead:** Move `RefreshMetaIcons` into `TrinketProvider` and `PotProvider` as provider-level methods. Have CDMTab call `provider:RefreshCache()` on each provider instead. Only remove `ns.metaAtRest` after providers have their own internal cache. This is a step-11 cleanup concern, not a migration blocker.
+- The dispatch architecture (`ns:DispatchEventToProviders`, `ns:GetDisplayInfoForKey`) already isolates flavor-specific data (the `TRINKET_SPELLS`/`POT_SPELLS` static tables) behind runtime lookups keyed by live spell/item IDs, not by flavor. On Forever, `OnTrigger` for `TrinketProviderMixin`/`PotProviderMixin` (Providers.lua:239-275, 339-375) simply never matches — this is **NO CHANGE NEEDED**, it already degrades gracefully because the tables are just data, checked with plain `if not X then return nil end` guards that exist for the general "not a tracked spell" case anyway.
+- The one real gap: `RefreshAtRest`'s unconditional fallback to `TRINKET_FALLBACK_ORDER[1]` / `POT_FALLBACK_ORDER[1]` (Providers.lua:298-300, 393-394) means the Suggested-section tile and any placeholder render always resolve to *some* retail item's icon/name, even when nothing that item implies is possible on the current character/flavor. This is **MODIFIED** — add a resolution check (e.g., confirm `C_Item.GetItemInfo(itemID)` or `C_Spell.GetSpellInfo(spellID)` returns real data before trusting the fallback) so an unresolvable fallback produces "nothing at rest" instead of a wrong answer. This fix is flavor-agnostic (it also protects a retail alt with empty bags) and requires no new file, no new component — a few added lines inside the two existing `RefreshAtRest` methods.
+- `LustProviderMixin` and `UserSpellProviderMixin` need **NO CHANGE** — their data (class-lust spell IDs, user-entered spell IDs) is either universal-vintage content or entirely user-supplied, with no retail-only assumption baked in.
 
-### Anti-Pattern 5: Removing `TRINKET_SPELLS` from ns namespace before CDMTab.lua stop using it
+### 4. Install tooling — MODIFIED
 
-**What people do:** Scope `TRINKET_SPELLS` as a local inside `Providers.lua` immediately.
+- Current `install.bat` hardcodes one `DEST` under `_retail_` and an explicit 9-line file copy list.
+- Minimal change: replace the single `DEST` with a loop over a small array of `(subfolder)` candidates — `_retail_` and `_classic_beta_` today — each checked with `if exist "%WOWROOT%\<subfolder>\Interface\AddOns"` (or similar) before copying, skipping absent ones silently per the locked decision ("no arguments... skipping absent targets").
+- The file list becomes plural by exactly one line: add `TerribleBuffTracker_Mainline.toc` and `TerribleBuffTracker_Camelot.toc` (both copied to every present target — copying the "wrong" flavor's TOC into a folder is harmless since the client only reads the one matching its own flavor suffix, confirmed by the filename-match mechanism in Q1).
+- **Flag:** the file list is hand-maintained in three places now if the sync-guard from Q1 is implemented as a separate check — `install.bat`'s own copy list, `Mainline.toc`, and `Camelot.toc` — all three must agree. Since `install.bat` already needs to enumerate every shipped file to copy it, the same array can double as the input to the Q1 diff-guard (compare install.bat's list against both TOC bodies) rather than maintaining three independent lists — this collapses "three lists to keep in sync" into "one list plus two derived comparisons," which is the minimal-footprint version of the guard.
+- **Not silently succeeding when nothing installed:** end the script by counting how many targets were actually written to; if zero, `exit /b 1` with an explicit "No WoW installation found" message rather than printing the existing "Done!" success line unconditionally.
 
-**Why it's wrong:** `CDMTab.lua:addSuggestedToSection` and the suggested section tooltip reference `ns.TRINKET_SPELLS` (via `ns.metaAtRest` resolution). Until CDMTab is fully migrated to `GetPreviewInfo`, `ns.TRINKET_SPELLS` must remain on the namespace.
+### 5. Release tooling — NO CHANGE NEEDED (release.bat, release.yml, .pkgmeta all flavor-blind by design)
 
-**Do this instead:** Keep `ns.TRINKET_SPELLS` and `ns.POT_SPELLS` on the namespace through all migration steps. Remove from namespace in step-11 cleanup after CDMTab migration is verified.
+- `scripts/release.bat` only tags and pushes; it carries no file paths, TOC names, or flavor logic today, and needs none — confirmed nothing flavor-related crosses this boundary (see Integration Points table).
+- `.github/workflows/release.yml` invokes `BigWigsMods/packager@v2` with no flavor-specific inputs; the packager's own TOC-suffix discovery (confirmed above, already shipped) is what turns one tag into per-flavor CurseForge/Wago uploads. No YAML edit required.
+- `.pkgmeta`'s `ignore:` list is about excluding non-shipped files (scripts, docs) — flavor-agnostic; no change.
+- **Interface-version bump — where it lives now vs. later:** today it's a single-line edit in `TerribleBuffTracker.toc`'s `## Interface:` field (confirmed via `git log -p`: every prior bump, e.g. `ddbbbc1 bump version for 12.1`, touched exactly that one line in that one file). With two TOCs, a bump to either flavor's Interface number must touch only *that* TOC's `## Interface:` line — the two numbers are independent by design (120100 vs 16001 track different clients' patch cadences) — but a bump must **not** accidentally touch the shared file list below the header, and the Q1/Q4 sync-guard should diff only the file-list body, not the `## Interface:` line, so it doesn't false-positive on a legitimate single-flavor version bump.
 
----
+### 6. Build order — gating unknown identified
+
+The `_Camelot.toc` client-suffix behavior is the single gating unknown: everything else this milestone touches (file topology, install.bat, provider fallback hardening, sync-guard) can be built and even unit-verified against documentation, but **none of it is confirmed correct until the addon is observed loading on an actual Forever beta client**, because:
+- The suffix mechanism is documented (warcraft.wiki.gg, BigWigs packager source) but Forever is beta — documented-but-unverified-on-this-specific-build behavior is exactly the category CLAUDE.md's philosophy flags as needing verification before being trusted as fact.
+- If `_Camelot.toc` does NOT load on the current beta build (e.g., beta requires a different suffix, or requires `## AllowLoadGameType` to be present, or requires the file to be named differently than documented), every downstream verification step (CDM tab injection, cast detection, provider fallback behavior) is unreachable and any work done assuming it "just works" is unvalidated.
+
+Suggested phase-level ordering:
+
+1. **First, alone (gate):** Create both TOCs (Pattern 1) and confirm — via actual Forever beta client load, not inspection — that `TerribleBuffTracker_Camelot.toc` is selected and the addon appears in the AddOns list with no immediate load error. This is a single narrow phase whose only exit criterion is "addon loads on Forever." Nothing else in this milestone should be marked done before this passes.
+2. **In parallel, once gate passes:**
+   - `install.bat` rewrite (Q4) — independent of in-game behavior, testable by inspecting the filesystem result.
+   - Sync-guard addition (Q1/Q4) — a static check, no game client needed at all; could actually be built *before* the gate, since it only compares files, not client behavior.
+   - Provider fallback hardening (Q3, the `RefreshAtRest` resolution check) — can be coded before the gate but only *verified* after, since verifying "no wrong icon shown" requires a Forever character.
+3. **After the gate, sequential (needs live Forever character):** in-game verification checklist per PROJECT.md's Target features — CDM tab injects, casts detected via `UNIT_SPELLCAST_SUCCEEDED`, bars/icons render, Edit Mode works, no Lua errors — plus confirming the Suggested-section trinket/pot tiles behave per the Q3 fix (either resolve correctly or show nothing, never a wrong retail item).
+4. **Last:** release-tooling verification (Q5) — cutting one real tag and confirming the packager produces two distinct, correctly-tagged artifacts on CurseForge/Wago — since this depends on both TOCs being finalized and is naturally the last integration point before shipping.
 
 ## Sources
 
-- Codebase: `BuffEngine.lua`, `Display.lua`, `CDMTab.lua`, `Core.lua`, `EditModeFrames.lua` (read directly — HIGH confidence)
-- `.planning/PROJECT.md`: milestone goals and active requirements (HIGH)
-- Existing research: `.planning/research/ARCHITECTURE.md` v0.2.3 (patterns for trinket/pot that carry forward)
+- BigWigs packager source (flavor-suffix regex, `game_flavor` lookup array including `["camelot"]="forever"`, `toc_to_type()` interface-range mapping including `16???) game_type="forever"`): https://raw.githubusercontent.com/BigWigsMods/packager/master/release.sh — HIGH confidence, read directly.
+- warcraft.wiki.gg TOC_format (comma-separated `## Interface:`, `## AllowLoadGameType`, per-flavor TOC suffix list including `_Camelot.toc` for Forever): https://warcraft.wiki.gg/wiki/TOC_format — HIGH confidence, community-maintained wiki but content corroborated by packager source and by PROJECT.md's own prior research.
+- warcraft.wiki.gg WOW_PROJECT_ID (constant list, absence of a Forever/camelot entry): https://warcraft.wiki.gg/wiki/WOW_PROJECT_ID — MEDIUM confidence; absence of a documented constant is a "didn't find" finding, not proof Blizzard hasn't assigned one internally for the Forever beta client.
+- BigWigsMods/BigWigs repo (`BigWigs.toc`, `.pkgmeta`): https://github.com/BigWigsMods/BigWigs — precedent showing the *alternative* the packager also supports (single TOC, comma-separated Interface list, `-S` split at package time) — not TBT's chosen approach, cited only to confirm the packager handles both strategies, corroborating that TBT's locked split-TOC decision is a supported, common pattern, not a fragile one-off.
+- WeakAuras/WeakAuras2 repo (`WeakAuras_Vanilla.toc`, `WeakAuras_Cata.toc`, diffed): https://github.com/WeakAuras/WeakAuras2/tree/main/WeakAuras — precedent for real, hand-maintained, committed per-flavor TOC files (not codegen); their file lists *intentionally* diverge per flavor (they have real flavor-specific files, e.g. `Types_Vanilla.lua` vs `Types_Cata.lua`, `LibSpecializationWrapper.lua` added only for Cata+), which is the opposite of TBT's requirement — cited to justify why TBT's situation (identical file lists) is actually the simpler case, needing only a diff guard rather than any divergence-management tooling.
+- TBT repo git history (`git log -p -- TerribleBuffTracker.toc`): confirms the existing single-line Interface-bump pattern (e.g. commit `ddbbbc1`), used to ground the "where does the bump live now vs. later" answer in Q5.
+- TBT source read directly: `Core.lua`, `Providers.lua`, `Display.lua`, `CDMTab.lua`, `CDMTab.xml`, `TerribleBuffTracker.toc`, `scripts/install.bat`, `scripts/release.bat`, `.pkgmeta`, `.github/workflows/release.yml`, `.planning/PROJECT.md`.
 
 ---
-*Architecture research for: TerribleBuffTracker v0.2.4 — SpellProvider/ActiveProc refactor*
-*Researched: 2026-04-18*
+*Architecture research for: WoW addon cross-flavor (retail Midnight + WoW Forever) packaging and tooling*
+*Researched: 2026-09-18*

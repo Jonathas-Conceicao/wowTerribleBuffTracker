@@ -13,6 +13,13 @@ set "SOURCE=%~dp0..\\"
 
 echo === Releasing TerribleBuffTracker %VERSION% ===
 
+echo === Checking flavor TOC drift ===
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0check-toc.ps1"
+if errorlevel 1 (
+    echo ERROR: check-toc.ps1 reported TOC drift. Aborting before tag.
+    exit /b 1
+)
+
 git -C "%SOURCE%" tag -a "%TAG%" -m "Release %VERSION%"
 if errorlevel 1 (
     echo ERROR: Tag creation failed.

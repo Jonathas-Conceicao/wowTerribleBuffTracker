@@ -74,6 +74,14 @@ allowlisted by Blizzard and readable even during combat and M+.
 
 ## Known Issues and Limitations
 
+- Settings do not persist between sessions on WoW Forever beta:  
+This is a bug in the beta client, not in this addon. The client writes addon
+data on logout but does not read it back on login, so every session starts
+from defaults and then overwrites the saved file. Other addons are affected
+the same way. Nothing can be done from the addon side; when Blizzard fixes
+it, tracked buffs will start persisting again with no action needed. Retail
+is unaffected.
+
 - Only Active Buffs can be tracked:  
 Passive proc trinkets are currently not supported as Blizzard's API
 hides buffs behind secret values while in any relevant contexts

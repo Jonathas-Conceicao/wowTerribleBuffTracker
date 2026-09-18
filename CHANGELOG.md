@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.3.0 — WoW Forever Support
+
+Initial support on WoW Forever beta build (interface 16001).
+
+### New Features
+- Mousing over a spell or aura now shows its spell ID in the tooltip
+
+### Fixes
+- Dragging a buff between sections no longer throws a stream of Lua
+  errors on WoW Forever
+
+### Known Issues
+- **Settings do not persist between sessions on WoW Forever beta.**
+  This seems to be a bug in the beta client, not in this addon.
+
 ## v0.2.6 — CDM Tab Placement Fix
 
 ### Fixes

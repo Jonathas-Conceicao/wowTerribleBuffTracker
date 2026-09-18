@@ -8,7 +8,8 @@ manual-changelog:
 
 ignore:
   - .gitignore
-  - .pkgmeta
+  - .pkgmeta-mainline
+  - .pkgmeta-camelot
   - CHANGELOG.md
   - CLAUDE.md
   - README.md
@@ -16,3 +17,5 @@ ignore:
   - scripts
   - "*.png"
   - RELEASE_NOTES.md
+  - stylua.toml
+  - TerribleBuffTracker_Camelot.toc
