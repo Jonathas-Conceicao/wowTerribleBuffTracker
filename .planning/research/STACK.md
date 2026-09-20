@@ -2,6 +2,18 @@
 
 **Domain:** WoW addon cross-flavor packaging — one TerribleBuffTracker (TBT) package for WoW Midnight retail (120100) and WoW Forever beta (camelot / 16001)
 **Researched:** 2026-09-18
+
+> ### ⚠ Partly superseded — 2026-09-19
+>
+> The assumption in the `## AllowLoadGameType` row below — *"each file is only ever discovered under
+> its own flavor already"*, recorded at MEDIUM confidence — **is contradicted by the WoWUI community
+> FAQ**, which states Forever is classed as `mainline` intentionally, so `_Mainline.toc` **also loads on
+> Forever**. The MEDIUM confidence was the right call.
+>
+> Read `FOREVER-COMMUNITY-FAQ.md` in this directory alongside this file. Tracked as backlog Phase 999.3.
+> Nothing else in this document is known to be affected, and the published zips are unaffected because
+> each carries only one TOC.
+
 **Confidence:** HIGH on interface numbers, TOC suffix, and packager mechanics (multiple independent, cross-corroborating sources including a live API and Blizzard's own shipped TOC files). MEDIUM on CurseForge-site specifics not reachable without an authenticated API call. Items that can only be settled in-game are marked UNVERIFIED with an exact verification procedure — the user has Forever beta access.
 
 ## Recommended Stack

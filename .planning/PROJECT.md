@@ -30,6 +30,30 @@ packaging) require a real tag push and were deferred to the first release by exp
 
 Nothing committed yet. Candidates already recorded, in rough order of how much is known about them:
 
+- **⭐ Phase 999.2 — refresh README and the CurseForge/Wago descriptions. The user asked to be reminded
+  of this one at the start of the next milestone (2026-09-19).** v0.3.0 shipped Forever support and two
+  downloads and none of the public copy says so. It also carries a product question, not just a copy
+  question: the user reports **Blizzard's CDM now tracks trinkets and potions natively**, which would make
+  TBT's Trinket/Pot meta-trackers partly or wholly redundant on retail. Verify that against the live
+  client and `wow-ui-source` before writing any copy or deciding what happens to the meta-trackers. Full
+  scope in ROADMAP.md's Backlog.
+- **⭐ Phase 999.4 — the addon reports `@project-version@` as its in-game version. The user flagged this
+  for the next milestone (2026-09-19) and restated that the **in-game metadata** is the deliverable:
+  *"the addon shows in-game as this string instead of an actual version."*** Cause established from disk:
+  `install.bat` plain-copies the repo TOC without passing through the packager, which is the only thing
+  that expands the keyword — and **all four client folders on the machine hold dev deploys, none a zip
+  install**, so nothing running anywhere shows a real version. Fix belongs in `install.bat`; never
+  hardcode a version into the repo TOCs, which would break the working packager substitution. Fix the
+  stale-TOC pruning at the same time — `_beta_` and `_ptr_` each hold three TOCs, one advertising a
+  pre-v0.2.0 `## Version: 1.0.0`, so a version fix that leaves those in place has not fixed what the user
+  sees.
+- **Phase 999.3 — evaluate the single-TOC setup.** The WoWUI community FAQ says Forever is classed as
+  `mainline` intentionally, so `_Mainline.toc` **also loads on Forever** — contradicting the MEDIUM-
+  confidence assumption the two-TOC design rests on. Published zips are safe (one TOC each), but
+  `install.bat` puts both into every client. **Settle first, cheaply:** print
+  `C_AddOns.GetAddOnMetadata("TerribleBuffTracker", "Interface")` on Forever to learn which TOC actually
+  loaded — `TOC-02` never captured that. Migrating collides with the locked two-flavour-zip decision, so
+  it is a user call, not cleanup. Intake: `research/FOREVER-COMMUNITY-FAQ.md`.
 - **Close `DIST-03`…`DIST-07` at the first release.** Not a milestone of its own — it is the checklist
   in `29-01-SUMMARY.md`'s Deferred Verification table, run once against real CI logs. Read both matrix
   jobs' logs in full rather than the green check: the packager silently omits a game-version tag if a

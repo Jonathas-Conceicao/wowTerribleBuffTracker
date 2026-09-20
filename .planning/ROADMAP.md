@@ -89,3 +89,174 @@
 
 Plans:
 - [ ] TBD (promote with `/gsd:review-backlog` when ready)
+
+### Phase 999.2: Refresh README and store descriptions for Forever + CDM changes (BACKLOG)
+
+**Goal:** The README and the addon's public descriptions on CurseForge and Wago tell a current story —
+that TBT runs on WoW Forever as well as Midnight retail, and that Blizzard's Cooldown Manager has moved
+under us since these descriptions were written.
+
+**Requirements:** TBD
+
+**Raised:** 2026-09-19, by the user, immediately after v0.3.0 shipped. **Flagged for the next
+milestone** — the user asked to be reminded of this one at milestone start.
+
+**Why it matters now:** v0.3.0 shipped two downloads and Forever support, and none of the public-facing
+copy says so. A user landing on the CurseForge page cannot tell that a Forever build exists, or which
+of the two zips to take.
+
+**Scope:**
+
+1. **README** — the opening line still reads "A WoW Midnight addon". It is a two-flavour addon now.
+   Mention Forever, the two downloads and which client each is for, and the interface numbers
+   (120100 / 16001). `PROJECT.md`'s "What This Is" was corrected at v0.3.0 close and can be reused as
+   source copy.
+2. **CurseForge and Wago descriptions** — same update, plus the Forever beta storage caveat (settings do
+   not persist between sessions; a client bug, not ours; retail unaffected), so Forever users are not
+   surprised into filing it as a TBT bug.
+3. **Recent CDM changes** — **user report, 2026-09-19: Blizzard's Cooldown Manager now tracks trinkets
+   and potions natively.** The descriptions still imply TBT is the only way to see these, which would be
+   stale and slightly misleading.
+
+**The part that is more than a docs task — do not let this get buried under "update the README":**
+
+If CDM really does track trinkets and pots natively, TBT's Trinket and Pot meta-trackers may be wholly
+or partly redundant on retail. That is a product question, not a copy question, and it has three
+possible answers worth costing out before any wording is chosen:
+
+- The meta-trackers stay as-is, because CDM's version is missing something (no custom durations, no bar
+  display, no Forever coverage — Forever ships no retail spell data, so `META-01` already hides those
+  tiles there).
+- They are narrowed to the gap CDM leaves.
+- They are retired on retail, which would be the first feature TBT has ever removed and needs a user
+  decision plus a migration story for anyone with `"trinket"` / `"pot"` keys already in `trackedBuffs`.
+
+**Verify before writing any copy.** This is a user report and has not been confirmed against the live
+client or `wow-ui-source`. Check `Blizzard_CooldownViewer` on the `live` branch at
+`C:\Users\jonat\Repositories\wow-ui-source`, and read what CDM actually surfaces in-game, before
+claiming anything about it in a public description — and before deciding what happens to the
+meta-trackers.
+
+**Context:**
+- Affected: `README.md`, plus the CurseForge and Wago project descriptions (edited on those sites, not
+  in the repo — worth noting that no repo change can fix the store copy)
+- `FTOOL-01` is related but separate: CurseForge/Wago *upload* credentials are still deliberately
+  disabled, so v0.3.0 published to GitHub releases only. Store descriptions can be updated by hand
+  regardless.
+- The two pre-existing README limitations (passive proc trinkets unsupported; aura cancellation delayed
+  in restricted contexts) are still accurate and should survive the rewrite.
+
+Plans:
+- [ ] TBD (promote with `/gsd:review-backlog` when ready)
+
+### Phase 999.3: Evaluate the single-TOC setup, and settle which TOC Forever loads (BACKLOG)
+
+**Goal:** Decide — deliberately, not by drift — whether TBT keeps two flavour-suffixed TOCs or collapses
+to one, now that the assumption behind the two-TOC design has been contradicted.
+
+**Requirements:** TBD
+
+**Raised:** 2026-09-19, from the WoWUI Discord community FAQ. Full intake and analysis:
+`.planning/research/FOREVER-COMMUNITY-FAQ.md`.
+
+**The finding:** the community states **Forever is classed as `mainline`, intentionally — so
+`_Mainline.toc` also loads on Forever**, and recommends a single-TOC setup as the fix. This directly
+contradicts `research/STACK.md` line 121, which recorded at MEDIUM confidence that "each file is only
+ever discovered under its own flavor already." The two-TOC design rests on that assumption.
+
+**What is and is not at risk:**
+- **Published zips: safe.** Each carries exactly one TOC (verified by unzipping the real v0.3.0 assets),
+  so no end user ever has both files. `DIST-04` genuinely holds.
+- **Deployed dev copies: safe right now** — checked on disk 2026-09-19, each client holds only its own
+  TOC — but `install.bat` copies **both** TOCs to **every** client by design, so the next run puts two
+  loadable TOCs back into the Forever folder.
+
+**Settle this first, it is cheap and it gates the rest:** `TOC-02` is marked verified because the addon
+loaded on Forever and worked, which does **not** prove which TOC was read. Print
+`C_AddOns.GetAddOnMetadata("TerribleBuffTracker", "Interface")` on a Forever character. If it says
+`16001`, `_Camelot.toc` won and the risk is theoretical. If it says `120100`, the entire Forever
+verification pass was run against the retail TOC and needs redoing.
+
+**Then decide.** The new directives make one TOC feasible — `## Title: ... [AllowLoadGameType standard]`
+style conditional metadata covers exactly the two lines (`## Interface:`, `## Notes:`) our TOCs differ
+on, and there is per-file gating too. See the FAQ intake for the full table.
+
+**Do not migrate unprompted — it collides with a locked user decision.** One TOC implies one package
+loading everywhere, which is the "single multi-flavour zip" option the user **explicitly rejected** in
+favour of two flavour-pure zips. Migrating also retires `check-toc.ps1`, both `.pkgmeta-*` files and the
+CI matrix — machinery that works, is guard-verified and shipped. The upside is that it deletes this whole
+bug class and is what the community recommends. **User's call.**
+
+**Context:**
+- `RETAIL-REGRESSION-PASS.md`'s note that "the client ignores the one whose flavour does not match" rests
+  on the contradicted assumption, at least in the Forever direction
+- The FAQ warns the `ExcludeLoadGameType` syntax **will change**, so anything built on it needs revisiting
+- Patch 12.1.5 also recognises `_Standard.toc` as retail-only, an alternative to `_Mainline.toc`
+
+Plans:
+- [ ] TBD (promote with `/gsd:review-backlog` when ready)
+
+### Phase 999.4: Addon shows `@project-version@` as its in-game version (BACKLOG)
+
+**Goal:** The addon reports a real version number in its in-game metadata — the character-select AddOns
+list, the in-game addon panel, and any external addon manager — instead of the literal string
+`@project-version@`.
+
+**Requirements:** TBD
+
+**Raised:** 2026-09-19 by the user, flagged **for the next milestone**. Restated by the user: the zip is
+fine, *"the addon shows in-game as this string instead of an actual version. This is what needs to be
+fixed."* **The in-game metadata is the deliverable.** Do not close this by explaining the zip is correct.
+
+**Cause, established 2026-09-19 from disk:**
+
+| Artifact | `## Version:` reads | Why |
+|---|---|---|
+| Repo source (both TOCs) | `@project-version@` | Correct — a packager keyword, meant to sit there |
+| Published v0.3.0 zips, both flavours | `v0.3.0` | Substitution works at package time |
+| **Every install on this machine** | **`@project-version@`** | **The symptom** |
+
+`install.bat` does a plain `copy /Y` of the repo TOC straight into the AddOns folder. It never passes
+through the BigWigs packager, which is the only thing that expands `@project-version@`. So the copy that
+is actually *running* always carries the raw keyword, and that is what the client reads for its metadata.
+
+Checked all four WoW client folders — `_retail_`, `_classic_beta_`, `_ptr_`, `_beta_`. **Every one is a
+dev deploy; not one is a zip install.** So there is currently no install anywhere on the machine that
+would show a real version, which is exactly the reported experience.
+
+Also confirmed: TBT's Lua never reads its own version (`grep` for `GetAddOnMetadata` returns nothing), so
+there is no in-addon display to fix — only the TOC the client reads.
+
+**Fix direction (not decided):** have `install.bat` substitute a version while copying, instead of a bare
+`copy /Y`. Constraints:
+- **Never modify the repo's own TOC files.** Substitute into the deployed copy only, on the way past. A
+  hardcoded version in the repo TOC would break the packager keyword the real releases depend on, which
+  currently works.
+- The value must be unmistakably a dev build — `git describe --tags --dirty` output, or `<version>-dev`.
+  A bare `0.3.0` sitting in a dev folder would be worse than the raw keyword, which is at least honest
+  about being unsubstituted.
+- `check-toc.ps1` reads the repo TOCs, not the deployed ones, so it should be unaffected — confirm rather
+  than assume.
+- `install.bat` is also named in the open todo `2026-09-18-runtime-file-set-enumerated-three-places.md`;
+  worth doing in one pass.
+
+**Related finding while checking this — stale TOCs are worse than recorded.** `install.bat` copies but
+never prunes, and the damage is concrete:
+- `_beta_` holds **three** TOCs, one of them a pre-v0.2.0 leftover declaring `## Version: 1.0.0`
+- `_ptr_` holds **three** TOCs
+- `_retail_` and `_classic_beta_` are clean, one TOC each
+
+A stale unsuffixed `TerribleBuffTracker.toc` is not inert — it is a loadable TOC, and on `_beta_` it
+advertises version `1.0.0`. This compounds Phase 999.3 (`_Mainline.toc` may also load on Forever): an
+addon manager or client reading the wrong file gets wrong metadata, and during v0.3 a stale retail TOC
+nearly invalidated the whole retail verification pass for exactly this reason. Tracked separately as
+`2026-09-18-install-bat-does-not-prune-stale-files.md`, but fix it alongside this — a version fix that
+leaves three TOCs in place has not fixed what the user sees.
+
+**Context:**
+- Affected: `scripts/install.bat`. No TOC, Lua or CI change is implied.
+- Verify the fix the way the bug was found: deploy, then read `## Version:` from the deployed TOC and
+  check the in-game AddOns list, not the repo or the zip.
+
+Plans:
+- [ ] TBD (promote with `/gsd:review-backlog` when ready)
