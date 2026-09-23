@@ -30,7 +30,7 @@
 
 # Read by the Linux CI runner and the BigWigs packager. LF.
 *.yml text eol=lf
-.pkgmeta-* text eol=lf
+.pkgmeta text eol=lf
 stylua.toml text eol=lf
 
 # Binary. Never convert.

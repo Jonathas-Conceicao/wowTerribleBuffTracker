@@ -66,17 +66,38 @@ end
 -- Per-key display data (icon, label, duration, spellID) comes from ns:GetDisplayInfoForKey;
 -- description text is CDMTab-local (META_DESCRIPTIONS in CDMTab.lua).
 ns.SUGGESTED_KEYS = { "lust", "trinket", "pot" }
+-- The racial cooldown tiles, offered on the COOLDOWNS tab rather than this list, which is the
+-- Buffs catalogue. Their keys are ordinary "cd:<spellID>" strings resolved per character by
+-- ns:RacialCooldownKeys, so adding one creates a normal cooldown tracker with nothing special
+-- about it beyond having its duration filled in.
+-- Racial is Forever-only. Retail's Cooldown Manager already carries racials, so offering TBT's
+-- own would duplicate them -- and under Merge Mode it would land in the same container as the
+-- CDM's copy of the same ability.
+--
+-- Appended rather than filtered so the list has no gap, and the Suggested section's
+-- suggestedIndex stays a plain ipairs index. Only the OFFER is withheld: an entry already in a
+-- player's database keeps working, because removing it would be destroying their data over a
+-- presentation decision.
+if ns.CLIENT_IS_FOREVER then
+	-- Both slots. Forever gives most classes two racials, and the second is tracked exactly like
+	-- the first: its own tile, empty by default, nothing auto-added.
+	ns.SUGGESTED_KEYS[#ns.SUGGESTED_KEYS + 1] = "racial"
+	ns.SUGGESTED_KEYS[#ns.SUGGESTED_KEYS + 1] = "racial2"
+end
 
 function ns:InitBuffEngine()
-	-- Schema v3 is terminal for v0.2.3 (DATA-03 reconciliation).
-	-- v0.2.3 introduces trinket/pot meta-trackers but creates NO new persistent SavedVariables
-	-- structures — TRINKET_SPELLS and POT_SPELLS are runtime-only static tables. The SUGGESTED_BUFFS
-	-- entries for "trinket"/"pot" land in ns.db.trackedBuffs only via copy-on-drag (user action),
-	-- and follow the existing string-keyed lust pattern that v3 already supports. Therefore no
-	-- v3->v4 migration is needed: v0.2.3 is the first release with these features, so no stale
-	-- "trinket"/"pot" keys can exist in pre-upgrade SavedVariables. D-05 (CONTEXT.md) supersedes
-	-- REQUIREMENTS.md DATA-03; DATA-03 is marked N/A in REQUIREMENTS.md traceability.
-	local CURRENT_SCHEMA_VERSION = 3
+	-- v4 (CONT-01/CONT-03, Phase 35): renames the Tracked Buffs Edit Mode position key,
+	-- retiring the v0.3.0 asymmetry between the position key and the section key that
+	-- `entry.section` has always used for the same container. This is the only structural
+	-- change four base containers requires — `bars`/`buffs` are already the correct
+	-- `trackedBuffs` section keys, so no tracker entry is rewritten. `essential`/`utility`
+	-- positions are not seeded here; Plan 02 seeds any missing container position
+	-- idempotently when positions are applied, so a fresh and an upgraded database reach
+	-- the same end state.
+	-- Phase 38 (CD-06): adds no migration block at all. entry.trackerType reads as nil on a
+	-- pre-Phase-37 entry, nil == "cooldown" is false, so a buff-only database is already
+	-- correct as-is -- the schema version below stays unbumped.
+	local CURRENT_SCHEMA_VERSION = 6
 	local ver = ns.db.schemaVersion or 0
 
 	if ver < 1 then
@@ -119,6 +140,89 @@ function ns:InitBuffEngine()
 		end
 		ns.db.schemaVersion = 3
 	end
+
+	if ver < 4 then
+		-- v3 -> v4: rename the Tracked Buffs Edit Mode position key from `icons` to `buffs`,
+		-- retiring the asymmetry where the section is "buffs" but the position was "icons".
+		-- Nil-guarded: a v0.3.0 user who never entered Edit Mode has no editModePositions at
+		-- all, so this is a no-op for them — Plan 02's idempotent seeding gives them all four
+		-- defaults on next load.
+		if ns.db.editModePositions then
+			if ns.db.editModePositions.icons and not ns.db.editModePositions.buffs then
+				ns.db.editModePositions.buffs = ns.db.editModePositions.icons
+			end
+			ns.db.editModePositions.icons = nil
+		end
+		ns.db.schemaVersion = 4
+	end
+
+	if ver < 5 then
+		-- v4 -> v5: buff icon containers adopt Centered growth, which became their default in
+		-- the same change (ns:DefaultGrowthDirection).
+		--
+		-- Migrated rather than left to the default, because the default only applies to a
+		-- container whose settings do not exist yet -- every container a player already has
+		-- carries growthDirection = 0, and nothing distinguishes "seeded before Centered
+		-- existed" from "deliberately set to Right". Rewriting is defensible only because
+		-- v0.4.0 has not shipped: no released build ever offered that choice, so there is no
+		-- deliberate setting here to overwrite. Do NOT repeat this pattern after release.
+		--
+		-- Only direction 0 is touched. A container already on Left keeps it, since that is a
+		-- choice this migration cannot have caused.
+		if ns.db.containerSettings then
+			for key, cs in pairs(ns.db.containerSettings) do
+				local def = ns.CONTAINER_BY_KEY and ns.CONTAINER_BY_KEY[key]
+				if
+					def
+					and cs.growthDirection == 0
+					and def.kind ~= "bar"
+					and ns:GetContainerCategory(def) == "buffs"
+				then
+					cs.growthDirection = ns.GROWTH_CENTERED
+				end
+			end
+		end
+		ns.db.schemaVersion = 5
+	end
+
+	if ver < 6 then
+		-- v5 -> v6: cooldown trackers move to their own key namespace, "cd:<spellID>".
+		--
+		-- Until now ns.db.trackedBuffs was keyed by spell ID alone, so a buff tracker and a
+		-- cooldown tracker for the same spell were the SAME RECORD and adding one silently
+		-- replaced the other. Re-keying the cooldowns is what lets both exist.
+		--
+		-- Collected before mutating: adding and removing keys while iterating the table being
+		-- iterated is undefined in Lua, and this loop does both.
+		local rekey = {}
+		for key, entry in pairs(ns.db.trackedBuffs) do
+			if type(key) == "number" and entry.trackerType == "cooldown" then
+				rekey[#rekey + 1] = key
+			end
+		end
+		for _, key in ipairs(rekey) do
+			local entry = ns.db.trackedBuffs[key]
+			ns.db.trackedBuffs[key] = nil
+			-- entry.spellID already holds the numeric ID and is not touched -- the key changes
+			-- namespace, the record does not change meaning.
+			ns.db.trackedBuffs[ns:TrackerKey(key, "cooldown")] = entry
+		end
+		-- The ONLY block that writes the constant. The earlier blocks keep their literals on
+		-- purpose: `ns.db.schemaVersion = 3` inside `ver < 3` states where THAT migration ends,
+		-- which is a fact about the chain and must not move when the current version does.
+		-- Writing the constant here is what makes the declaration above load-bearing rather
+		-- than decorative, so a future bump that touches only one of the two stops compiling
+		-- the wrong answer silently.
+		ns.db.schemaVersion = CURRENT_SCHEMA_VERSION
+	end
+
+	-- Pre-allocate a proc buffer for every tracker already in the database, so the first cast of
+	-- a session costs nothing either. Runs after the migrations above, which is the point: a
+	-- migration can still be adding or renaming slots, and pre-allocating before that would
+	-- build buffers for keys that no longer exist and miss the ones that now do.
+	for key in pairs(ns.db.trackedBuffs) do
+		ns:PreallocateProc(key)
+	end
 end
 
 function ns:GetSpellIcon(spellID)
@@ -139,17 +243,148 @@ function ns:OnSpellCastSucceeded(spellID)
 	ns:DispatchEventToProviders("UNIT_SPELLCAST_SUCCEEDED", "player", nil, spellID)
 end
 
+-- THE PROC POOL. One proc table per tracker slot, allocated when the tracker is added and
+-- released when it is removed, so a CAST allocates nothing (user decision, 2026-09-22).
+--
+-- The rule this implements, in the user's words: allocate when the CDM is open and the player is
+-- adding or removing tracked spells, never when a proc happens. Slightly more memory held
+-- constantly, no garbage generated in combat.
+--
+-- One buffer per slot is sufficient BY CONSTRUCTION, not by luck: ns.activeTimers is keyed by
+-- slot, so a slot can hold at most one live timer, and a second cast of the same spell is
+-- replacing the first rather than joining it.
+--
+-- PREVIEW PROCS ARE NOT POOLED, deliberately. ns.previewTimers and ns.activeTimers are separate
+-- tables on purpose -- that separation is what fixed the mid-preview-cast-loss bug in Phase 21 --
+-- and drawing both from one per-slot buffer would alias them and bring it straight back. Preview
+-- only exists while the CDM config window is open, which is exactly the moment the rule above
+-- permits allocation.
+local procPool = {}
+
+-- The aliveBuffs fallback array, pooled the same way and for the same reason. Providers that can
+-- use a SHARED list (ns.rankFamilies for ranked spells, SHARED_LUST_BUFFS_LOCAL for lust) assign
+-- that reference directly and must never wipe it; this is only for the one-element fallback those
+-- providers used to build with a table constructor per cast.
+local aliveBuffsPool = {}
+
+-- Declared HERE, with the other pools, and not beside ns:AcquireDisplayInfo further down.
+-- A Lua file-local is only an upvalue to functions defined AFTER it: sitting below
+-- ns:ReleaseProc made this a nil GLOBAL read inside it, and deleting a tracker threw
+-- "attempt to perform indexed assignment on global 'displayInfoPool'". The same trap has now
+-- cost this project three separate bugs -- see STATE.md.
+-- Display-info buffers, pooled per key for the same reason the procs are.
+--
+-- ns:GetDisplayInfoForKey is on the RENDER path, not just the config path: both render functions
+-- call it for every placeholder slot they draw (Display.lua, the two placeholder branches), which
+-- is every inactive tracker, every container, every tick, whenever "hide when inactive" is off or
+-- the CDM config window is open. Every provider's GetDisplayInfo built a fresh four-field table
+-- there. That is the same exposure Phase 42 removed from the tooltip payload beside it, and the
+-- half it missed -- pooling the payload while the table feeding it still allocated.
+--
+-- Safe to share because NO caller retains one. The three config callers in CDMTab.lua read their
+-- fields and drop it on the same line; ns:ShowBuffTooltip reads three fields into GameTooltip and
+-- returns. Keyed by tracker key, so two different keys in flight at once cannot collide either.
+-- A caller that starts holding one across frames has to stop using this.
+local displayInfoPool = {}
+
+-- Hands back the slot's proc table, wiped. The wipe is load-bearing rather than hygiene: the
+-- racial proc carries "stacks" and no "aliveBuffs", every other proc carries "aliveBuffs" and no
+-- "stacks", and a provider that stopped setting a field would otherwise inherit the previous
+-- cast's value for it. Keys never cross providers -- "racial", "lust", "trinket", "pot" and the
+-- numeric user-spell keys are disjoint -- so this guards against future edits, not present ones.
+function ns:AcquireProc(key)
+	local proc = procPool[key]
+	if proc then
+		wipe(proc)
+	else
+		proc = {}
+		procPool[key] = proc
+	end
+	return proc
+end
+
+-- The one-element aliveBuffs list for a slot, reused. Callers that have a shared list to hand must
+-- assign it instead of calling this.
+function ns:AcquireAliveBuffs(key, spellID)
+	local list = aliveBuffsPool[key]
+	if list then
+		wipe(list)
+	else
+		list = {}
+		aliveBuffsPool[key] = list
+	end
+	list[1] = spellID
+	return list
+end
+
+-- Pre-allocate a slot's buffers. Called when a tracker is added and for every entry already in
+-- the database at load, so the first cast of a session costs nothing either. ns:AcquireProc
+-- still creates on demand, which is what covers a meta tracker whose slot is seeded elsewhere.
+function ns:PreallocateProc(key)
+	if procPool[key] == nil then
+		procPool[key] = {}
+	end
+	if aliveBuffsPool[key] == nil then
+		aliveBuffsPool[key] = {}
+	end
+end
+
+-- Drop a removed tracker's buffers. Without this the pools would only ever grow, and a player who
+-- adds and deletes trackers all session would hold a table per slot they no longer have.
+function ns:ReleaseProc(key)
+	procPool[key] = nil
+	aliveBuffsPool[key] = nil
+	displayInfoPool[key] = nil
+end
+
+function ns:AcquireDisplayInfo(key)
+	local info = displayInfoPool[key]
+	if info then
+		wipe(info)
+	else
+		info = {}
+		displayInfoPool[key] = info
+	end
+	return info
+end
+
+-- Scratch for ns:GetActiveTimers, reused rather than rebuilt. That function runs 20 times a
+-- second for as long as the addon is loaded, whether or not anything is tracked and whether or
+-- not the player is in combat -- so its two table constructors and its inline comparator were
+-- the addon's largest per-tick allocation by a wide margin: three objects per tick, 60 a second,
+-- ~18,000 over a five-minute fight, most of them to discover that nothing had changed.
+--
+-- wipe() keeps each table's capacity, which is the point: after a few ticks these have grown to
+-- fit the busiest moment and never allocate again. A constant, slightly larger footprint in
+-- exchange for no garbage in the combat path is the trade this addon wants (user decision,
+-- 2026-09-22), and it is the same trade ns.CONTAINERS' per-container lists already make.
+local activeTimerSet = {}
+local activeTimerList = {}
+
+-- Hoisted for exactly the reason Display.lua hoists ByLayoutOrder: an inline comparator is a
+-- fresh closure on every call. That comment has been in Display.lua since Phase 21 while the
+-- function feeding it allocated one per tick.
+local function ByExpiry(a, b)
+	return a.expiresAt < b.expiresAt
+end
+
 function ns:GetActiveTimers()
 	-- Phase 21 (D-05/D-06/D-17/D-18): merge preview + active with real-priority. Same-key
 	-- collision resolves to the real proc from ns.activeTimers. Lazy cleanup of expired
 	-- entries during iteration. Display.lua sees an unchanged interface — a sorted list.
+	--
+	-- The returned list is a SHARED BUFFER, valid until the next call. That is safe because
+	-- there is exactly one caller, ns:UpdateDisplay, which walks it into the per-container lists
+	-- and is finished with it before returning; WoW runs addon code single-threaded, so no event
+	-- can land mid-walk. A second caller that retained the list across a tick would see it
+	-- rewritten underneath them -- add one and this contract has to change with it.
 	local now = GetTime()
-	local result = {}
+	wipe(activeTimerSet)
 
 	-- 1. Preview entries first (filter expired; lazy cleanup)
 	for key, proc in pairs(ns.previewTimers) do
 		if proc.expiresAt > now then
-			result[key] = proc
+			activeTimerSet[key] = proc
 		else
 			ns.previewTimers[key] = nil
 		end
@@ -160,22 +395,31 @@ function ns:GetActiveTimers()
 		if proc.expiresAt <= now then
 			ns.activeTimers[key] = nil
 		else
-			result[key] = proc
+			activeTimerSet[key] = proc
 		end
 	end
 
-	-- 3. Flatten to sorted list (ascending by expiresAt — shortest remaining time first)
-	local sorted = {}
-	for _, proc in pairs(result) do
-		table.insert(sorted, proc)
+	-- 3. Flatten to sorted list (ascending by expiresAt — shortest remaining time first).
+	-- Counted rather than table.insert'd: # on a freshly wiped table is 0 and grows correctly,
+	-- but a local counter says what is meant and skips the length lookup per entry.
+	wipe(activeTimerList)
+	local count = 0
+	for _, proc in pairs(activeTimerSet) do
+		count = count + 1
+		activeTimerList[count] = proc
 	end
-	table.sort(sorted, function(a, b)
-		return a.expiresAt < b.expiresAt
-	end)
-	return sorted
+	table.sort(activeTimerList, ByExpiry)
+	return activeTimerList
 end
 
-function ns:AddTrackedBuff(spellID, duration, label)
+-- opts (Plan 37-02, all fields optional, three-argument callers remain valid):
+--   opts.trackerType   "buff" / "cooldown" -- anything else, including nil, stores "buff".
+--   opts.section        a container key -- written through as-is when it is a string;
+--                        falls back to "hidden" otherwise (D-05, unchanged default).
+--   opts.coverAllRanks   true/false -- stores true or stores nothing, never false, so an
+--                        uncovered entry stays byte-identical to a pre-phase one. Consumed
+--                        only by ns:RebuildRankIndex (Core.lua); read nowhere in this file.
+function ns:AddTrackedBuff(spellID, duration, label, opts)
 	if not spellID or spellID <= 0 then
 		print("|cff00ccffTerribleBuffTracker|r: Invalid spell ID.")
 		return false
@@ -203,23 +447,55 @@ function ns:AddTrackedBuff(spellID, duration, label)
 		end
 	end
 
-	ns.db.trackedBuffs[spellID] = {
+	local trackerType = (opts and opts.trackerType == "cooldown") and "cooldown" or "buff"
+	-- D-05: new trackers still default to Not Displayed. The dialog's container choice is the
+	-- only thing that overrides that default -- an unchosen container must never resolve to a
+	-- visible one, so anything other than an explicit string section still falls to "hidden".
+	local section = (opts and type(opts.section) == "string") and opts.section or "hidden"
+
+	-- Namespaced, so a buff tracker and a cooldown tracker for the same spell are two records
+	-- rather than one overwriting the other. See ns.COOLDOWN_KEY_PREFIX in Core.lua.
+	local dbKey = ns:TrackerKey(spellID, trackerType)
+
+	ns.db.trackedBuffs[dbKey] = {
 		spellID = spellID,
 		duration = duration,
 		label = displayLabel,
-		section = "hidden", -- D-05: new buffs land in Not Displayed
+		trackerType = trackerType,
+		section = section,
 		layoutOrder = maxOrder + 1,
+		-- store true or store nothing, never false (see opts doc above).
+		coverAllRanks = (opts and opts.coverAllRanks) and true or nil,
 	}
+
+	-- Pre-allocate the slot's proc buffers with the slot itself, so the first cast of this
+	-- tracker allocates nothing either. This is the "allocate when the player adds a tracker"
+	-- half of the pooling rule; ns:ReleaseProc in ns:RemoveTrackedBuff is the other half.
+	ns:PreallocateProc(dbKey)
 
 	print(
 		"|cff00ccffTerribleBuffTracker|r: Now tracking |cff00ff00"
 			.. displayLabel
-			.. "|r (ID: "
+			.. "|r ("
+			.. trackerType
+			.. ", ID: "
 			.. spellID
 			.. ", "
 			.. duration
 			.. "s)."
 	)
+
+	-- RANK-01: a newly covered tracker must work on the very next cast, without waiting for
+	-- the next SPELLS_CHANGED. Nil-guarded because this file can in principle run before
+	-- Core.lua's definitions are reachable -- load-order insurance, not a migration leftover.
+	if ns.RebuildRankIndex then
+		ns:RebuildRankIndex()
+	end
+	-- Phase 38 (CD-04): a new tracker changes the set Plan 02's per-container slot count is
+	-- built from. Nil-guarded for the same load-order reason as ns:RebuildRankIndex above.
+	if ns.MarkTrackersDirty then
+		ns:MarkTrackersDirty()
+	end
 	return true
 end
 
@@ -233,11 +509,24 @@ function ns:RemoveTrackedBuff(spellID)
 	local label = entry.label
 	ns.db.trackedBuffs[spellID] = nil
 	ns.activeTimers[spellID] = nil
+	-- Release the slot's pooled proc with the slot itself. The timer above is cleared first, so
+	-- nothing is holding the table when it goes.
+	ns:ReleaseProc(spellID)
 
 	print("|cff00ccffTerribleBuffTracker|r: Stopped tracking |cffff6600" .. label .. "|r (ID: " .. spellID .. ").")
 
 	if ns.UpdateDisplay then
 		ns:UpdateDisplay()
+	end
+	-- RANK-01: removing a tracker changes the set of index owners just as adding one does.
+	-- Nil-guarded for the same wave-1-standalone reason as ns:AddTrackedBuff above.
+	if ns.RebuildRankIndex then
+		ns:RebuildRankIndex()
+	end
+	-- Phase 38 (CD-04): same reasoning as ns:AddTrackedBuff above -- removing a tracker also
+	-- changes the set Plan 02's per-container slot count is built from.
+	if ns.MarkTrackersDirty then
+		ns:MarkTrackersDirty()
 	end
 	return true
 end
@@ -260,6 +549,24 @@ function ns:SetBuffSection(spellID, section)
 	if section == "hidden" then
 		ns.activeTimers[spellID] = nil
 	end
+	-- Phase 38 (CD-04): re-sectioning a tracker changes the set Plan 02's per-container slot
+	-- count is built from, same as adding or removing one.
+	if ns.MarkTrackersDirty then
+		ns:MarkTrackersDirty()
+	end
+	if ns.UpdateDisplay then
+		ns:UpdateDisplay()
+	end
+end
+
+-- RACE-03: the early-expiry path. BuffEngine keeps ownership of timer lifecycle; providers call
+-- in, exactly as UserSpellProviderMixin:OnTrigger already calls ns:MarkCooldownsDirty. Clears the
+-- real proc only when one was actually present. Does NOT touch ns.previewTimers.
+function ns:EndTimer(key)
+	if not ns.activeTimers[key] then
+		return
+	end
+	ns.activeTimers[key] = nil
 	if ns.UpdateDisplay then
 		ns:UpdateDisplay()
 	end
@@ -274,10 +581,21 @@ function ns:StartAllPreviewTimers()
 	wipe(ns.previewTimers)
 	local now = GetTime()
 	for key, entry in pairs(ns.db.trackedBuffs) do
+		-- A cooldown entry previews from entry.duration like any other entry -- a synthetic
+		-- demo built from a number the user typed, with no game value read and no secret
+		-- involved. The existing icon render path below already turns it into a demo sweep
+		-- with no type branch needed.
 		if entry.section ~= "hidden" then
-			-- Skip if a live real proc already owns this key (D-05 priority at insertion time)
+			-- Skip if a live real proc already owns this key (D-05 priority at insertion time).
+			--
+			-- ns.activeTimers is not the whole answer any more. A custom cooldown never enters it
+			-- -- it is a slot, not a timer -- so its live state lives in ns.cooldownStarts, and
+			-- without the second test a preview would paint a demo sweep straight over a cooldown
+			-- that was genuinely running. Preview is ADDITIVE: it shows what a tracker would look
+			-- like where nothing is happening, and never replaces something that is.
 			local real = ns.activeTimers[key]
-			if not (real and real.expiresAt > now) then
+			local live = (real and real.expiresAt > now) or ns:IsCooldownRunning(key, entry, now)
+			if not live then
 				local info = ns:GetDisplayInfoForKey(key)
 				if info then
 					ns.previewTimers[key] = {
@@ -289,6 +607,10 @@ function ns:StartAllPreviewTimers()
 						label = info.label,
 						section = entry.section,
 						layoutOrder = entry.layoutOrder,
+						-- Phase 41: unconditional field copy, no type branch -- nil for every
+						-- provider except Racial, so no existing preview behaviour changes and a
+						-- supported racial previews at its full stack count.
+						stacks = info.stacks,
 						-- NO aliveBuffs (previews not in ns.activeTimers), NO icon (Display derives it D-33)
 					}
 				end

@@ -1,5 +1,8 @@
 *.zip
 
+# BigWigs packager scratch directory
+.release/
+
 # Claude Code settings
 .claude/
 

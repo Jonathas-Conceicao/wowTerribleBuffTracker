@@ -8,9 +8,49 @@ A WoW addon for manually tracking buff and cooldown timers, running on both **Mi
 
 Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
 
-## Current Milestone
+## Current Milestone: v0.4.0 Cooldown Tracking and Full CDM View
 
-**None active.** v0.3.0 shipped 2026-09-19. Start the next one with `/gsd-new-milestone`.
+**Goal:** TBT stops being a buff-only addon anchored beside the CDM and becomes a complete tracking
+surface — cooldowns as well as buffs, four pinned base containers plus user-created ones, and an
+optional mode where it takes over the CDM's entire display.
+
+**Phases start at 31.** Numbering continues from v0.3's Phase 30 and never restarts.
+
+**Target features:**
+
+*Block A — backlog cleanup, up front and small:*
+- **999.1** — Edit Mode containers select on mouse-DOWN, not mouse-UP.
+- **999.3** — **Migrate to a single TOC.** One `TerribleBuffTracker_Mainline.toc` carrying all interface
+  versions; `_Camelot.toc` deleted. **One zip for everything** — the two `.pkgmeta-*` files collapse to a
+  single `.pkgmeta` and the two-job CI matrix is retired.
+- **999.4** — `install.bat` substitutes a real dev version into the deployed TOC (never the repo TOC) and
+  prunes stale files, including the leftover TOCs in `_beta_` / `_ptr_`.
+
+*Block B — the three features:*
+- **Cooldown tracking.** A tracker can register a spell cooldown, not only a buff. Cooldowns render as
+  **icons only**, with **charge counts** for multi-charge spells. Built on the tier-1 duration path
+  (`C_Spell.GetSpellCooldownDuration` → `SetCooldownFromDurationObject`), measured working with
+  genuinely secret values in combat on 2026-09-20.
+- **Four base containers + user containers + CDM steal mode.** TBT gains four base containers mirroring
+  Blizzard's — Tracked Buffs, Tracked Bars, Essential Cooldowns, Utility Cooldowns — with pinned names,
+  not deletable. Users can create extra containers with full per-container settings. **Steal mode** is
+  optional and **all-or-nothing across all four categories**: when on, every Blizzard CDM container is
+  hidden and its items appear in TBT's matching container alongside the user's own trackers. Enabled from
+  a **new config panel**, reached by a gear/settings square next to the `+` button on TBT's CDM tab.
+- **Racial meta-tracker (gnome, troll, orc) + rank grouping.** A racial meta-tracker whose entries are each an
+  explicitly-specified special case. **This milestone implements gnome (Eureka!), troll (Berserking) and orc (Blood Fury plus a second racial), tracked through two racial slots, plus racial cooldown tiles** — including Eureka!'s
+  cast-driven stack consumption prototyped 2026-09-20 — and every other racial appears marked *not yet
+  supported*, with a tooltip saying so in the CDM preview. **The next minor milestone completes the
+  catalog for both flavours.** Separately, a redesigned add panel prompts on multi-rank spells with a
+  **"cover all ranks" checkbox, checked by default, present on Forever and absent on retail**; the same
+  panel is where a new entry is configured as a cooldown tracker or a buff tracker.
+
+*Block C — closing sequence, order fixed:*
+1. Everything above implemented and tested **on Forever** as it is built.
+2. **Second to last:** a retail pass (M+ and raid) confirming no regressions.
+3. **Last:** **999.2** — `README.md`, the CurseForge/Wago descriptions and `CHANGELOG.md`, written once
+   everything is reviewed and tested, immediately before merge/release. **Trinket and Pot meta-trackers
+   stay as-is**; only the wording changes.
 
 <details>
 <summary>v0.3 WoW Forever compatibility — SHIPPED 2026-09-19 as v0.3.0</summary>
@@ -26,47 +66,24 @@ packaging) require a real tag push and were deferred to the first release by exp
 
 </details>
 
-### Next Milestone Goals
+### Deferred Past v0.4.0
 
-Nothing committed yet. Candidates already recorded, in rough order of how much is known about them:
+Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backlog.
 
-- **⭐ Phase 999.2 — refresh README and the CurseForge/Wago descriptions. The user asked to be reminded
-  of this one at the start of the next milestone (2026-09-19).** v0.3.0 shipped Forever support and two
-  downloads and none of the public copy says so. It also carries a product question, not just a copy
-  question: the user reports **Blizzard's CDM now tracks trinkets and potions natively**, which would make
-  TBT's Trinket/Pot meta-trackers partly or wholly redundant on retail. Verify that against the live
-  client and `wow-ui-source` before writing any copy or deciding what happens to the meta-trackers. Full
-  scope in ROADMAP.md's Backlog.
-- **⭐ Phase 999.4 — the addon reports `@project-version@` as its in-game version. The user flagged this
-  for the next milestone (2026-09-19) and restated that the **in-game metadata** is the deliverable:
-  *"the addon shows in-game as this string instead of an actual version."*** Cause established from disk:
-  `install.bat` plain-copies the repo TOC without passing through the packager, which is the only thing
-  that expands the keyword — and **all four client folders on the machine hold dev deploys, none a zip
-  install**, so nothing running anywhere shows a real version. Fix belongs in `install.bat`; never
-  hardcode a version into the repo TOCs, which would break the working packager substitution. Fix the
-  stale-TOC pruning at the same time — `_beta_` and `_ptr_` each hold three TOCs, one advertising a
-  pre-v0.2.0 `## Version: 1.0.0`, so a version fix that leaves those in place has not fixed what the user
-  sees.
-- **Phase 999.3 — evaluate the single-TOC setup.** The WoWUI community FAQ says Forever is classed as
-  `mainline` intentionally, so `_Mainline.toc` **also loads on Forever** — contradicting the MEDIUM-
-  confidence assumption the two-TOC design rests on. Published zips are safe (one TOC each), but
-  `install.bat` puts both into every client. **Settle first, cheaply:** print
-  `C_AddOns.GetAddOnMetadata("TerribleBuffTracker", "Interface")` on Forever to learn which TOC actually
-  loaded — `TOC-02` never captured that. Migrating collides with the locked two-flavour-zip decision, so
-  it is a user call, not cleanup. Intake: `research/FOREVER-COMMUNITY-FAQ.md`.
-- **Close `DIST-03`…`DIST-07` at the first release.** Not a milestone of its own — it is the checklist
-  in `29-01-SUMMARY.md`'s Deferred Verification table, run once against real CI logs. Read both matrix
-  jobs' logs in full rather than the green check: the packager silently omits a game-version tag if a
-  store's version list lacks it, and two identically-named zips (or one with a trailing dash) would
-  mean `game_type` came out empty.
+- **Complete the racial catalog (next minor milestone, `RACE-06` / `RACE-07`).** v0.4.0 ships gnome, troll and orc; every other racial
+  is present but marked *not yet supported*. The follow-up fills in both retail and Forever racials, each
+  specified by the user as its own special case.
+- **`DIST-03`…`DIST-07` are superseded, not merely deferred.** They described two distinctly-named zips
+  from one tag and a per-flavour game-version tag. v0.4.0's single-TOC / single-zip decision removes the
+  mechanism they were written against, so v0.4.0 must restate them as single-zip equivalents rather than
+  carry them forward verbatim.
 - **Forever content support (`FCON-01`…`FCON-03`)** — Forever-appropriate lust, trinket and consumable
-  catalogs, and per-flavour Suggested sections. Blocked on knowing Forever's content and level cap.
-  The mechanism is already in place: META-01 hides what does not resolve, so shipping real Forever
-  catalogs makes the tiles reappear with no code change.
-- **Phase 999.1** — Edit Mode container selects on click-release instead of click-down. Pre-existing
-  backlog item, unrelated to flavours.
-- **The four tooling todos** under `.planning/todos/pending/`, chief among them that `install.bat`
-  never prunes, so every file ever deleted from the repo lingers in a deployed folder.
+  catalogs, and per-flavour Suggested sections. Still blocked on knowing Forever's content and level cap.
+  META-01 already hides what does not resolve, so shipping real catalogs makes the tiles reappear with no
+  code change.
+- **The four tooling todos** under `.planning/todos/pending/`. Two of them — stale-file pruning and the
+  runtime file set being enumerated in three places — are touched directly by 999.4 and the single-TOC
+  migration, so they should be reconciled inside this milestone rather than left pending.
 
 ## Requirements
 
@@ -122,7 +139,9 @@ Nothing committed yet. Candidates already recorded, in rough order of how much i
 
 **Planning drift note:** v0.2.5 (12.1 compatibility) and v0.2.6 (CDM tab placement) were both developed, tagged and released outside the GSD workflow, so they have no phase artifacts under `.planning/phases/`. They are recorded in `CHANGELOG.md`, `MILESTONES.md` and the Validated list above; that is the whole of their planning record — no phases are reconstructed retroactively.
 
-**Current milestone:** none active. v0.3 ran Phases 25-30 (continuing from v0.2.4's Phase 24), so the next milestone starts at Phase 31 — phase numbering never restarts.
+**Current milestone:** none active. v0.4.0 Cooldown Tracking and Full CDM View is **archived** (2026-09-23) — 15 phases (31-45), 34 plans, 58/58 requirements, see [`milestones/v0.4.0-ROADMAP.md`](milestones/v0.4.0-ROADMAP.md). It is **not yet released**: squash-merge the milestone branch to `main`, then run `scripts/release.bat 0.4.0` from `main`, which creates the `v0.4.0` tag itself and pushes. Phase numbering never restarts, so the next milestone starts after Phase 45.
+
+**Phase 45 closed the documentation (2026-09-23):** `README.md` rewritten for what v0.4.0 actually ships, and the v0.4.0 `CHANGELOG.md` entry appended above v0.3.0 with a byte-level append-only proof. Both are drafts for the user to rewrite in their own voice; `README.md` is also the single source pasted by hand into CurseForge and Wago, so no separate store-description file exists by decision (D-08). All 58 v0.4.0 requirements are closed, including `DIST-09`…`DIST-12`, which superseded v0.3.0's deferred `DIST-03`…`DIST-07` when packaging collapsed to a single TOC and a single zip. What remains unproven is not a requirement but an observation: no real tag push has happened yet, so the published zip's name and its `## Version:` substitution are still only verified locally.
 
 **Open backlog:** Phase 999.1 (Edit Mode container selects on click-release instead of click-down) — captured during v0.2.4 verification, still awaiting promotion.
 
@@ -166,9 +185,9 @@ client-side bug — see Context.
 - **API**: No COMBAT_LOG_EVENT_UNFILTERED — must use UNIT_SPELLCAST_SUCCEEDED
 - **UI Framework**: Must use WoW's native frame/widget system (no external libs)
 - **CDM Dependency**: Tab must integrate with existing CDM settings window, not replace it
-- **Compatibility**: Interface 120100 (Midnight retail) **and** 16001 (Forever beta), from one shared source set selected by two flavour-suffixed TOCs. The two TOCs may differ on `## Interface:` and `## Notes:` only; `scripts/check-toc.ps1` enforces this pre-tag
+- **Compatibility**: Interface 120100 (Midnight retail) **and** 16001 (Forever beta). **Changing in v0.4.0:** from one shared source set selected by two flavour-suffixed TOCs, to a **single `TerribleBuffTracker_Mainline.toc` declaring all interface versions**, shipped as **one zip**. `scripts/check-toc.ps1`, `.pkgmeta-mainline`, `.pkgmeta-camelot` and the two-job CI matrix are all retired by that migration
 - **Migration**: Must not break existing TerribleBuffTrackerDB data
-- **Cross-flavor**: one shared Lua/XML file set must load on both Interface 120100 (Midnight) and 16001 (Forever) — no flavor-forked source files in v0.3
+- **Cross-flavor**: one shared Lua/XML file set must load on both Interface 120100 (Midnight) and 16001 (Forever) — no flavor-forked *source files*. **Narrowed in v0.4.0:** the blanket ban on runtime flavour *detection* no longer holds. The "cover all ranks" checkbox is present on Forever and absent on retail by an explicit version check, by user decision 2026-09-20. Everywhere else the data-absence / capability-check pattern is still the default, and no second copy of a source file may exist
 - **Forever fixes stay narrow**: Forever-specific breakage is fixed solely with narrow defensive reads — no `WOW_PROJECT_ID` branch, no flavor-forked code path. That half of the original parity-only constraint still holds and is still binding. The parity-only *scope* was widened on 2026-09-18 with explicit user approval to admit two capabilities beyond parity: TOOL-01 (spell and aura ID tooltip) and META-01 (data-driven meta-tile hide)
 
 ## Key Decisions
@@ -185,10 +204,17 @@ client-side bug — see Context.
 | Additive preview with separate `ns.previewTimers` | Eliminates snapshot/restore and the mid-CDM real-cast-loss bug as an architectural side-effect | ✓ Good — shipped v0.2.4 |
 | Key-driven display reads (`proc.key`, not `proc.spellID`) | `.key` is stable across meta-buff slot contents; `.spellID` is a derived numeric. Phase 22 regression proved this is load-bearing | ✓ Good — codified in v0.2.4 after `df48029` regression fix |
 | No refactors during cleanup phases | Keeps release-prep phases narrow and predictable; prevents last-mile scope creep. Protects code that **predates the milestone**; `CLAUDE.md`'s GSD Workflow cleanup mandate separately covers duplication the milestone itself introduces — complementary, not contradictory (settled 2026-09-18) | ✓ Good — Phase 16 + Phase 24 honored this. Phase 30 is where the two rules first collided (real v0.3-introduced duplication in `install.bat` / `.pkgmeta-*`); the reading above was settled by user decision on 2026-09-18 |
-| Split flavor TOCs (`_Mainline` + `_Camelot`) over a single multi-interface TOC | Client selects the right TOC per flavor with no reliance on comma-form parsing; CurseForge/Wago receive correctly-tagged per-flavor uploads | ✓ Good — shipped v0.3.0. Verified on both clients 2026-09-18; the `_Camelot` suffix was confirmed empirically by the Forever client loading the file |
+| Split flavor TOCs (`_Mainline` + `_Camelot`) over a single multi-interface TOC | Client selects the right TOC per flavor with no reliance on comma-form parsing; CurseForge/Wago receive correctly-tagged per-flavor uploads | ✓ Good — shipped v0.3.0. **Superseded 2026-09-20** by the single-TOC decision below |
 | `install.bat` installs to every client present, no arguments | Simplest possible change; `./scripts/install.bat` keeps working unchanged in the existing workflow | ✓ Good — shipped v0.3.0; deployed every Forever test build during the milestone |
 | v0.3 is metadata + tooling only — no Forever features | Establishes a verified cross-flavor baseline before any Forever-specific capability work | **Superseded 2026-09-18** — widened with explicit user approval to admit TOOL-01 and META-01: TOOL-01 was a hard prerequisite for testing cast detection on Forever at all (no other way to discover Forever spell IDs on that client), and META-01 removed three tiles that could never carry a value there |
 | Widen v0.3 scope to admit TOOL-01 + META-01 | The alternative was an untestable milestone: no way to discover a working Forever spell ID without a diagnostic tooltip, and three tiles permanently showing a wrong retail value with no data-driven hide | ✓ Good — approved 2026-09-18, both shipped Phase 27.1 |
+| Migrate to a single TOC, one zip for everything (v0.4.0) | The WoWUI community FAQ states Forever is classed as `mainline` intentionally, so `_Mainline.toc` loads there too — which made the two-TOC split rest on a contradicted assumption and put two loadable TOCs in every dev Forever folder. One TOC deletes the bug class. One zip is what a single TOC naturally implies | Decided 2026-09-20 by the user, reversing the locked two-flavour-zip decision. **Blocking gate:** `_Mainline.toc` loading on Forever is unverified. Confirm it in-game with `_Camelot.toc` still in place as rollback before deleting anything |
+| Four base containers mirroring Blizzard's CDM, names pinned and undeletable | Preserves the grouping the player already configured in the CDM, and gives stolen items an unambiguous destination. Two containers could not express four categories | Decided 2026-09-20. Existing `TBTBarContainer` → Tracked Bars, `TBTBuffContainer` → Tracked Buffs; the two cooldown containers start at defaults |
+| Steal mode is all-or-nothing across all four CDM categories | A per-category toggle multiplies the states TBT has to render and reason about for no clear user gain in the first cut | Decided 2026-09-20. Optional feature, off by default; when on, **all** Blizzard CDM containers are hidden |
+| TBT keeps its own containers; never inject into Blizzard's | Measured 2026-09-20: five injection variants, including one using zero Blizzard Lua, all tainted the CDM until `/reload`. Calling any Blizzard CDM mixin method leaves the frame tainted afterwards, and taint is sticky across combats | Locked. See `.planning/research/TEST-PLAN-CDM-INJECTION-AND-COOLDOWNS.md` |
+| "Cover all ranks" shown by flavour version, not by data | User decision 2026-09-20, taken after being offered the data-driven alternative (show the checkbox only when the spell resolves to a multi-rank family, which would need no flavour check). The user wants the control unconditionally present on Forever and unconditionally absent on retail — not appearing dynamically, not disabled-but-visible | Narrows the v0.3 no-flavour-branch constraint. This is the one sanctioned runtime flavour check; it does not license a second one |
+| Racial meta-tracker ships with Eureka! only | Every racial is an individually-specified special case and the user supplies each spec. Shipping one proven case now keeps v0.4.0 from blocking on a full catalog | Decided 2026-09-20. All other racials appear marked *not yet supported* with an explanatory tooltip; the next minor milestone completes the catalog. Widened 2026-09-23: troll (Berserking) and orc (Blood Fury + a second racial) shipped as well, verified on Forever; racial cooldown tiles added. The next minor milestone still completes the catalogue. |
+| Trinket and Pot meta-trackers stay as-is | TBT's version has custom durations and bar display, and META-01 already hides them on Forever. Whatever the CDM now does natively, the trackers keep a reason to exist | Decided 2026-09-20 — closes the product half of 999.2. Only the public copy changes |
 
 ## Evolution
 
@@ -208,4 +234,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-19 after the v0.3.0 milestone*
+*Last updated: 2026-09-23 after the v0.4.0 milestone*

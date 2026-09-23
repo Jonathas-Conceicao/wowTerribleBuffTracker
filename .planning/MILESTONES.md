@@ -1,5 +1,56 @@
 # Milestones
 
+## v0.4.0 Cooldown Tracking and Full CDM View (Shipped: 2026-09-23)
+
+**Scope:** Cooldown tracking as a first-class tracker type, an all-or-nothing Merge Mode that draws Blizzard's Cooldown Manager entries inside TBT's own containers, four base containers plus user-created ones, and a collapse back to a single TOC covering both Midnight retail and the WoW Forever beta.
+**Phases:** 15 (31-45; Phase 39 renumbered to 35.1 mid-milestone, so no Phase 39 exists), 34 plans
+**Timeline:** 4 days (2026-09-20 → 2026-09-23), 229 commits, 142 files changed
+**Interface:** 120100 (Midnight retail) + 16001 (Forever beta) from **one** TOC — v0.3.0's two flavour-suffixed TOCs retired
+**Verified on:** Forever `1.60.1.69913` (2026-09-21→22) and Midnight retail 12.1.x including Mythic+ and a raid encounter (2026-09-23)
+**Requirements:** 58 / 58 closed
+**Known deferred items at close:** 1 backlog todo (GCD grey, never consistently reproducible), the remaining racials (`RACE-06`/`RACE-07`), and the first real tag push — see ROADMAP.md Backlog
+
+### Key accomplishments
+
+- **Cooldown trackers, and the same spell tracked twice.** A spell's cooldown became a tracker type of its own — icon-only, with charge counts where the client reports them. Supporting a buff tracker *and* a cooldown tracker for the same spell required re-keying the database into a `cd:<spellID>` namespace (schema v6): until then the two were literally the same record, and adding one silently replaced the other.
+- **Merge Mode, with engine-driven sweeps.** The milestone's hardest problem was giving a merged buff icon a cooldown sweep, and every attempt that *read* the aura failed for structural rather than incidental reasons — the CDM's `Cooldown` getters return secrets, the numeric setters are `AllowedWhenUntainted`, the aura instance IDs sit behind `DisallowTaintedAccess`, and plain aura reads are denied the moment a fight starts, which is the one time the sweep matters. The fix was to invert the shape: hand Blizzard widgets to an `AuraContainer` and let the engine draw. TBT never injects into, parents into, or writes to a CDM frame.
+- **One download, two clients.** `TerribleBuffTracker.toc` declaring `## Interface: 120100, 16001`, one `.pkgmeta`, one CI job, one zip. Follows the pattern shipping Forever addons already use (Platynator declares six interface versions and no `## AllowLoadGameType:`), which deletes the two-flavour drift bug class rather than guarding against it.
+- **Four base containers plus user-created ones**, each carrying its own scale, padding, orientation, items-per-row and bar width — with the v0.3.0 database migrated across v3→v6 without loss, verified against a real saved-variables file.
+- **Centered growth**, where a buff icon row re-centres on its anchor as buffs come and go. Centring is against the *container's* width in cells, not the run's own — that is what keeps the midpoint where the player put it.
+- **All grid arithmetic collapsed into one function**, `ns:GridSlotPlacement`. Each time the merged and own-tracker paths derived placement separately they drifted — first by padding, then by scale, then by origin.
+- **A settings panel under Options > AddOns**, opened by `/tbt`, with the Merge Mode switch and the container list.
+- **Racial trackers for gnome, troll and orc**, through two racial slots, plus racial cooldown tiles. Forever-only by construction.
+
+### Bugs found in this milestone's own work
+
+- **`.pkgmeta` was not ignoring `.planning`**, so every release zip carried 334 tracked planning files into players' AddOns folders. Fixed in `295c601`. The one Phase 42 change that affects what ships rather than source tidiness — and it cannot be verified without a real tag push.
+- **Merged auras drifted out of position, and the cause was not the engine.** Display sizes a container from the number of slots it holds; merged entries were being *withheld* from that list while the engine drew them, so a narrower container re-centred on its anchor and every offset measured from it followed. Merged entries are now published-but-not-drawn, keeping the footprint constant.
+- **The `.proc` reuse hazard was real, not theoretical.** `Providers.lua` decrements `proc.stacks` on the live racial timer, so reusing `bar.proc` as a scratch buffer — the obvious shortcut — would have wiped a table `RacialProviderMixin` was still mutating.
+- **`ns:GetActiveTimers` was the addon's largest per-tick allocation**: two tables and a comparator closure at 20 Hz, in combat — while `Display.lua` hoisted `ByLayoutOrder` specifically to avoid exactly that, one call up the stack.
+- **Four plan-verification assertions failed during Phase 42 and all four were the assertion's fault**, never the code's: an unescaped `.` in a grep pattern, and three counts that forgot `grep -c` matches the definition line too.
+
+### Known issues at ship
+
+- **Settings do not persist between sessions on the WoW Forever beta.** A client bug, not TBT's: the file is written correctly on logout and never read back on login. Retail is unaffected.
+- **In restricted content a buff can keep showing until its typed duration runs out.** `C_Secrets.ShouldAurasBeSecret()` holds for the whole key, which switches off the cancellation scan. Timers still *start* correctly, because `UNIT_SPELLCAST_SUCCEEDED` is never secret.
+- **Charge counts can be blank in restricted content**, and a potion first used inside a key may show no timer until the player is somewhere unrestricted.
+- **A custom cooldown tracker runs on the duration the user typed**, timed from the observed cast, so haste, cooldown reduction and resets make it wrong. This was a deliberate reversal of `CD-02` on 2026-09-22 after the game-handle version was reported as a bug. Merged CDM slots keep the engine's handle and are unaffected.
+
+### Process notes
+
+- **The requirement checkboxes and eight `human_needed` verification reports were all closed in one pass at milestone close**, against the two run sheets and the user's blanket sign-offs on each — not row by row as the work landed. The traceability table was written on 2026-09-20 and never updated as Phases 43 and 44 ran. Every ✓ in this milestone's archive should be read with that provenance.
+- **Neither run sheet is a completed tick-list.** Phase 43 was continuous play-testing, feature by feature, each defect fixed and re-tested on the same client. Phase 44's sheet states plainly that its Part 2 per-feature table was not itemised.
+- **Phases 42 and 43 were swapped** on 2026-09-22: clean the code first, then review the cleaned code. Seven status lines written on 2026-09-21 still say "deferred to Phase 42" and mean Phase 43.
+- **Phase 39 does not exist.** It was renumbered to 35.1 so that the config panel, which owns container create/delete, lands before the phase that builds user containers.
+- **No test suite exists** — no build manifest, no `luacheck`, no automated regression gate. Every claim rests on in-game observation.
+- `stylua` clean at exit; `.gitattributes` pins `*.lua` to `eol=crlf`, though `.md` files remain bare `text=auto` and can still be reflowed invisibly.
+
+---
+
+_See `.planning/milestones/v0.4.0-ROADMAP.md` for full phase details._
+_See `.planning/milestones/v0.4.0-REQUIREMENTS.md` for requirement-level traceability._
+
+---
 ## v0.3.0 WoW Forever compatibility (Shipped: 2026-09-19)
 
 **Scope:** Multi-flavour support. One shared Lua/XML source set loading on both WoW Midnight retail and the WoW Forever beta, from two flavour-suffixed TOCs, with no forked source file and no runtime flavour branch.

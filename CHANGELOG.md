@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.4.0 — Cooldown Tracking and Full CDM View
+
+Big update with Cooldown tracking, full CDM view and extra
+containers. Working for both Midnight and Forever.
+
+### New Features
+- **Merge mode** - Use TBT has your hole Cooldown Manager and have
+  custom trackers alongside Blizzard's CDM containers
+- **Cooldown trackers** - Custom skills along side Blizzard's CDM
+  cooldowns and buffs
+- **Extra containers** - You can create extra containers for custom
+  trackers of your buffs or cooldowns
+- **Center aligment** - The buff container can be center-alligned
+- **Forever Racial Trackers** - Still in early stages, tracking Gnome,
+  Troll and Orc racials, with support for all races comming soon
+
+### Fixes
+- Merged buffs no longer drift out of position inside a container
+- Edit mode container selection now happens on click press instead of
+  release
+
 ## v0.3.0 — WoW Forever Support
 
 Initial support on WoW Forever beta build (interface 16001).

@@ -3,15 +3,30 @@
 
 	<Script file="CDMTab.lua"/>
 
-	<!-- TBT tab button: inherits visual template but does NOT use parentArray
+	<!-- TBT tab buttons: inherit the visual template but do NOT use parentArray,
 	     to avoid tainting CDM's secure TabButtons iteration.
-	     The anchor below is a load-time placeholder only — CDMTab.lua re-anchors
-	     the tab under the bottom-most Blizzard tab, whichever those turn out to be. -->
-	<Frame name="TBTSettingsTab" parent="CooldownViewerSettings"
+	     The anchors below are load-time placeholders only — CDMTab.lua re-anchors
+	     TBTSpellsTab under the bottom-most Blizzard tab and TBTSettingsTab under
+	     that, so the order on screen is Blizzard's tabs, TBT Spells, TBT Buffs.
+
+	     TBTSettingsTab keeps its name although it is the "TBT Buffs" tab: it is the
+	     original tab, every tracker that existed before v0.4.0 is a buff, and the
+	     v0.2.6 anchoring contract names it. Renaming it would buy nothing and break
+	     that contract. -->
+	<Frame name="TBTSpellsTab" parent="CooldownViewerSettings"
 	       inherits="LargeSideTabButtonTemplate">
 		<Size x="43" y="55"/>
 		<Anchors>
 			<Anchor point="TOP" relativeKey="$parent.AurasTab"
+			        relativePoint="BOTTOM" x="0" y="-3"/>
+		</Anchors>
+	</Frame>
+
+	<Frame name="TBTSettingsTab" parent="CooldownViewerSettings"
+	       inherits="LargeSideTabButtonTemplate">
+		<Size x="43" y="55"/>
+		<Anchors>
+			<Anchor point="TOP" relativeTo="TBTSpellsTab"
 			        relativePoint="BOTTOM" x="0" y="-3"/>
 		</Anchors>
 	</Frame>

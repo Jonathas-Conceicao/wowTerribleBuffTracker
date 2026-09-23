@@ -1,0 +1,8 @@
+## Interface: 120100, 16001
+## Title: TBT Probe
+## Notes: Throwaway API probe harness for TerribleBuffTracker. Never shipped — see .pkgmeta ignores.
+## Author: TerribleBuffTracker
+## Version: dev
+## AllowLoadGameType: standard, camelot
+
+Probe.lua

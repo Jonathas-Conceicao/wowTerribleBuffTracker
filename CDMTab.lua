@@ -14,6 +14,12 @@ local META_DESCRIPTIONS = {
 	lust = "Matches all Heroism/Bloodlust effects",
 }
 
+-- Phase 35.1 (CFG-01): the Suggested section's grid reserves its first two slots for the
+-- add (+) square and the gear (config) square, in that order. One constant is the single
+-- source for both squares' layoutIndex and the catalog's starting slot, so adding a third
+-- square later is a one-line change instead of two numbers that can disagree.
+local SUGGESTED_RESERVED_SLOTS = 2
+
 ---------------------------------------------------------------------
 -- Preview control (reuses existing ns.configOpen flag from Display.lua)
 ---------------------------------------------------------------------
@@ -36,21 +42,109 @@ end
 -- Section framework
 ---------------------------------------------------------------------
 
-local SECTION_DEFS = {
-	{ key = "bars", title = "Tracked Bars" },
-	{ key = "buffs", title = "Tracked Buffs" },
-	{ key = "hidden", title = "Not Displayed" },
-	{ key = "suggested", title = "Suggested" },
-}
+-- Phase 35 (CONT-01/CONT-03), rebuildable since Phase 36 (CONT-04/CONT-05): one section per
+-- ns.CONTAINERS registry entry, in registry order, then Not Displayed, then Suggested.
+-- SectionHitTest and the reorder marker walk VALID_DROP_SECTIONS every frame during a drag,
+-- and ns:UpdateScrollChildHeight reads #SECTION_DEFS, so both tables are wiped and refilled
+-- IN PLACE by ns.RebuildContainerSectionDefs below — never reassigned with `= {}` again after
+-- this point, because the drag hot loops hold upvalues to these exact tables. A rebuild runs
+-- only on load, container create and container delete, never per frame.
+local SECTION_DEFS = {}
+local VALID_DROP_SECTIONS = {}
 
--- Valid drop targets (module-level constant — avoids per-frame table allocation in OnDragUpdate)
-local VALID_DROP_SECTIONS = { "bars", "buffs", "hidden" }
+function ns.RebuildContainerSectionDefs()
+	wipe(SECTION_DEFS)
+	wipe(VALID_DROP_SECTIONS)
+	for _, def in ipairs(ns.CONTAINERS) do
+		table.insert(SECTION_DEFS, { key = def.key, title = def.title, category = ns:GetContainerCategory(def) })
+		table.insert(VALID_DROP_SECTIONS, def.key)
+	end
+	-- "both" means shown under either tab. Not Displayed is the drop target every tab needs,
+	-- and Suggested carries the + and settings squares, which the user asked to reach from
+	-- either tab. Their CONTENTS are still filtered by category in ns:RefreshTBTSections --
+	-- a hidden buff tracker must not be visible, and therefore draggable, from the Spells tab.
+	table.insert(SECTION_DEFS, { key = "hidden", title = "Not Displayed", category = "both" })
+	table.insert(SECTION_DEFS, { key = "suggested", title = "Suggested", category = "both" })
+	table.insert(VALID_DROP_SECTIONS, "hidden")
+end
+
+ns.RebuildContainerSectionDefs()
+
+-- Which tracker category the CDM tab is currently showing: "spells" or "buffs".
+--
+-- Defaults to "buffs" because every tracker that existed before v0.4.0 is a buff, so a player
+-- who has not touched the new tab finds their own trackers where they left them. Runtime-only:
+-- which tab was last open is not worth a saved variable, and starting somewhere predictable
+-- beats restoring somewhere surprising.
+ns.tbtActiveCategory = "buffs"
+
+-- A section is laid out and rendered only under its own tab. Cross-category drag is blocked by
+-- this and nothing else: SectionHitTest already skips any section whose frame is not shown, so
+-- hiding the other category's sections makes "buffs and spells cannot be moved between them"
+-- structural rather than a rule enforced in the drop handler.
+local function IsSectionActive(def)
+	return def.category == "both" or def.category == ns.tbtActiveCategory
+end
 
 -- Drag state (wiped with wipe() on EndDrag — never reassigned, per CLAUDE.md pattern)
 local tbtDragState = {}
 
 -- Forward declarations (BeginDrag/EndDrag used inside CreateIconFrame closures)
 local BeginDrag, EndDrag
+
+-- Create a tracker from a Suggested tile, or move it if one already exists.
+--
+-- Written once and called from both add paths -- the right-click menu and the drag drop --
+-- which were the same twenty lines twice over. Unifying them is what lets the racial COOLDOWN
+-- tiles work without a third copy: their keys are "cd:<spellID>" rather than meta strings, so
+-- validating against ns.SUGGESTED_KEYS alone would have created nothing at all.
+local function AddSuggestedTracker(key, targetSection)
+	if ns.db.trackedBuffs[key] then
+		ns:SetBuffSection(key, targetSection)
+		return
+	end
+
+	-- A cooldown tile carries its spell in the key; a meta tile IS its key. Either way the
+	-- display info is what fills the entry, which is why a racial cooldown's seed duration
+	-- matters -- see ns:RacialCooldownSeed.
+	local cooldownSpellID = ns:CooldownKeySpellID(key)
+	if not cooldownSpellID then
+		local known = false
+		for _, suggestedKey in ipairs(ns.SUGGESTED_KEYS) do
+			if suggestedKey == key then
+				known = true
+				break
+			end
+		end
+		if not known then
+			return
+		end
+	end
+
+	local info = ns:GetDisplayInfoForKey(key)
+	if not info then
+		return
+	end
+
+	local maxOrder = 0
+	for _, e in pairs(ns.db.trackedBuffs) do
+		if e.layoutOrder and e.layoutOrder > maxOrder then
+			maxOrder = e.layoutOrder
+		end
+	end
+
+	ns.db.trackedBuffs[key] = {
+		key = key,
+		label = info.label,
+		duration = info.duration,
+		section = targetSection,
+		layoutOrder = maxOrder + 1,
+		-- Only a cooldown tile sets this. A meta buff entry leaves it nil, which
+		-- ns:GetTrackerCategory already reads as "buffs".
+		trackerType = cooldownSpellID and "cooldown" or nil,
+		spellID = cooldownSpellID or nil,
+	}
+end
 
 local function CreateIconFrame(parent)
 	local f = CreateFrame("Frame", nil, parent)
@@ -108,11 +202,15 @@ local function CreateIconFrame(parent)
 			duration = duration,
 		}
 
+		-- A provider-owned constant array (never rebuilt per hover) wins over the static
+		-- single-line wrap below with no per-hover table construction; passed by reference,
+		-- not wrapped again.
 		local description = META_DESCRIPTIONS[self.spellID]
+		local extraLines = info.descriptionLines or (description and { description }) or nil
 		ns:ShowBuffTooltip(self, proc, {
 			showSpellID = type(info.spellID) == "number",
 			showDuration = duration ~= nil,
-			extraLines = description and { description } or nil,
+			extraLines = extraLines,
 		})
 	end)
 
@@ -124,77 +222,37 @@ local function CreateIconFrame(parent)
 		if button == "RightButton" and upInside then
 			local sectionName = self.sectionName
 			if sectionName == "suggested" then
-				-- D-08: Special menu for suggested items — Add to Bars / Add to Buffs, no Remove
+				-- D-08: Special menu for suggested items — one Add to <container> per registry
+				-- def, no Remove.
 				MenuUtil.CreateContextMenu(self, function(_owner, rootDescription)
 					local function addSuggestedToSection(targetSection)
-						local key = self.spellID
-						local existing = ns.db.trackedBuffs[key]
-						if existing then
-							ns:SetBuffSection(key, targetSection)
-						else
-							for _, suggestedKey in ipairs(ns.SUGGESTED_KEYS) do
-								if suggestedKey == key then
-									local info = ns:GetDisplayInfoForKey(suggestedKey)
-									if info then
-										local maxOrder = 0
-										for _, e in pairs(ns.db.trackedBuffs) do
-											if e.layoutOrder and e.layoutOrder > maxOrder then
-												maxOrder = e.layoutOrder
-											end
-										end
-										ns.db.trackedBuffs[key] = {
-											key = suggestedKey,
-											label = info.label,
-											duration = info.duration,
-											section = targetSection,
-											layoutOrder = maxOrder + 1,
-										}
-									end
-									break
-								end
-							end
-						end
+						AddSuggestedTracker(self.spellID, targetSection)
 						ns:RefreshTBTSections()
 						if ns.configOpen then
 							ns:StartAllPreviewTimers()
 						end
 					end
-					rootDescription:CreateButton("Add to Bars", function()
-						addSuggestedToSection("bars")
-					end)
-					rootDescription:CreateButton("Add to Buffs", function()
-						addSuggestedToSection("buffs")
-					end)
+					for _, def in ipairs(ns.CONTAINERS) do
+						rootDescription:CreateButton("Add to " .. def.title, function()
+							addSuggestedToSection(def.key)
+						end)
+					end
 					-- D-08: No "Remove" option for suggested items
 				end)
 				return
 			end
 			MenuUtil.CreateContextMenu(self, function(_owner, rootDescription)
-				if sectionName == "bars" then
-					rootDescription:CreateButton("Move to Buffs", function()
-						ns:SetBuffSection(self.spellID, "buffs")
-						ns:RefreshTBTSections()
-					end)
+				for _, def in ipairs(ns.CONTAINERS) do
+					if def.key ~= sectionName then
+						rootDescription:CreateButton("Move to " .. def.title, function()
+							ns:SetBuffSection(self.spellID, def.key)
+							ns:RefreshTBTSections()
+						end)
+					end
+				end
+				if sectionName ~= "hidden" then
 					rootDescription:CreateButton("Hide", function()
 						ns:SetBuffSection(self.spellID, "hidden")
-						ns:RefreshTBTSections()
-					end)
-				elseif sectionName == "buffs" then
-					rootDescription:CreateButton("Move to Bars", function()
-						ns:SetBuffSection(self.spellID, "bars")
-						ns:RefreshTBTSections()
-					end)
-					rootDescription:CreateButton("Hide", function()
-						ns:SetBuffSection(self.spellID, "hidden")
-						ns:RefreshTBTSections()
-					end)
-				elseif sectionName == "hidden" then
-					rootDescription:CreateButton("Move to Bars", function()
-						ns:SetBuffSection(self.spellID, "bars")
-						ns:RefreshTBTSections()
-					end)
-					rootDescription:CreateButton("Move to Buffs", function()
-						ns:SetBuffSection(self.spellID, "buffs")
 						ns:RefreshTBTSections()
 					end)
 				end
@@ -514,36 +572,9 @@ EndDrag = function(commit)
 		elseif result and result ~= "suggested" then
 			local targetSection = result
 			if tbtDragState.isFromSuggested then
-				-- D-05: Copy-on-drag from Suggested — create entry if not tracked, else move
-				local suggestedKey = tbtDragState.suggestedKey
-				local existing = ns.db.trackedBuffs[suggestedKey]
-				if existing then
-					-- Already tracked: move to target section
-					ns:SetBuffSection(suggestedKey, targetSection)
-				else
-					-- Not yet tracked: create entry from suggested definition
-					for _, sk in ipairs(ns.SUGGESTED_KEYS) do
-						if sk == suggestedKey then
-							local info = ns:GetDisplayInfoForKey(sk)
-							if info then
-								local maxOrder = 0
-								for _, e in pairs(ns.db.trackedBuffs) do
-									if e.layoutOrder and e.layoutOrder > maxOrder then
-										maxOrder = e.layoutOrder
-									end
-								end
-								ns.db.trackedBuffs[suggestedKey] = {
-									key = sk,
-									label = info.label,
-									duration = info.duration,
-									section = targetSection,
-									layoutOrder = maxOrder + 1,
-								}
-							end
-							break
-						end
-					end
-				end
+				-- D-05: Copy-on-drag from Suggested — create entry if not tracked, else move.
+				-- Shares AddSuggestedTracker with the right-click menu; see its header.
+				AddSuggestedTracker(tbtDragState.suggestedKey, targetSection)
 				-- D-07: Icon stays in Suggested (no removal)
 				wipe(tbtDragState)
 				ns:RefreshTBTSections()
@@ -664,15 +695,20 @@ function ns:UpdateScrollChildHeight()
 	if not ns.tbtSections then
 		return
 	end
+	-- Counts only the sections the active tab actually lays out, and counts the 18px gap
+	-- BETWEEN them rather than after each one -- the old "i < numSections" test used the
+	-- position in SECTION_DEFS, which stops meaning "is there another one after this" as soon
+	-- as some of them are filtered out.
 	local total = 0
-	local numSections = #SECTION_DEFS
-	for i, def in ipairs(SECTION_DEFS) do
+	local shownCount = 0
+	for _, def in ipairs(SECTION_DEFS) do
 		local section = ns.tbtSections[def.key]
-		if section then
-			total = total + section.frame:GetHeight()
-			if i < numSections then
+		if section and IsSectionActive(def) then
+			if shownCount > 0 then
 				total = total + 18 -- CDM exact: 18px gap between categories
 			end
+			shownCount = shownCount + 1
+			total = total + section.frame:GetHeight()
 		end
 	end
 	ns.tbtScrollChild:SetHeight(total)
@@ -684,97 +720,142 @@ function ns:RefreshTBTSections()
 	end
 	for _, def in ipairs(SECTION_DEFS) do
 		local section = ns.tbtSections[def.key]
-		if not section then
-			break
-		end
-		section.itemPool:ReleaseAll()
+		-- CONT-04/CONT-05: skip rather than break -- deletion removes sections at runtime, and
+		-- a missing user section here must not truncate the loop before Not Displayed/Suggested.
+		if section then
+			section.itemPool:ReleaseAll()
 
-		-- Delete zone: permanent first slot in Not Displayed section (visual only in Phase 4)
-		if def.key == "hidden" then
-			ns.tbtDeleteZone = ns.tbtDeleteZone
-				or (function()
-					local zone = CreateFrame("Frame", nil, section.container)
-					zone:SetSize(38, 38)
+			-- Delete zone: permanent first slot in the Not Displayed section. Live, not decorative
+			-- -- SectionHitTest gives it top priority and EndDrag calls ns:RemoveTrackedBuff on a
+			-- drop here.
+			if def.key == "hidden" then
+				ns.tbtDeleteZone = ns.tbtDeleteZone
+					or (function()
+						local zone = CreateFrame("Frame", nil, section.container)
+						zone:SetSize(38, 38)
 
-					local bg = zone:CreateTexture(nil, "BACKGROUND")
-					bg:SetAllPoints(zone)
-					bg:SetColorTexture(0.8, 0.1, 0.1, 0.4)
+						local bg = zone:CreateTexture(nil, "BACKGROUND")
+						bg:SetAllPoints(zone)
+						bg:SetColorTexture(0.8, 0.1, 0.1, 0.4)
 
-					local icon = zone:CreateTexture(nil, "OVERLAY")
-					icon:SetAtlas("common-icon-redx")
-					icon:SetSize(24, 24)
-					icon:SetPoint("CENTER")
+						local icon = zone:CreateTexture(nil, "OVERLAY")
+						icon:SetAtlas("common-icon-redx")
+						icon:SetSize(24, 24)
+						icon:SetPoint("CENTER")
 
-					return zone
-				end)()
-			ns.tbtDeleteZone.layoutIndex = 0
-			ns.tbtDeleteZone:Show()
+						return zone
+					end)()
+				ns.tbtDeleteZone.layoutIndex = 0
+				ns.tbtDeleteZone:Show()
 
-			-- Drag highlight overlay for delete zone (created once, distinct red per D-08)
-			if not ns.tbtDeleteZone.dragHighlight then
-				local dhl = ns.tbtDeleteZone:CreateTexture(nil, "OVERLAY")
-				dhl:SetAllPoints(ns.tbtDeleteZone)
-				dhl:SetColorTexture(1, 0, 0, 0.4)
-				dhl:SetBlendMode("ADD")
-				dhl:Hide()
-				ns.tbtDeleteZone.dragHighlight = dhl
+				-- Drag highlight overlay for delete zone (created once, distinct red per D-08)
+				if not ns.tbtDeleteZone.dragHighlight then
+					local dhl = ns.tbtDeleteZone:CreateTexture(nil, "OVERLAY")
+					dhl:SetAllPoints(ns.tbtDeleteZone)
+					dhl:SetColorTexture(1, 0, 0, 0.4)
+					dhl:SetBlendMode("ADD")
+					dhl:Hide()
+					ns.tbtDeleteZone.dragHighlight = dhl
+				end
 			end
-		end
 
-		if def.key == "suggested" then
-			-- Populate from SUGGESTED_KEYS catalog (D-12 Phase 23).
-			-- Add square is layoutIndex 1 (always first); catalog starts at 2.
-			local suggestedSlot = 1
-			for i, suggestedKey in ipairs(ns.SUGGESTED_KEYS) do
-				-- META-01 (Phase 27.1): skip a tile when none of that provider's catalog
-				-- spells resolve on this client (D-09). Answered by the memoised
-				-- ns:IsSuggestedKeyResolvable, so this render path never iterates a catalog
-				-- no matter how often ns:RefreshTBTSections runs — every CDM open and after
-				-- every drag, add, move and delete (D-10). Skipping is display-only;
-				-- ns.db.trackedBuffs is deliberately untouched, so a user who already tracks
-				-- a meta key keeps it (D-11). The condition is client-capability-shaped, so a
-				-- client that later ships those spells shows the tile again with no code
-				-- change (D-12).
-				if ns:IsSuggestedKeyResolvable(suggestedKey) then
+			-- The catalogue tiles are all buff meta-trackers (lust, trinket, pot, racial), so
+			-- they belong to the Buffs tab. The + and settings squares are NOT part of this --
+			-- they occupy the reserved slots and are built once in ns:BuildAllSections, so they
+			-- stay put under either tab, which is what the user asked for.
+			if def.key == "suggested" and ns.tbtActiveCategory == "spells" then
+				-- The Cooldowns tab gets the racial COOLDOWN tiles, and nothing else: every other
+				-- catalogue entry is a buff meta-tracker. Keys are ordinary "cd:<spellID>"
+				-- strings, so adding one creates a normal cooldown tracker -- the only thing
+				-- special about them is that the spell and its duration are filled in for a
+				-- character who would otherwise have to look both up.
+				--
+				-- No ns:IsSuggestedKeyResolvable call: ns:RacialCooldownKeys only returns keys
+				-- for a racial that actually resolved, so an unsupported race yields an empty
+				-- list and no tiles rather than a greyed placeholder. That differs from the buff
+				-- tile on purpose -- RACE-01 requires THAT one to appear on both clients.
+				local suggestedSlot = SUGGESTED_RESERVED_SLOTS
+				for i, cooldownKey in ipairs(ns:RacialCooldownKeys()) do
 					suggestedSlot = suggestedSlot + 1
 					local item = section.itemPool:Acquire()
-					local info = ns:GetDisplayInfoForKey(suggestedKey)
-					local iconID = (info and info.icon) or 134400
-					item.spellID = suggestedKey -- string key "lust" / "trinket" / "pot"
-					item.Icon:SetTexture(iconID)
+					local info = ns:GetDisplayInfoForKey(cooldownKey)
+					item.spellID = cooldownKey
+					item.Icon:SetTexture((info and info.icon) or 134400)
+					-- Pooled frames keep a previous tile's desaturation; these are always
+					-- supported, so it is cleared rather than left.
+					item.Icon:SetDesaturated(false)
 					item.sectionName = "suggested"
-					item.suggestedIndex = i -- index into ns.SUGGESTED_KEYS (D-13)
+					item.suggestedIndex = i
 					item.layoutIndex = suggestedSlot
 					item:Show()
 				end
-			end
-		else
-			-- Collect and sort by layoutOrder for within-section ordering
-			local sorted = {}
-			for spellID, entry in pairs(ns.db.trackedBuffs) do
-				if entry.section == def.key then
-					table.insert(sorted, { spellID = spellID, order = entry.layoutOrder or 0 })
+			elseif def.key == "suggested" and ns.tbtActiveCategory ~= "buffs" then
+				-- Nothing to add beyond the reserved squares.
+			elseif def.key == "suggested" then
+				-- Populate from SUGGESTED_KEYS catalog (D-12 Phase 23).
+				-- Add/gear squares occupy layoutIndex 1..SUGGESTED_RESERVED_SLOTS; catalog starts after.
+				local suggestedSlot = SUGGESTED_RESERVED_SLOTS
+				for i, suggestedKey in ipairs(ns.SUGGESTED_KEYS) do
+					-- META-01 (Phase 27.1): skip a tile when none of that provider's catalog
+					-- spells resolve on this client (D-09). Answered by the memoised
+					-- ns:IsSuggestedKeyResolvable, so this render path never iterates a catalog
+					-- no matter how often ns:RefreshTBTSections runs — every CDM open and after
+					-- every drag, add, move and delete (D-10). Skipping is display-only;
+					-- ns.db.trackedBuffs is deliberately untouched, so a user who already tracks
+					-- a meta key keeps it (D-11). The condition is client-capability-shaped, so a
+					-- client that later ships those spells shows the tile again with no code
+					-- change (D-12).
+					if ns:IsSuggestedKeyResolvable(suggestedKey) then
+						suggestedSlot = suggestedSlot + 1
+						local item = section.itemPool:Acquire()
+						local info = ns:GetDisplayInfoForKey(suggestedKey)
+						local iconID = (info and info.icon) or 134400
+						item.spellID = suggestedKey -- string key "lust" / "trinket" / "pot"
+						item.Icon:SetTexture(iconID)
+						-- RACE-01 requires the tile to appear on both clients, so an unimplemented
+						-- racial is greyed rather than hidden; written on every tile because item
+						-- frames are pooled and a previous tile's desaturation must not persist.
+						item.Icon:SetDesaturated((info and info.unsupported) == true)
+						item.sectionName = "suggested"
+						item.suggestedIndex = i -- index into ns.SUGGESTED_KEYS (D-13)
+						item.layoutIndex = suggestedSlot
+						item:Show()
+					end
+				end
+			else
+				-- Collect and sort by layoutOrder for within-section ordering
+				local sorted = {}
+				for spellID, entry in pairs(ns.db.trackedBuffs) do
+					-- The category test matters only for "hidden", which is the one section both
+					-- tabs show: a buff tracker parked there must not appear under Spells, where
+					-- it could be dragged into a cooldown container. For every other section the
+					-- test is free -- a section belongs to one category and so does everything
+					-- filed in it -- and it costs one derived comparison per entry.
+					if entry.section == def.key and ns:GetTrackerCategory(entry) == ns.tbtActiveCategory then
+						table.insert(sorted, { spellID = spellID, order = entry.layoutOrder or 0 })
+					end
+				end
+				table.sort(sorted, function(a, b)
+					return a.order < b.order
+				end)
+				for i, info in ipairs(sorted) do
+					local item = section.itemPool:Acquire()
+					item.spellID = info.spellID
+					-- Resolve icon via unified dispatch (D-15 Phase 23). Falls back to GetSpellIcon for
+					-- plain numeric user spells (provider returns nil → direct spell icon lookup).
+					local displayInfo = ns:GetDisplayInfoForKey(info.spellID)
+					local iconID = (displayInfo and displayInfo.icon) or ns:GetSpellIcon(info.spellID) or 134400
+					item.Icon:SetTexture(iconID)
+					item.Icon:SetDesaturated(false)
+					item.sectionName = def.key
+					item.layoutIndex = i -- sequential for GridLayoutFrame
+					item:Show()
 				end
 			end
-			table.sort(sorted, function(a, b)
-				return a.order < b.order
-			end)
-			for i, info in ipairs(sorted) do
-				local item = section.itemPool:Acquire()
-				item.spellID = info.spellID
-				-- Resolve icon via unified dispatch (D-15 Phase 23). Falls back to GetSpellIcon for
-				-- plain numeric user spells (provider returns nil → direct spell icon lookup).
-				local displayInfo = ns:GetDisplayInfoForKey(info.spellID)
-				local iconID = (displayInfo and displayInfo.icon) or ns:GetSpellIcon(info.spellID) or 134400
-				item.Icon:SetTexture(iconID)
-				item.sectionName = def.key
-				item.layoutIndex = i -- sequential for GridLayoutFrame
-				item:Show()
-			end
-		end
 
-		section.container:Layout()
-		ns:UpdateSectionHeight(section)
+			section.container:Layout()
+			ns:UpdateSectionHeight(section)
+		end
 	end
 	ns:UpdateScrollChildHeight()
 
@@ -784,11 +865,53 @@ function ns:RefreshTBTSections()
 	end
 end
 
+-- Unit suffixes the duration field accepts. Seconds and minutes only: an hour is 60m, and every
+-- extra letter here is one more thing a typo can land on.
+local DURATION_UNITS = { s = 1, m = 60 }
+
+-- Shown in red under the field when the value will not parse. It explains the UNITS rather than
+-- repeating the examples already in the field's own label, so the two lines say different things.
+local DURATION_HINT = "Use s for seconds and m for minutes"
+
+-- "30" -> 30, "45s" -> 45, "2m" -> 120, "1.5m" -> 90. Returns SECONDS, or nil for anything it
+-- does not understand -- a bare number is seconds, which is what the field always meant, so no
+-- existing habit stops working.
+--
+-- nil is the only failure signal, and the caller turns it into a disabled Add button rather than
+-- an error after the fact: "2min" and "2 mins" are the obvious near-misses, and finding out they
+-- were wrong only after clicking Add is worse than not being able to click it.
+local function ParseDuration(text)
+	if type(text) ~= "string" then
+		return nil
+	end
+
+	-- One optional run of spaces either side of the unit, so "2 m" works and " 2m " does too.
+	-- %d*%.?%d+ accepts "30", "1.5" and ".5" but not "30." or "".
+	local amount, unit = text:lower():match("^%s*(%d*%.?%d+)%s*(%a*)%s*$")
+	if not amount then
+		return nil
+	end
+
+	local value = tonumber(amount)
+	if not value or value <= 0 then
+		return nil
+	end
+
+	if unit == "" then
+		return value
+	end
+
+	local multiplier = DURATION_UNITS[unit]
+	if not multiplier then
+		return nil
+	end
+	return value * multiplier
+end
+
 local function CreateAddDialog()
 	-- Simple dialog parented to UIParent at DIALOG strata so it renders
 	-- above everything including CDM settings window.
 	local dialog = CreateFrame("Frame", "TBTAddBuffDialog", UIParent, "BackdropTemplate")
-	dialog:SetSize(220, 170)
 	dialog:SetPoint("CENTER", UIParent, "CENTER", 0, 50)
 	dialog:SetFrameStrata("DIALOG")
 	dialog:SetFrameLevel(200)
@@ -810,56 +933,137 @@ local function CreateAddDialog()
 
 	table.insert(UISpecialFrames, "TBTAddBuffDialog")
 
-	-- Title
+	-- Title. Set from the active tab in dialog.ResetFields rather than fixed, because the tab is
+	-- now the only thing that decides what is being added -- see the Type note below.
 	local title = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetText("Add Tracked Buff")
+	title:SetText("Add Tracker")
 	title:SetPoint("TOP", dialog, "TOP", 0, -12)
+
+	-- Layout cursor: every control below is anchored TOPLEFT to the dialog itself at this
+	-- running offset, rather than chained to the previous control, so the single SetSize
+	-- call after the last control can read the final height straight off it. Starts at the
+	-- original Spell ID label offset.
+	local y = -38
 
 	-- Spell ID
 	local spellIdLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	spellIdLabel:SetText("Spell ID:")
-	spellIdLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, -38)
+	spellIdLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, y)
 
+	y = y - 18
 	local spellIdBox = CreateFrame("EditBox", nil, dialog, "InputBoxTemplate")
 	spellIdBox:SetSize(180, 22)
-	spellIdBox:SetPoint("TOPLEFT", spellIdLabel, "BOTTOMLEFT", 0, -4)
+	spellIdBox:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, y)
 	spellIdBox:SetNumeric(true)
 	spellIdBox:SetMaxLetters(10)
 	spellIdBox:SetAutoFocus(false)
 
-	-- Duration
+	-- Duration. The label carries the accepted formats rather than just the unit, because the
+	-- field now takes a suffix and an unsuffixed number still means seconds.
+	y = y - 32
 	local durationLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	durationLabel:SetText("Duration (seconds):")
-	durationLabel:SetPoint("TOPLEFT", spellIdBox, "BOTTOMLEFT", 0, -10)
+	durationLabel:SetText("Duration (30, 45s, 2m):")
+	durationLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, y)
 
+	y = y - 18
 	local durationBox = CreateFrame("EditBox", nil, dialog, "InputBoxTemplate")
 	durationBox:SetSize(180, 22)
-	durationBox:SetPoint("TOPLEFT", durationLabel, "BOTTOMLEFT", 0, -4)
+	durationBox:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, y)
 	durationBox:SetMaxLetters(6)
 	durationBox:SetAutoFocus(false)
 
-	-- Error label
+	-- Type (ADD-01) and Container (ADD-02) are both GONE as controls, by user decision
+	-- 2026-09-22, and both answers are now implied rather than asked for.
+	--
+	-- Type comes from the tab. The Cooldowns tab and the Buffs tab already show disjoint sets of
+	-- trackers and forbid dragging between them, so a Type control could only ever agree with
+	-- the tab or contradict it -- and contradicting it filed the new tracker into the category
+	-- the player could not see. The dialog says which it is in its title instead.
+	--
+	-- Container is always "Not Displayed". That was already the default and the locked v0.2.0
+	-- rule that an unchosen container must never fall through to a visible one; choosing at
+	-- creation only duplicated the drag the player makes next anyway.
+	-- Cover all ranks (ADD-03): created only when the client-capability flag defined once in
+	-- Core.lua is true -- absent on retail, not hidden or disabled, so the CreateFrame call
+	-- itself sits inside this `if` and rankCheck stays nil there. This is that flag's only
+	-- reader; every later reference to rankCheck below is nil-guarded. The gap before it is
+	-- inside the `if` too, so a client without the widget does not carry its blank space.
+	local rankCheck
+	if ns.CLIENT_HAS_SPELL_RANKS then
+		y = y - 32
+		rankCheck = CreateFrame("CheckButton", nil, dialog, "UICheckButtonTemplate")
+		rankCheck:SetSize(24, 24)
+		rankCheck:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, y)
+		rankCheck:SetChecked(true)
+
+		local rankLabel = rankCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		rankLabel:SetPoint("LEFT", rankCheck, "RIGHT", 4, 0)
+		rankLabel:SetText("Cover all ranks")
+
+		y = y - 26
+	end
+
+	-- Error label. Given a width and centred so the duration hint wraps to a second line instead
+	-- of running out past the dialog's edge; the extra line is reserved in the y step below.
 	local errorLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontRed")
-	errorLabel:SetPoint("TOP", durationBox, "BOTTOM", 0, -4)
+	errorLabel:SetPoint("TOP", dialog, "TOP", 0, y)
+	errorLabel:SetWidth(208)
+	errorLabel:SetJustifyH("CENTER")
 	errorLabel:SetText("")
+
+	y = y - 32
+	-- Single height computation, driven by whatever was actually created above -- no second
+	-- flavour branch on the literal height.
+	dialog:SetSize(240, math.abs(y) + 46)
 
 	-- Add button
 	local addBtn = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
 	addBtn:SetSize(80, 22)
 	addBtn:SetText("Add")
 	addBtn:SetPoint("BOTTOMLEFT", dialog, "BOTTOMLEFT", 16, 12)
+	-- Live validation, so Add is only clickable on input that will actually work. Both fields are
+	-- checked because either one empty is just as unusable as either one malformed; the message
+	-- names only the duration, since the spell ID field is numeric-only and cannot be malformed,
+	-- only blank.
+	local function RefreshAddState()
+		local durationText = durationBox:GetText()
+		local seconds = ParseDuration(durationText)
+		local spellID = spellIdBox:GetNumber()
+
+		if durationText ~= "" and not seconds then
+			errorLabel:SetText(DURATION_HINT)
+		else
+			errorLabel:SetText("")
+		end
+
+		addBtn:SetEnabled(seconds ~= nil and spellID ~= nil and spellID > 0)
+	end
+
+	dialog.RefreshAddState = RefreshAddState
+	spellIdBox:SetScript("OnTextChanged", RefreshAddState)
+	durationBox:SetScript("OnTextChanged", RefreshAddState)
+
 	addBtn:SetScript("OnClick", function()
 		local spellID = spellIdBox:GetNumber()
 		if not spellID or spellID <= 0 then
 			errorLabel:SetText("Invalid Spell ID")
 			return
 		end
-		local duration = tonumber(durationBox:GetText())
-		if not duration or duration <= 0 then
-			errorLabel:SetText("Invalid Duration")
+		-- Re-parsed rather than cached from RefreshAddState: the button being enabled is a UI
+		-- state, and this is the one that decides what gets stored.
+		local duration = ParseDuration(durationBox:GetText())
+		if not duration then
+			errorLabel:SetText(DURATION_HINT)
 			return
 		end
-		ns:AddTrackedBuff(spellID, duration)
+		ns:AddTrackedBuff(spellID, duration, nil, {
+			-- Read at click time, not at open time: the tab cannot change while a modal dialog
+			-- is up, but reading it here means there is no second copy of the answer to keep in
+			-- sync with the title.
+			trackerType = ns.tbtActiveCategory == "spells" and "cooldown" or "buff",
+			section = "hidden",
+			coverAllRanks = rankCheck and rankCheck:GetChecked() or nil,
+		})
 		ns:RefreshTBTSections()
 		ns:StartAllPreviewTimers()
 		dialog:Hide()
@@ -890,50 +1094,319 @@ local function CreateAddDialog()
 	dialog.durationBox = durationBox
 	dialog.errorLabel = errorLabel
 
+	-- One reset path: the addSquare click handler calls this instead of clearing fields
+	-- itself, so a future control is reset in one place instead of two.
+	dialog.ResetFields = function()
+		spellIdBox:SetText("")
+		durationBox:SetText("")
+		errorLabel:SetText("")
+		-- The title is the whole of the type UI now, so it is the one thing that must be right
+		-- every time the dialog opens.
+		title:SetText(ns.tbtActiveCategory == "spells" and "Add Cooldown Tracker" or "Add Buff Tracker")
+		if rankCheck then
+			rankCheck:SetChecked(true)
+		end
+		-- Last, so it sees the cleared fields: an empty dialog opens with Add disabled.
+		RefreshAddState()
+	end
+
 	return dialog
+end
+
+-- CONT-04: the New Container dialog's four checkboxes differ only in what they anchor under,
+-- their Y offset, their label text and their initial checked state, so one builder makes all
+-- four. Returns the checkbox and its label in that order, because a caller may need the label
+-- too -- ApplyCategory greys the Bars one.
+local function AddExclusiveCheck(parent, anchorTo, yOffset, text, checked)
+	local check = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+	check:SetSize(24, 24)
+	check:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, yOffset)
+	check:SetChecked(checked)
+
+	local label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	label:SetPoint("LEFT", check, "RIGHT", 4, 0)
+	label:SetText(text)
+
+	return check, label
+end
+
+-- CONT-04: both checkbox pairs in the New Container dialog enforce the same rule -- a click
+-- checks the box itself and unchecks its partner, so a pair can never both be off and clicking
+-- an already-checked box re-checks it rather than clearing it.
+--
+-- onSelect, when given, runs after the pair settles: false for the first box, true for the
+-- second. That polarity is not arbitrary -- it is ApplyCategory(isSpells), which Buffs already
+-- called with false and Cooldowns with true, so the callback is passed by name with no wrapper
+-- closure in between.
+local function WireExclusivePair(first, second, onSelect)
+	first:SetScript("OnClick", function(self)
+		self:SetChecked(true)
+		second:SetChecked(false)
+		if onSelect then
+			onSelect(false)
+		end
+	end)
+	second:SetScript("OnClick", function(self)
+		self:SetChecked(true)
+		first:SetChecked(false)
+		if onSelect then
+			onSelect(true)
+		end
+	end)
+end
+
+-- Phase 35.1 (CFG-01/CFG-02): addon-wide config page. Same parent, same two SetPoint calls
+-- and the same frame level as ns.tbtPanel, so it occupies the identical rect — the page swap
+-- below is a show/hide of two sibling frames, not a new frame hierarchy. No backdrop (the
+-- tracker panel has none either) and it is not added to CDM's array of tab pages (CDMTab.xml's
+-- taint rule at the top of this file).
+-- CONT-04: modelled on CreateAddDialog above -- same BackdropTemplate/DIALOG-strata/movable/
+-- UISpecialFrames idiom. Assigned to ns.tbtContainerDialog in ns:InitCDMTab.
+local function CreateContainerDialog()
+	local dialog = CreateFrame("Frame", "TBTNewContainerDialog", UIParent, "BackdropTemplate")
+	dialog:SetSize(220, 268)
+	dialog:SetPoint("CENTER", UIParent, "CENTER", 0, 50)
+	dialog:SetFrameStrata("DIALOG")
+	dialog:SetFrameLevel(200)
+	dialog:SetBackdrop({
+		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+		tile = true,
+		tileSize = 32,
+		edgeSize = 16,
+		insets = { left = 4, right = 4, top = 4, bottom = 4 },
+	})
+	dialog:SetBackdropColor(0, 0, 0, 1)
+	dialog:Hide()
+	dialog:EnableMouse(true)
+	dialog:SetMovable(true)
+	dialog:RegisterForDrag("LeftButton")
+	dialog:SetScript("OnDragStart", dialog.StartMoving)
+	dialog:SetScript("OnDragStop", dialog.StopMovingOrSizing)
+
+	table.insert(UISpecialFrames, "TBTNewContainerDialog")
+
+	-- Title
+	local title = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	title:SetText("New Container")
+	title:SetPoint("TOP", dialog, "TOP", 0, -12)
+
+	-- Name
+	local nameLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	nameLabel:SetText("Name:")
+	nameLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, -38)
+
+	local nameBox = CreateFrame("EditBox", nil, dialog, "InputBoxTemplate")
+	nameBox:SetSize(180, 22)
+	nameBox:SetPoint("TOPLEFT", nameLabel, "BOTTOMLEFT", 0, -4)
+	nameBox:SetMaxLetters(32)
+	nameBox:SetAutoFocus(false)
+
+	-- Category and kind are both pairs of mutually exclusive checkboxes, not dropdowns --
+	-- UICheckButtonTemplate is the idiom this addon already uses on both flavours, and a modern
+	-- dropdown template would be a Midnight-only asset. Each OnClick sets itself checked and its
+	-- partner unchecked, and re-checks itself if clicked while already checked, so a pair can
+	-- never both be off.
+	--
+	-- Category comes FIRST because it constrains kind: a spells container is icon-only, since
+	-- "cooldowns are icons, never bars" is locked and RenderBarContainer skips cooldown trackers
+	-- outright. Picking Spells therefore forces Icons and disables the Bars checkbox rather than
+	-- letting the player choose a combination ns:CreateUserContainer would refuse.
+	local categoryLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	categoryLabel:SetText("Tracks:")
+	categoryLabel:SetPoint("TOPLEFT", nameBox, "BOTTOMLEFT", 0, -10)
+
+	local buffsCheck = AddExclusiveCheck(dialog, categoryLabel, -4, "Buffs", true)
+
+	local spellsCheck = AddExclusiveCheck(dialog, buffsCheck, -2, "Cooldowns", false)
+
+	local kindLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	kindLabel:SetText("Display as:")
+	kindLabel:SetPoint("TOPLEFT", spellsCheck, "BOTTOMLEFT", 0, -8)
+
+	local iconsCheck = AddExclusiveCheck(dialog, kindLabel, -4, "Icons", true)
+
+	local barsCheck, barsLabel = AddExclusiveCheck(dialog, iconsCheck, -2, "Bars", false)
+
+	WireExclusivePair(iconsCheck, barsCheck)
+
+	-- Spells forces Icons; Buffs hands the choice back. Disabling rather than hiding keeps the
+	-- dialog one fixed size and shows the player WHY the option is unavailable.
+	local function ApplyCategory(isSpells)
+		if isSpells then
+			iconsCheck:SetChecked(true)
+			barsCheck:SetChecked(false)
+			barsCheck:Disable()
+			barsLabel:SetTextColor(0.5, 0.5, 0.5)
+		else
+			barsCheck:Enable()
+			barsLabel:SetTextColor(1, 1, 1)
+		end
+	end
+
+	WireExclusivePair(buffsCheck, spellsCheck, ApplyCategory)
+
+	-- Error label
+	local errorLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontRed")
+	errorLabel:SetPoint("TOP", barsCheck, "BOTTOM", 0, -10)
+	errorLabel:SetText("")
+
+	-- Create button
+	local createBtn = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+	createBtn:SetSize(80, 22)
+	createBtn:SetText("Create")
+	createBtn:SetPoint("BOTTOMLEFT", dialog, "BOTTOMLEFT", 16, 12)
+	createBtn:SetScript("OnClick", function()
+		local kind = barsCheck:GetChecked() and "bar" or "icon"
+		local category = spellsCheck:GetChecked() and "spells" or "buffs"
+		-- Plan 01's ns:CreateUserContainer substitutes "Container <id>" for an empty name --
+		-- that fallback is not duplicated here.
+		local def = ns:CreateUserContainer(nameBox:GetText(), kind, category)
+		if not def then
+			errorLabel:SetText("Could not create container.")
+			return
+		end
+		dialog:Hide()
+	end)
+
+	-- Cancel button
+	local cancelBtn = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+	cancelBtn:SetSize(80, 22)
+	cancelBtn:SetText("Cancel")
+	cancelBtn:SetPoint("BOTTOMRIGHT", dialog, "BOTTOMRIGHT", -16, 12)
+	cancelBtn:SetScript("OnClick", function()
+		dialog:Hide()
+	end)
+
+	-- Enter confirms
+	nameBox:SetScript("OnEnterPressed", function()
+		createBtn:Click()
+	end)
+
+	dialog.nameBox = nameBox
+	dialog.errorLabel = errorLabel
+	-- Reset to the default pair every time the dialog opens, so a previous Spells choice does
+	-- not leave Bars disabled on the next Buffs container.
+	-- Lets the settings panel open this dialog already pointed at a category, so "New Cooldown
+	-- Container" does not make the player pick Cooldowns again. Goes through the same
+	-- ApplyCategory the checkboxes use, so the Icons-forced/Bars-disabled asymmetry cannot
+	-- diverge between the two entry points.
+	dialog.SelectCategory = function(category)
+		local isSpells = category == "spells"
+		buffsCheck:SetChecked(not isSpells)
+		spellsCheck:SetChecked(isSpells)
+		ApplyCategory(isSpells)
+	end
+
+	dialog.ResetChoices = function()
+		buffsCheck:SetChecked(true)
+		spellsCheck:SetChecked(false)
+		iconsCheck:SetChecked(true)
+		barsCheck:SetChecked(false)
+		ApplyCategory(false)
+	end
+
+	return dialog
+end
+
+-- CONT-06: text is the single literal "%s" -- the whole message is built at show time by each
+-- row's DeleteButton and passed as the first substitution argument, so a "%" in a user-supplied
+-- container title can land inside a format ARGUMENT (always safe) but never inside the format
+-- STRING itself (where it would throw). DELETE/CANCEL are FrameXML globals present on both
+-- clients; the `or` fallbacks are a capability check, degrading to English text rather than a
+-- nil button label if a client ever lacks one.
+StaticPopupDialogs["TBT_DELETE_CONTAINER"] = {
+	text = "%s",
+	button1 = DELETE or "Delete",
+	button2 = CANCEL or "Cancel",
+	OnAccept = function(self)
+		-- Read the key off self.data rather than a second callback parameter, so the same
+		-- code works on both clients.
+		local key = self.data and self.data.key
+		if key then
+			ns:DeleteUserContainer(key)
+		end
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	showAlert = true,
+}
+
+-- Chrome shared by the Suggested section's action squares (add, gear): a 38x38 frame,
+-- colour background, centred 24x24 overlay icon, and the standard hover highlight.
+-- Behaviour (tooltip, click, pressed state) is wired by each caller, not here.
+local function CreateActionSquare(parent, r, g, b, a)
+	local square = CreateFrame("Frame", nil, parent)
+	square:SetSize(38, 38)
+	square:EnableMouse(true)
+
+	local bg = square:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(square)
+	bg:SetColorTexture(r, g, b, a)
+
+	local icon = square:CreateTexture(nil, "OVERLAY")
+	icon:SetSize(24, 24)
+	icon:SetPoint("CENTER")
+	square.Icon = icon
+
+	local highlight = square:CreateTexture(nil, "HIGHLIGHT")
+	highlight:SetAllPoints(square)
+	highlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+	highlight:SetBlendMode("ADD")
+
+	return square
+end
+
+-- CONT-04/CONT-05: re-anchors every existing section in SECTION_DEFS order. Called after
+-- ns:BuildAllSections' initial build and again from ns.AddContainerSection/RemoveContainerSection,
+-- so a runtime create/delete reproduces the exact CDM-exact 18px anchor chain
+-- ns:BuildAllSections used to build inline, without duplicating it. Never allocates.
+-- On ns as well as local: ns:SelectTBTCategory is defined further down the file and needs it.
+-- The local name stays for the existing call sites, which are in this file and hotter.
+local RelayoutTBTSections
+function ns.RelayoutTBTSections()
+	return RelayoutTBTSections()
+end
+
+function RelayoutTBTSections()
+	local prevFrame = nil
+	for _, def in ipairs(SECTION_DEFS) do
+		local section = ns.tbtSections[def.key]
+		if section and not IsSectionActive(def) then
+			-- Hidden rather than destroyed: the frame, its pool and its collapsed state all
+			-- survive a tab switch, so switching back is a relayout and not a rebuild.
+			section.frame:Hide()
+		elseif section then
+			section.frame:Show()
+			section.frame:ClearAllPoints()
+			if prevFrame then
+				section.frame:SetPoint("TOPLEFT", prevFrame, "BOTTOMLEFT", 0, -18)
+			else
+				section.frame:SetPoint("TOPLEFT", ns.tbtScrollChild, "TOPLEFT", 0, 0)
+			end
+			prevFrame = section.frame
+		end
+	end
+	ns:UpdateScrollChildHeight()
 end
 
 function ns:BuildAllSections()
 	ns.tbtSections = {}
-	local prevFrame = nil
 	for _, def in ipairs(SECTION_DEFS) do
-		local section = BuildTBTSection(ns.tbtScrollChild, def)
-		-- CDM exact: 18px vertical gap between categories, TOPLEFT only (fixed width)
-		if prevFrame then
-			section.frame:SetPoint("TOPLEFT", prevFrame, "BOTTOMLEFT", 0, -18)
-		else
-			section.frame:SetPoint("TOPLEFT", ns.tbtScrollChild, "TOPLEFT", 0, 0)
-		end
-		ns.tbtSections[def.key] = section
-		prevFrame = section.frame
+		ns.tbtSections[def.key] = BuildTBTSection(ns.tbtScrollChild, def)
 	end
+	RelayoutTBTSections()
 
 	-- Create the Add Buff dialog (shared modal)
 	ns.tbtAddDialog = CreateAddDialog()
 
-	-- Add Buff square icon in Suggested section (skill-like appearance)
+	-- Add and gear action squares occupy the first SUGGESTED_RESERVED_SLOTS slots of the
+	-- Suggested section's grid (skill-like appearance).
 	local suggestedSection = ns.tbtSections.suggested
-	local addSquare = CreateFrame("Frame", nil, suggestedSection.container)
-	addSquare:SetSize(38, 38)
+	local addSquare = CreateActionSquare(suggestedSection.container, 0.1, 0.6, 0.1, 0.4)
+	addSquare.Icon:SetAtlas("communities-chat-icon-plus")
 	addSquare.layoutIndex = 1 -- Always first in Suggested section
-	addSquare:EnableMouse(true)
-
-	-- Green-tinted background
-	local addBg = addSquare:CreateTexture(nil, "BACKGROUND")
-	addBg:SetAllPoints(addSquare)
-	addBg:SetColorTexture(0.1, 0.6, 0.1, 0.4)
-
-	-- Plus icon
-	local addIcon = addSquare:CreateTexture(nil, "OVERLAY")
-	addIcon:SetAtlas("communities-chat-icon-plus")
-	addIcon:SetSize(24, 24)
-	addIcon:SetPoint("CENTER")
-
-	-- Highlight on hover
-	local addHighlight = addSquare:CreateTexture(nil, "HIGHLIGHT")
-	addHighlight:SetAllPoints(addSquare)
-	addHighlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
-	addHighlight:SetBlendMode("ADD")
 
 	-- Tooltip
 	addSquare:SetScript("OnEnter", function(self)
@@ -950,15 +1423,47 @@ function ns:BuildAllSections()
 	addSquare:SetScript("OnMouseUp", function(_, button, upInside)
 		if button == "LeftButton" and upInside then
 			local dlg = ns.tbtAddDialog
-			dlg.spellIdBox:SetText("")
-			dlg.durationBox:SetText("")
-			dlg.errorLabel:SetText("")
+			dlg.ResetFields()
 			dlg:Show()
 			dlg.spellIdBox:SetFocus()
 		end
 	end)
 	addSquare:Show()
+
 	suggestedSection.container:Layout()
+end
+
+-- CONT-04/CONT-05: both no-op before ns:BuildAllSections has run. Rehydrated containers are
+-- appended to the registry at ADDON_LOADED, well before ns.tbtSections exists, and
+-- ns:BuildAllSections itself later loops the rebuilt SECTION_DEFS, so a container created
+-- before the CDM tab has ever been built is picked up for free — this is a genuine no-op,
+-- not a missed section.
+function ns.AddContainerSection(def)
+	if not ns.tbtSections then
+		return
+	end
+	if ns.tbtSections[def.key] then
+		return
+	end
+	ns.tbtSections[def.key] = BuildTBTSection(ns.tbtScrollChild, def)
+	RelayoutTBTSections()
+	ns:RefreshTBTSections()
+end
+
+function ns.RemoveContainerSection(key)
+	if not ns.tbtSections then
+		return
+	end
+	local section = ns.tbtSections[key]
+	if not section then
+		return
+	end
+	section.itemPool:ReleaseAll()
+	section.frame:Hide()
+	section.frame:ClearAllPoints()
+	section.frame:SetParent(nil)
+	ns.tbtSections[key] = nil
+	RelayoutTBTSections()
 end
 
 ---------------------------------------------------------------------
@@ -1025,17 +1530,22 @@ local function AnchorTabBelowCDMTabs()
 	if not anchorTo then
 		return -- XML anchor stays in effect
 	end
+	-- Spells first, then Buffs under it: the order the user asked for, and the order the XML
+	-- placeholder anchors already declare, restated here because this runs against the live
+	-- rects once the window has been shown.
+	TBTSpellsTab:ClearAllPoints()
+	TBTSpellsTab:SetPoint("TOP", anchorTo, "BOTTOM", 0, TAB_GAP)
 	TBTSettingsTab:ClearAllPoints()
-	TBTSettingsTab:SetPoint("TOP", anchorTo, "BOTTOM", 0, TAB_GAP)
+	TBTSettingsTab:SetPoint("TOP", TBTSpellsTab, "BOTTOM", 0, TAB_GAP)
 end
 
 ---------------------------------------------------------------------
 -- Tab init
 ---------------------------------------------------------------------
 
-function ns:InitCDMTab()
-	local tab = TBTSettingsTab
-
+-- Both TBT tabs are set up identically apart from their label and the category they select.
+-- Written once here rather than twice inline, so the two cannot drift.
+local function SetUpTBTTab(tab, label, category)
 	-- Set icon via SetTexture (not SetAtlas — our icon is a file, not an atlas)
 	tab.Icon:SetTexture(ICON_PATH)
 	tab.Icon:SetSize(30, 30)
@@ -1057,12 +1567,27 @@ function ns:InitCDMTab()
 	-- Tooltip
 	tab:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText("TBT Buffs")
+		GameTooltip:SetText(label)
 		GameTooltip:Show()
 	end)
 	tab:SetScript("OnLeave", function()
 		GameTooltip:Hide()
 	end)
+
+	tab:SetScript("OnMouseUp", function(_, button)
+		if button == "LeftButton" then
+			ns:SelectTBTCategory(category)
+		end
+	end)
+end
+
+function ns:InitCDMTab()
+	-- "Cooldowns", not "Spells" (user decision, 2026-09-22): the tab will hold items as well
+	-- as spells. Only the LABEL changes -- the category key stays "spells" throughout the code
+	-- and in ns.db.userContainers, because renaming a persisted value would need a migration to
+	-- buy nothing but a matching word.
+	SetUpTBTTab(TBTSpellsTab, "TBT Cooldowns", "spells")
+	SetUpTBTTab(TBTSettingsTab, "TBT Buffs", "buffs")
 
 	-- Create TBT content panel — plain frame matching CDM's content area
 	-- CDM's CooldownScroll has NO backdrop — it's a plain ScrollFrame
@@ -1101,6 +1626,9 @@ function ns:InitCDMTab()
 	panel:Hide()
 	ns.tbtPanel = panel
 	ns.tbtScrollChild = scrollChild
+	-- The dialog outlives the config PAGE that used to build it -- it is parented to UIParent
+	-- and is opened from the settings panel now (ns:OpenContainerDialog in Config.lua).
+	ns.tbtContainerDialog = CreateContainerDialog()
 
 	-- GLOBAL_MOUSE_UP handler for drag lifecycle.
 	-- OnEvent is set once here (not in BeginDrag) so it's registered before
@@ -1120,13 +1648,6 @@ function ns:InitCDMTab()
 	ns.tbtPanel:HookScript("OnHide", function()
 		if tbtDragState.active then
 			EndDrag(false)
-		end
-	end)
-
-	-- Tab click: show TBT panel, uncheck CDM tabs visually (without touching TabButtons)
-	tab:SetScript("OnMouseUp", function(self, button)
-		if button == "LeftButton" then
-			ns:ShowTBTPanel()
 		end
 	end)
 
@@ -1166,6 +1687,10 @@ function ns:InitCDMTab()
 		elseif not isShown and cdmWasShown then
 			cdmWasShown = false
 			StopPreview()
+			-- Backstop for the callback registered below, for a client that does not fire
+			-- CooldownViewerSettings.OnHide. Idempotent, so running both costs nothing.
+			ns:DismissTBTDialogs()
+			ns:HideTBTPanel()
 		end
 	end)
 
@@ -1181,9 +1706,76 @@ function ns:InitCDMTab()
 		end)
 	end)
 
+	-- Closing the CDM window returns it to Blizzard's own content, so that reopening it does
+	-- not land straight back on TBT's page. Reported in play-testing on 2026-09-21: the TBT
+	-- panel stayed up across a close/reopen, because ns:ShowTBTPanel hides CDM's panes and
+	-- nothing ever put them back unless the player clicked a Blizzard tab.
+	--
+	-- ns:HideTBTPanel restores whichever pane the CDM's current display mode owns and unchecks
+	-- our tab; it does NOT clear which TBT page was last open, so clicking the tab again still
+	-- returns the player to the config page if that is where they were.
+	--
+	-- EventRegistry rather than a script hook: CDMTab.lua's own note above records HookScript
+	-- on CooldownViewerSettings as propagating taint in instances, and a callback registration
+	-- is neither a frame method call nor a Blizzard mixin call. The owner is ns.tbtPanel, not
+	-- ns and not the merge-mode event frame -- CallbackRegistryMixin allows one callback per
+	-- owner per event and silently drops the previous one, and MergeMode.lua already owns this
+	-- same event under its own frame.
+	if EventRegistry then
+		EventRegistry:RegisterCallback("CooldownViewerSettings.OnHide", function()
+			ns:DismissTBTDialogs()
+			ns:HideTBTPanel()
+		end, ns.tbtPanel)
+	end
+
 	AnchorTabBelowCDMTabs()
-	tab:Show()
+	TBTSpellsTab:Show()
+	TBTSettingsTab:Show()
 end
+
+-- Switch the CDM tab between the two tracker categories. The section frames are not rebuilt --
+-- RelayoutTBTSections hides the other category's and re-chains the rest, and
+-- ns:RefreshTBTSections repopulates the two shared sections with this category's contents.
+-- Treat an open dialog as cancelled whenever the thing it was opened from goes away.
+--
+-- Both float at DIALOG strata over the whole UI rather than inside the CDM window, so neither is
+-- taken down by the CDM closing or by a tab change -- an Add dialog would sit there still titled
+-- for the tab the player has left, and file its tracker into that tab when clicked. Hiding is the
+-- whole of "cancel" here: nothing is committed until Add is clicked, and ResetFields clears the
+-- boxes on the next open.
+function ns:DismissTBTDialogs()
+	if ns.tbtAddDialog then
+		ns.tbtAddDialog:Hide()
+	end
+	if ns.tbtContainerDialog then
+		ns.tbtContainerDialog:Hide()
+	end
+end
+
+function ns:SelectTBTCategory(category)
+	if category ~= "spells" and category ~= "buffs" then
+		return
+	end
+
+	-- Before the swap, not after: what is being added depends on the tab, and carrying a
+	-- half-filled dialog across that change would silently re-target it.
+	ns:DismissTBTDialogs()
+
+	ns.tbtActiveCategory = category
+	TBTSpellsTab:SetChecked(category == "spells")
+	TBTSettingsTab:SetChecked(category == "buffs")
+
+	ns:ShowTBTPanel()
+	ns.RelayoutTBTSections()
+	ns:RefreshTBTSections()
+	-- A switch lands at the top rather than at the other tab's scroll offset, which would point
+	-- at nothing in particular once the section list changed under it.
+	ns.tbtPanel:SetVerticalScroll(0)
+end
+
+---------------------------------------------------------------------
+-- Config page swap (CFG-01/CFG-02/CFG-04)
+---------------------------------------------------------------------
 
 ---------------------------------------------------------------------
 -- Panel show/hide
@@ -1203,12 +1795,14 @@ function ns:ShowTBTPanel()
 	if CooldownViewerSettings.GroupBuffFilter then
 		CooldownViewerSettings.GroupBuffFilter:Hide()
 	end
+	-- Re-entering the TBT tab restores the tracker list.
 	ns.tbtPanel:Show()
 	ns.tbtPanel:SetFrameLevel(CooldownViewerSettings:GetFrameLevel() + 10)
 
 	-- Uncheck CDM tabs, check ours. Discovered rather than named so a tab added by a patch is
 	-- unchecked too (12.1's Group Buffs tab was staying lit behind our panel).
-	TBTSettingsTab:SetChecked(true)
+	TBTSpellsTab:SetChecked(ns.tbtActiveCategory == "spells")
+	TBTSettingsTab:SetChecked(ns.tbtActiveCategory == "buffs")
 	for _, tabButton in ipairs(GetCDMTabs()) do
 		if tabButton.SetChecked then
 			tabButton:SetChecked(false)
@@ -1217,6 +1811,9 @@ function ns:ShowTBTPanel()
 end
 
 function ns:HideTBTPanel()
+	-- Reached when the player picks one of Blizzard's own CDM tabs, which is a tab swap as much
+	-- as switching between the two TBT tabs is.
+	ns:DismissTBTDialogs()
 	if ns.tbtPanel then
 		ns.tbtPanel:Hide()
 	end
@@ -1230,6 +1827,7 @@ function ns:HideTBTPanel()
 	if CooldownViewerSettings.GroupBuffFilter then
 		CooldownViewerSettings.GroupBuffFilter:SetShown(isGroupBuffs)
 	end
+	TBTSpellsTab:SetChecked(false)
 	TBTSettingsTab:SetChecked(false)
 end
 

@@ -1,72 +1,497 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: ""
+milestone: v0.4.0
+milestone_name: "Cooldown Tracking and Full CDM View"
 status: shipped
-last_updated: "2026-09-19"
-last_activity: 2026-09-19 — v0.3.0 milestone closed and archived; ROADMAP collapsed, REQUIREMENTS archived, PROJECT.md evolved
+last_updated: "2026-09-23"
+last_activity: 2026-09-23 — v0.4.0 archived. All 15 phases and 58 requirements closed. NOT yet merged or tagged — squash-merge to main, then run scripts/release.bat 0.4.0, which creates the tag itself.
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 15
+  completed_phases: 15
+  total_plans: 34
+  completed_plans: 34
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-19)
+See: .planning/PROJECT.md (updated 2026-09-20)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** No milestone active. v0.3.0 shipped 2026-09-19 — start the next one with `/gsd-new-milestone`.
+**Current focus:** None active. v0.4.0 is archived and awaiting merge + release; the next milestone starts after Phase 45 — phase numbering never restarts.
+
+## ⚠ Release is NOT done
+
+v0.4.0 is **archived, not shipped**. Two steps remain and they have an order:
+
+1. **Squash-merge `milestone/v0.4.0-cooldown-tracking-cdm-view` into `main`.**
+2. **Run `scripts/release.bat 0.4.0` from `main`.** The script creates the `v0.4.0` tag itself and
+   then pushes `origin main` plus the tag. It refuses to run off `main` unless `TBT_ALLOW_BRANCH=1`.
+
+**No tag was created at archive time, deliberately.** `release.bat` runs `git tag -a v0.4.0` and
+exits nonzero if the tag already exists, so tagging here would have broken the release script.
+
+`.planning/REQUIREMENTS.md` no longer exists — it is archived per milestone and written fresh by
+`/gsd-new-milestone`.
 
 ## Current Position
 
-Milestone: none active.
-Last shipped: **v0.3.0 WoW Forever compatibility**, 2026-09-19 — Phases 25-30 (27.1 inserted), 12 plans, 57 commits, 2 days.
-Next phase number: **31** — phase numbering never restarts.
+Milestone: **v0.4.0 — archived 2026-09-23**, 15/15 phases, 34/34 plans, 58/58 requirements
+Phase: none active
+Plan: none active
+Status: **Phase 45 complete — the milestone's last phase.** README rewritten for the addon
+v0.4.0 actually ships, and the v0.4.0 CHANGELOG entry appended above v0.3.0 with a byte-level
+append-only proof (33 insertions, 0 deletions; stripping the inserted block reproduces the
+109-line original's exact hash). Zero source files changed this phase.
 
-## ⭐ Reminder for the Next Milestone
+**The public copy is a draft for the user to rewrite in their own voice**, per D-05/D-08 —
+`README.md` is also the single source pasted by hand into CurseForge and Wago.
 
-**The user asked, on 2026-09-19, to be reminded of this at the start of the next milestone.**
+**A stale claim reached the README through the plan, not the executor.** 45-01-PLAN.md line 120
+instructed "a merged buff icon ... draws no cooldown sweep", which predates Phase 40. The code
+review caught it: `MergeMode.lua:809` gives merged Tracked Buff auras engine-driven sweeps via
+`AuraContainer`, and `44-RETAIL-PASS.md` records them confirmed in and out of combat. Three
+further factual drifts were corrected at the same time (two sibling CDM tabs rather than one
+tab with sub-tabs; racials are Forever-exclusive, not merely Forever-verified; the duration
+parser also accepts a bare number). Worth knowing when planning the next milestone: a plan
+written from older context can carry a stale fact past a faithful executor, and only a review
+against the live code catches it.
 
-**Phase 999.2 — refresh `README.md` and the CurseForge/Wago store descriptions.** v0.3.0 shipped
-Forever support and two per-client downloads, and none of the public-facing copy mentions either. A
-user on the CurseForge page cannot currently tell that a Forever build exists or which zip to take.
+**Not yet done for the release:** the phase deliberately produced no store-description file
+(D-08) and touched no `.pkgmeta` (D-09). Per the release workflow, squash-merge this milestone
+branch to `main` BEFORE running `scripts/release.bat` — never tag from the milestone branch.
 
-It is not only a docs task. **User report, 2026-09-19: Blizzard’s Cooldown Manager now tracks
-trinkets and potions natively.** If that holds, TBT’s Trinket and Pot meta-trackers are partly or
-wholly redundant on retail, which is a product decision — keep them, narrow them to whatever gap CDM
-leaves, or retire them on retail (the first feature TBT would ever remove, needing a migration story
-for anyone already holding `"trinket"` / `"pot"` keys in `trackedBuffs`). Note the meta-trackers are
-already hidden on Forever by `META-01`, since Forever ships no retail spell data.
+### Phase 44 — prior context
 
-**Verify the CDM claim against the live client and `wow-ui-source` before writing any copy or
-changing any behaviour** — it is an unverified report, and the store description should not assert
-something about Blizzard’s UI that has not been checked.
+**Phase 44 complete.** The v3→v6 migration ran against a real v0.3.0 database with
+nothing lost, saved variables round-tripped through a full client exit, and M+ and a raid boss
+were exercised with no uncaught Lua error. The Merge Mode rework landed inside this phase --
+fourteen defects across two characters, each re-tested on the same client. Run sheets:
+`.planning/testing/44-RETAIL-PASS.md` and `43-FOREVER-E2E-PASS.md`.
+Last activity: 2026-09-23 — Phase 44, plus a second racial tracker and racial cooldown tiles
+(Forever only, untested by user decision).
 
-Full scope: `ROADMAP.md` → Backlog → Phase 999.2.
+### Phase 42 — what the cleanup actually found
 
-**Phase 999.4 — the addon reports `@project-version@` as its in-game version.** Flagged by the user for
-the next milestone (2026-09-19), who restated that **the in-game metadata is the deliverable** — not the
-zip, which is already correct. Cause established from disk: `install.bat` plain-copies the repo TOC and
-never passes it through the packager, the only thing that expands the keyword. **All four client folders
-on this machine hold dev deploys and none is a zip install**, so no running copy anywhere reports a real
-version. The fix belongs in `install.bat` and must not hardcode a version into the repo TOCs.
+**Play-tested and signed off by the user on 2026-09-22**, after the phase closed. Of the 17
+commits only two files carried executable changes — `CDMTab.lua` (the New Container dialog) and
+`Display.lua` (rendering); three commits were comment-only with a verified zero-executable-line
+diff, four were planning docs, one a blank line, one an unread namespace field, and `.pkgmeta`
+shows up only in a real release zip. The four observable surfaces were exercised: the dialog's
+checkbox pair including the reopen-after-Cooldowns reset, pooled icon recycling between roles, bar
+containers with and without Merge Mode, and placeholder tooltips with "hide when inactive" OFF.
+`42-05` (the render-function unification) remains isolated in `0d5c70a` and `5a40c36` should a
+later regression ever point back at it.
 
-Fix stale-TOC pruning in the same pass: `_beta_` and `_ptr_` each hold **three** TOCs, one a pre-v0.2.0
-leftover advertising `## Version: 1.0.0`. A stale TOC is loadable, so leaving it there means an addon
-manager can still read the wrong version — the version fix alone would not fix what the user sees.
-**Phase 999.3 — `_Mainline.toc` may also load on Forever.** Community FAQ, 2026-09-19: Forever is
-classed as `mainline` intentionally. This contradicts the MEDIUM-confidence assumption in
-`research/STACK.md` that the two-TOC split relies on. Published zips are unaffected (one TOC each), but
-`install.bat` copies both TOCs to every client, so a dev Forever folder gets two loadable TOCs.
-**Cheap thing to settle in the next Forever session:** print
-`C_AddOns.GetAddOnMetadata("TerribleBuffTracker", "Interface")` — if it reads `120100` rather than
-`16001`, the whole v0.3 Forever pass ran against the retail TOC. Intake:
-`research/FOREVER-COMMUNITY-FAQ.md`.
+**The one change that affects what SHIPS, rather than source tidiness:** `.pkgmeta` was not
+ignoring `.planning`, so every release zip carried 334 tracked planning files into players' AddOn
+folders. Fixed in `295c601`, along with `.github` and `.gitattributes`. It cannot be verified
+without a real tag push, so it joins the two things already on the watch-list for the first release.
+
+**The audit is the phase's durable output:** `.planning/phases/42-cleanup/42-HOT-PATH-AUDIT.md`,
+410 lines. 14 hot-path findings — **1 removed, 13 justified in writing**. Read it before optimising
+anything in the render path; most of what looks like waste there is load-bearing, and the audit says
+why for each.
+
+**Four duplication candidates, and only two were real.** Two unified (the checkbox-pair idiom, the
+cooldown-stamp clear). One **did not exist** — MergeMode's supposed twice-written filter loop fills
+`includeSet` exactly once, and both paths hand the engine the same table. One is real and
+**deliberately left**: the container-settings defaults are stated in three places with three
+different fallbacks, and the audit found the disagreement is wider than first thought — all five
+settings differ, not just padding, because `AddSlider`'s fallback is structurally `or minVal`.
+Collapsing them changes behaviour for a partially-populated settings table, which is a state nobody
+can produce or test before Phase 43. **ROADMAP criterion 1 is therefore marked PARTIAL**, not quietly
+left false.
+
+**Two hazards confirmed real, with evidence:**
+- The `.proc` reuse hazard is not theoretical. `Providers.lua:847-864` does
+  `proc.stacks = proc.stacks - 1` on the live racial timer, so reusing `bar.proc` as a scratch
+  buffer — the obvious shortcut — would have wiped a table `RacialProviderMixin` is still
+  mutating. The separate `_placeholderProc` field was necessary, not cautious.
+- **`grep` and `awk` lie about line endings in this repo.** Git Bash opens files in text mode
+  and strips CR before matching, so a genuinely mixed-line-ending file reads as clean. Use
+  `git ls-files --eol <path>`. This caught a real mistake mid-phase.
+
+**A pattern worth knowing before planning Phase 43:** four plan-verification assertions failed in
+this phase, and **all four were the assertion's fault, never the code's** — an unescaped `.` in a
+grep pattern, and three counts that forgot `grep -c` matches the definition line too. When a
+verify step fails here, check the pattern before concluding the code is wrong.
+
+**Three todos carried out, none fixed, all fenced:**
+`CURRENT_SCHEMA_VERSION` is declared and never read (predates Phase 31; deleting it would make a
+comment name a nonexistent identifier, which is the exact liar class this phase spent a plan
+removing); `ns:GetActiveTimers` allocates two tables and a closure every tick at 20 Hz — the
+largest remaining per-tick allocation, and sharply ironic given `Display.lua` hoists
+`ByLayoutOrder` specifically to avoid a per-tick closure; and the residual GCD grey.
+
+**Unused-local sweep: 845 declarations, one flag**, and it predates the fence. Dead functions: 87
+namespaced and 110 local, **zero** without callers. So criterion 3 rests on evidence rather than on
+the absence of a check.
+
+**PHASES 42 AND 43 ARE SWAPPED** relative to the original roadmap, by user decision 2026-09-22:
+clean the code up FIRST, then run the full Forever review against the cleaned code, then retail,
+then docs. Doing it the other way round would verify code that is about to be rewritten.
+
+**Done: Phases 31-41.** Phases 42-45 remain: Cleanup, Forever E2E, retail validation, docs. Phases
+31-34 were the 999.x backlog block; Phase 35 is the first feature phase.
+13 of 57 requirements closed outright, plus CONT-01/02/03 code complete pending Phase 43.
+
+### The 2026-09-22 play-testing pass — what changed, and what it reversed
+
+Interactive, user-driven, outside the phase flow. Everything below is USER-CONFIRMED working on
+Forever unless it says otherwise. Read this before planning Phase 42: a cleanup pass that does not
+know these landed will treat them as duplication to unify or dead code to delete.
+
+**Layout became index-pinned, then centred.**
+Merged auras were arriving in packed, drifting positions. The cause was not the engine: Display
+sizes a container from the number of slots it holds, merged entries were being WITHHELD from that
+list while the engine drew them, and a narrower container re-centres on its anchor — so the
+container's own origin moved to the middle of the row and every offset measured from it followed.
+Merged entries are now published-but-not-drawn, which keeps the footprint constant. All grid
+arithmetic lives in **one** function, `ns:GridSlotPlacement` in Display.lua, used by both sides;
+each time the two derived it separately they drifted, first by padding, then by scale, then by
+origin.
+
+**`growthDirection` has a third value: 2 = Centered** (`ns.GROWTH_CENTERED`). Only what is
+actually drawn takes a cell, and the run re-centres as things come and go. Offered on BUFF-category
+icon containers only and their DEFAULT; a Cooldowns container exists to give a cooldown one stable
+slot, which is the opposite. Centring is against the CONTAINER's width in cells, not the run's own —
+that is what keeps the midpoint where the player put it. **Schema v5** migrates existing buff icon
+containers from Right to Centered, which is only defensible because v0.4.0 has not shipped. It has
+NEVER RUN against stored data (Forever does not persist), so it is a Phase 44 check: confirm a
+container already on Left keeps Left.
+
+**One aura container per merged entry per unit.** This is the load-bearing shape and must not be
+"simplified" back. An aura FRAME carries `DenyTaintedAccessWhenAurasAreSecret`, so TBT may not
+SetPoint one in combat — exactly when a centred run needs to move. The CONTAINER carries no such
+restriction, and adds none as long as no aura GROUP is added. So: **TBT moves containers, never
+frames**, and `ns:PlaceMergeAura` needs no pcall. Two units per entry because an entry may be a
+player buff or a target debuff and nothing says which in advance.
+
+**The visible count comes from Blizzard, not from the aura API.** A centred run needs to know which
+merged auras are up. An AuraContainer sizes itself with `secretwrap` so its width is unreadable —
+but `ns:RefreshMergeShownSlots` already mirrors the CDM's own item frames, where `IsShown()` is a
+plain boolean, and that is stamped onto every entry as `entry.cdmShown`. Do not re-derive this from
+the aura APIs.
+
+**`/tbt aura` and `/tbt sweep` are gone** (Phase 42 cleanup work, done early at the user's word). The
+automatic fallback stays and is the one that matters: any failure calls `DisableAuraGroups`, which
+empties every filter so the engine matches nothing and TBT resumes drawing merged buffs itself.
+
+**Containers can now be Cooldowns or Buffs**, chosen at creation; a Cooldowns container is icon-only,
+enforced in `ns:CreateUserContainer` as well as in the dialog. The category KEY stays `"spells"`
+in code and in `ns.db.userContainers` — only the labels say "Cooldowns".
+
+**Three requirements were reversed. See REQUIREMENTS.md, where the originals are struck through
+rather than deleted.**
+- **CD-02 reversed**: a custom cooldown tracker runs on the duration the USER typed, timed from the
+  cast, not on `C_Spell.GetSpellCooldownDuration`. It was reported as "the TBT CD is being
+  overwritten by the actual CD"; in fact the typed value had never been used for any spell the
+  client knows. The racial appeared to work only because 3m IS its real cooldown. The cost is
+  accepted and real: haste, CDR and resets now make the displayed time wrong. **Merged CDM slots
+  are unaffected** — no typed duration, so they keep the exact handle.
+- **ADD-01 and ADD-02 dropped as controls**: the add dialog's Type comes from the active tab and is
+  stated in its title ("Add Buff Tracker" / "Add Cooldown Tracker"); every new tracker lands in Not
+  Displayed.
+
+**Preview is ADDITIVE in both directions**, and both halves broke once. It must never paint over a
+running cooldown (`StartAllPreviewTimers` consults `ns:IsCooldownRunning` as well as
+`ns.activeTimers`, since a cooldown never enters the latter), and it must never outlive itself
+(`ApplyUserCooldown` re-asserts when `icon._lastStart` shows the timer branch drew there, so the
+clear belongs to whoever owns the icon rather than to whoever set the sweep).
+
+**Accepted, not defects:** a residual GCD grey as a cooldown ends, now reachable only on merged CDM
+slots — `.planning/todos/2026-09-22-cooldown-icon-can-stay-grey-through-the-gcd.md`. Ongoing
+cooldowns end on `/reload` (`ns.cooldownStarts` is runtime-only, deliberately). Bar containers
+have no Centered option.
+
+**Still unvalidated, both Phase 44:** schema v5 against a real database, and charges versus a typed
+duration on a multi-charge spell.
+
+### After Phase 42 — three changes that landed on top of it, all play-tested
+
+**No allocation on the tick, and none on a proc** (user decision, 2026-09-22). `GetActiveTimers`
+built two tables and a fresh comparator closure on every one of its 20 calls a second, whether or
+not anything was tracked — 60 objects a second, dwarfing the per-cast allocations by roughly 60x.
+Now module-level buffers, wiped not rebuilt, and the comparator hoisted. **Its returned list is a
+shared buffer valid until the next call**; `ns:UpdateDisplay` is the only caller and finishes with
+it before returning, so a second caller would need that contract revisited.
+
+Procs are pooled per slot — built in `ns:AddTrackedBuff` and at load, released in
+`ns:RemoveTrackedBuff`, refilled in place on each cast. One buffer per slot is enough BY
+CONSTRUCTION: `ns.activeTimers` is keyed by slot. The wipe on acquire is load-bearing, not
+hygiene — the racial proc carries `stacks` and no `aliveBuffs` while every other proc is the
+reverse. **Preview procs are deliberately NOT pooled**: `ns.previewTimers` and `ns.activeTimers`
+are separate tables precisely because that separation fixed the mid-preview-cast-loss bug in Phase
+21, and one shared buffer would alias them and bring it back.
+
+Chasing the same rule found what Phase 42's audit had missed: `ns:GetDisplayInfoForKey` is on the
+RENDER path, so every provider's `GetDisplayInfo` built a fresh table per placeholder per tick.
+The audit pooled the tooltip payload beside it (H10) and left the table feeding it allocating.
+
+**Cooldown trackers have their own key namespace, `"cd:<spellID>"` (schema v6).**
+`ns.db.trackedBuffs` was keyed by spell ID alone, so a buff and a cooldown for the same spell were
+the SAME RECORD and adding either replaced the other. One table with two namespaces, chosen over
+two tables because all six `pairs(ns.db.trackedBuffs)` walks keep working untouched and the UI
+already treats a key as opaque. `entry.spellID` still holds the numeric ID on every entry, so
+nothing that needs the spell parses a key. The cast path resolves BOTH namespaces — one cast can
+start a cooldown and a buff — and rank coverage needed a second index, because one
+`[castSpellID] = ownerKey` map cannot answer for a spell covered as both.
+
+**Two follow-up bugs, both "something assumed the shape of a key or a scope":**
+- `displayInfoPool` was declared BELOW `ns:ReleaseProc`, which reads it, so deleting a tracker
+  threw on a nil global. **A Lua file-local is only an upvalue to functions defined after it, and
+  this trap has now produced three separate bugs here** — none caught by `stylua`, which parses
+  such a file happily. A sweep of every file-level local against every reference above its own
+  declaration came back clean across all seven files; that check is worth re-running whenever a
+  local is added, and is worth putting in `scripts/`.
+- `ns:GetDisplayInfoForKey` treated "is a string" as "is a meta key", which held while the only
+  string keys were `lust`/`trinket`/`pot`/`racial`. A `"cd:"` key fell through to nil and the
+  callers' `ns:GetSpellIcon(key)` fallback yielded the question-mark icon. Only paths that START
+  from the key broke — tiles, tooltips, the drag ghost. The container was never affected, because
+  `ApplyCooldownSlot` resolves from `entry.spellID`.
+
+### Phase 35 — what landed, and the one thing to know about it
+
+The four containers are driven by a single ordered registry, **`ns.CONTAINERS` in `Core.lua`**, whose
+entries carry `key`, `title`, `frameName`, `kind` (`"bar"`/`"icon"`), `cdmViewerGlobal`, `defaultX` and
+`defaultY`. `EditModeFrames.lua`, `CDMTab.lua` and `Display.lua` all loop it; **no consumer branches on a
+key string**, only on `kind`. Phase 36 adds user containers by appending to this table at runtime, so
+anything that hardcodes a container anywhere will break that phase.
+
+Keys are `buffs`, `bars`, `essential`, `utility`. The first two are the v0.3.0 `entry.section` keys kept
+verbatim, which is why `CONT-03` needed no tracker rewriting at all. `essential`/`utility` are Phase 40's
+Merge Mode mapping target (`Enum.CooldownViewerCategory.Essential` / `.Utility`).
+
+**`schemaVersion` is now 4.** The v4 block does exactly one thing: rename `editModePositions.icons` to
+`.buffs`. Seeding the two new positions is deliberately *not* version-gated — it is idempotent and lives
+in `ApplyEditModePositions`, so a fresh and an upgraded database converge on the same end state.
+
+### Phase 35.1 — the seam Phase 36 must use
+
+The config panel is two sibling frames on one tab page: `ns.tbtPanel` (tracker list) and
+`ns.tbtConfigPanel`, swapped by `ns:ShowTBTConfigPage` / `ns:ShowTBTTrackerList`. The return path
+deliberately contains **no render call** — the redraw comes from `ns.tbtPanel`’s existing `OnShow` hook.
+Do not add a direct `ns:RefreshTBTSections()` there; it would double-render.
+
+**Phase 36 parents its container create/delete controls to `ns.tbtConfigContainerSection`** and calls
+`:Show()` on it. That frame is hidden while empty, terminal in `CreateConfigPanel`, and nothing is
+anchored below it, so growing it cannot displace the Merge Mode block.
+
+**`ns.db.mergeMode`** (named `ns.db.stealMode` until the 2026-09-21 rename) was introduced here,
+persisting and deliberately **inert** — zero behavioural readers until Phase 40, which wired it up.
+
+### Phase 36 — the registry is now dynamic
+
+`ns.CONTAINERS` is base entries plus user entries rehydrated from **`ns.db.userContainers`** (an array,
+because registry order is user-visible). `ns:RehydrateUserContainers()` runs inside `ADDON_LOADED`,
+after the `containerSettings` guard and before the registry settings pass — a load-bearing position,
+since it is what seeds each user container’s settings with no extra code.
+
+**Runtime add/remove goes through two dispatchers in `Core.lua`:** `ns:AttachContainerRuntime(def)` and
+`ns:DetachContainerRuntime(key)`, calling nil-guarded hooks owned by the other files —
+`ns.AllocateContainerRuntime`/`ns.ReleaseContainerRuntime` (Display),
+`ns.CreateContainerFrames`/`ns.DestroyContainerFrames` (EditModeFrames),
+`ns.AddContainerSection`/`ns.RemoveContainerSection`/`ns.RebuildContainerSectionDefs` (CDMTab).
+A new subsystem hooks in here rather than looping the registry itself.
+
+**Deletion order is fixed — do not reorder it.** The def is unregistered from `ns.CONTAINERS` *before*
+the runtime is detached, so `ns:UpdateDisplay` can never index a released pool mid-frame. Both teardown
+functions therefore look up strictly by key and never walk the registry.
+
+**`ns.db.nextContainerId` only ever increments.** A deleted key is never reissued, so a stale
+`entry.section = "user3"` left on a tracker cannot be adopted by a container created later.
+
+**`itemsPerRow` was built in this phase** — `CONT-06` named it but it had never existed. Icon-kind only,
+default 12, the highest of Blizzard’s three factory `IconLimit` presets (Essential 12, Utility 7,
+BuffIcon 1) and **not** “the CDM’s value”. Guarded against zero at both the snapshot and the slider,
+because a modulo by zero in a 20 Hz render loop is a hard error.
+
+### Phase 37 — the flavour-check invariant
+
+The milestone’s **one** sanctioned runtime flavour check now exists, and it is checkable in three greps:
+`GetBuildInfo` appears **exactly once** (`Core.lua`), `ns.CLIENT_HAS_SPELL_RANKS` has **one definition**
+and **one reader** (`CDMTab.lua`), and that reader decides only whether the “cover all ranks” checkbox is
+**constructed**. Nothing in the engine branches on it — rank behaviour runs off `entry.coverAllRanks`.
+Before adding any client-version logic anywhere, re-check those three counts. Everything else stays on
+capability / data-absence checks.
+
+**Rank resolution** is `ns:ResolveRankFamily` → `ns.rankFamilies` / `ns.rankIndex`, rebuilt by
+`ns:RebuildRankIndex` on `SPELLS_CHANGED` and `PLAYER_ENTERING_WORLD` only. It early-outs before touching
+`C_SpellBook` when no tracker is covered, so retail pays nothing. The cast path costs **one nil-guarded
+table lookup on the miss path** — keep it that way. The index never holds an ID that is itself a tracker
+slot, so the fallback cannot shadow a direct hit.
+
+**Cooldown trackers can be CREATED but render nothing yet.** `UserSpellProviderMixin:OnTrigger` and
+`ns:StartAllPreviewTimers` both skip `trackerType == "cooldown"`. Phase 38 removes those two seams —
+that is the phase’s entry point, not a bug to fix elsewhere.
+
+### Phase 38 — a cooldown is a slot, never a timer
+
+No cooldown proc enters `ns.activeTimers`. `ns:GetActiveTimers` and `ScanActiveTimersForCancellation`
+are untouched, and cooldowns are excluded from cancellation **by construction** rather than by a guard
+someone could delete. The reason: `GetActiveTimers` expires and sorts on `proc.expiresAt`, but a
+cooldown’s remaining time is **secret** under restriction — the only number available is the nominal
+duration the user typed, which is exactly the CDR-blind lie `CD-02` exists to avoid.
+
+**The sweep reads nothing.** `C_Spell.GetSpellCooldownDuration` → `Cooldown:SetCooldownFromDurationObject`,
+handle passed straight through; the widget animates it. Both that call and `C_Spell.GetSpellCharges` sit
+behind `icon._cdGen ~= ns.cooldownGeneration or icon._cdKey ~= entry.key`, so neither runs per frame.
+Re-setting on `SPELL_UPDATE_COOLDOWN` is what makes live cooldown reduction track.
+
+**`C_Spell.GetSpellCharges` is `SecretWhenCooldownsRestricted` AND `MayReturnNothing`.** The research
+doc originally recorded no secrecy flag — corrected 2026-09-21; the probes missed it because no charge
+spell existed on the test character. So: the charge value reaches `SetText` and nothing else, the whole
+block sits under one `ns:CanReadTable(info)` guard, and the index happens **inside** the `pcall` via a
+helper that receives `info`. Never write `pcall(f, obj, info.currentCharges)` — Lua evaluates arguments
+before `pcall` runs, so that form indexes outside the protection, inside the render loop.
+
+### Phase 40 — Merge Mode, and the taint boundary written down
+
+Named **CDM steal mode** until 2026-09-21; renamed by user decision (`6ea1ab9`) to Merge Mode, because
+the feature is a merge of the custom and Blizzard trackers. `MergeMode.lua`, `ns.db.mergeMode`,
+`ns.merge*`. The `STEAL-*` requirement IDs and `.planning/phases/40-cdm-steal-mode/` keep their names
+as stable identifiers — see the note at the head of REQUIREMENTS.md.
+
+**Three play-tested corrections landed after the first implementation. Do not reverse any of them.**
+
+1. **Suppression is an OFF-SCREEN ANCHOR, never `Hide()`** (`f553a17`). Hiding broke three things at
+   once: `CooldownViewerMixin:OnHide` unregisters `UNIT_AURA` and `RefreshLayout` only refreshes while
+   shown, so a hidden viewer freezes its aura data AND its per-item shown states; and Blizzard re-shows
+   the viewers from `UpdateShownState`, so TBT could only ever win the shown flag a frame late. The
+   viewer now stays `IsShown() == true` at `UIParent TOPLEFT -10000, 10000`, with clamping turned off
+   first (`EditModeSystemTemplate` carries `clampedToScreen="true"`). Alpha 0 was rejected: the CDM's
+   own Opacity setting contests it, and it leaves invisible hover targets, because
+   `CooldownViewerItemMixin:SetTooltipsShown` enables mouse motion per item frame.
+2. **No combat gate** (`bd37513`). The original one assumed the viewers are protected frames. They are
+   not — none of `EditModeCooldownViewerSystemTemplate`, `EditModeSystemTemplate` or `GridLayoutFrame`
+   carries `protected="true"`. Only the CDM ITEM frames were ever the hazard, and TBT writes to none.
+3. **No suspension while the CDM settings window is open** (`ec59e4d`). `UpdateShownState` is
+   event-driven and early-outs when the state already matches; it is not a per-frame loop, so
+   re-asserting costs a handful of writes across a config session. Edit Mode still un-suppresses —
+   genuinely, not by suspending, because Blizzard never undoes an off-screen anchor and Edit Mode is
+   where the player positions the CDM for when Merge Mode is off.
+
+**The frame surface, as it now stands.** All of it is in `MergeMode.lua`. On the VIEWER frames: the
+`_G` lookup, `GetNumPoints`/`GetPoint`/`GetParent`/`IsClampedToScreen` as reads, and
+`ClearAllPoints`/`SetPoint`/`SetClampedToScreen` as writes — all plain C widget calls, no mixin
+method. On the ITEM frames: `itemFrame.cooldownID` as a field read and `itemFrame:IsShown()`, reached
+through **one** admitted non-widget call, `viewer.itemFramePool:EnumerateActive()` (`e8f09b9`). That
+call is argued in full at its call site: the pool is a secure PROXY, so it lands on generic
+`SharedXMLBase` container code rather than CooldownViewer code, and it forwards to
+`SecureMap:Enumerate`, whose whole body is `securecallfunction(next, tbl, key)` — provably read-only.
+There is no `C_*` alternative; `C_CooldownViewer` carries no live shown state. Nothing else may be
+added. Two PRE-EXISTING exceptions predate the milestone and are protected by the no-refactor rule:
+`EditModeFrames.lua`’s Copy-Config button calls `viewer:GetSettingValue`, and `Display.lua` reads
+`viewer.itemFramePool` as a truthiness check. Do not extend either pattern.
+
+**Mirror the CDM's SHOWN set, not its CONFIGURED set.** `ns.mergeSlots` is every cooldownID in the
+player's categories; `ns.mergeShownSlots` is the subset the CDM currently has on screen, and
+`Display.lua` reads only the latter. Rendering the configured set is what put a tracked debuff in TBT
+permanently instead of while it was on the target. TBT must **not** re-derive "is it up" — that means
+reading the secret aura APIs and branching on the answer. Blizzard has already computed it as the
+item frame's shown flag.
+
+**The event frame does three jobs and they must stay split.** `REFRESH_MIRROR` (config events only)
+rebuilds the category walk; everything else gets the shown-state pass alone. `UNIT_AURA` must never
+rebuild the mirror — that would be a full category walk with a table constructor per entry, per aura,
+in combat. The shown-state pass is **always** deferred through `C_Timer.After(0)`, not for taint but
+because TBT and the CDM viewers register the same events and inter-frame event order is undefined:
+reading inline is a coin flip on whether Blizzard's handler has run yet.
+
+**`EventRegistry` owners collide.** `CallbackRegistryMixin:RegisterCallback` allows one callback per
+owner per event and silently unregisters the previous one. `EditModeFrames.lua` already owns
+`EditMode.Enter`/`Exit` as `ns`, so `MergeMode.lua` registers as `mergeEventFrame`. Using `ns` there
+would have silently replaced TBT’s own Edit Mode handlers with no error.
+
+**Both former partials are now closed, bar one case.** The mirror no longer reads the spec-default
+category set: it builds from the viewers' item frames, which are Blizzard's own resolution of the
+player's overrides, so added, hidden, reordered and recategorised spells all follow (`322806d`). And
+merged **bars** have a live timer, relayed value-for-value off the CDM's own StatusBar (`ca5e79a`).
+
+**The one remaining limit is merged buff ICONS, and it is an API limit, not an omission.** Do not spend
+time re-deriving it: every `Cooldown` getter is `SecretReturnsForAspect = { Cooldown }` and every
+`Cooldown` setter that takes numbers is `SecretArguments = "AllowedWhenUntainted"`, so a tainted caller
+cannot relay the values the way the bar path does. `SetCooldownFromDurationObject` is the only
+tainted-safe setter, and nothing in the API returns a duration object for an AURA —
+`C_UnitAuras.GetAuraDuration` does, but it needs an `auraInstanceID`, which Blizzard deliberately keeps
+in a `CreateSecureAuraInstanceMap` (CooldownViewer.lua:1659). A merged buff icon therefore shows, and
+appears and disappears correctly, but draws no sweep.
+
+**The relay rule, which is what makes any of this legal.** A value read from a Blizzard getter may be
+passed straight into the matching setter and nothing else — no comparison, arithmetic, concatenation,
+`tostring`, or branch on it. `SetDesaturated`, `SetMinMaxValues`, `SetValue` and `FontString:SetText`
+are all `SecretArguments = "AllowedWhenTainted"` and take secrets as-is. Anything that inspects the
+value instead raises "attempt to compare a secret …", which is the bug that shipped in Display.lua:615.
+
+### Phase 41 — the racial tile, and the correction behind it
+
+**`RACIAL_SPELLS` holds two entries**: `[7]` Gnome → Eureka! `1259817`, 3 stacks, 15s, and `[8]` Troll
+→ Berserking `20554`, 10s, no stacks (`aeafecd`). There is no `supported = false` flag — **absence from
+the table IS the unsupported state**, so an unsupported racial starts no timer by construction. The full
+catalogue is `RACE-06`/`RACE-07`, next minor milestone.
+
+**`maxStacks` is optional and is what makes a racial stack-driven.** Without it the racial is a plain
+duration tracker and no cast is ever inspected — the consuming path returns on `proc.stacks == nil`
+before either `C_Spell` call, so a stackless racial costs nothing per cast.
+
+**The backstop and early expiry never touch each other.** `expiresAt = startedAt + 15` is written once and
+never mutated; early expiry is `ns:EndTimer` removing the proc. Whichever fires first wins. The proc
+carries no cancellation-list field, so `ScanActiveTimersForCancellation` skips it by construction.
+
+**Eureka! works on FOREVER.** Measured there 2026-09-20 with a timestamped 3→2→1→0 log
+(`TEST-PLAN-CDM-INJECTION-AND-COOLDOWNS.md:536-548`; the cast IDs in it are Forever ranks). Phase 41’s
+plans initially claimed the opposite and told the Forever pass (now Phase 43) that a greyed gnome tile was a pass — corrected in
+`0126176`. **A greyed gnome tile on Forever is a FAILURE.** The live run needs a gnome character; without
+one it is recorded unperformed, never substituted.
+
+**Accepted, not a defect:** `IsSpellHarmful` means “can target an enemy”, not “deals damage”, so Frost
+Nova and Polymorph over-consume a stack. Over-consuming beats under-consuming — the failure mode is a
+tracker ending early rather than showing a buff the player no longer has. Do not narrow it.
+
+| Phase | Result |
+|---|---|
+| 31 Single TOC | one unsuffixed `TerribleBuffTracker.toc` at `## Interface: 120100, 16001`; `_Camelot.toc` and `check-toc.ps1` deleted |
+| 32 Single-Zip Packaging | one `.pkgmeta`, one CI job; observed a real packager run — `multi-version`, `Game version: 12.1.0, 1.60.1`, one correctly-named archive |
+| 33 Install & Release Tooling | file set derived from the TOC, dev version substituted into the deployed TOC only, stale files pruned, `release.bat` branch-guarded |
+| 34 Edit Mode Mouse-Down | containers select on mouse-DOWN like Blizzard; drag threshold deleted |
+
+### ✓ Both outstanding in-game Forever checks passed (2026-09-20/21)
+
+1. **`TOC-06` (Phase 31)** — **passed.** TBT loads on Forever from the single unsuffixed
+   `TerribleBuffTracker.toc` declaring `## Interface: 120100, 16001`. The earlier failure was a false
+   negative: WoW scans the AddOns folder only at launch, so a TOC rename is invisible to a running
+   client and `/reload` never re-reads it. Confirmed after a full client restart.
+2. **`EDM-06` (Phase 34)** — **passed.** Mouse-down selection works, and `EDM-07`’s example bar
+   (`?` icon + “Example Buff Name”) renders and drags when the bar container is empty.
+
+Details in `31-VERIFICATION.md` and `34-VERIFICATION.md`.
+
+### Process note for future autonomous runs
+
+This run stalled twice on per-phase questions. The user's instruction, 2026-09-20: raise **every**
+question for the whole `--from`/`--to` range at the start, then say explicitly that uninterrupted work
+is beginning. Prefer a stated default over a question wherever the repo or a prior decision implies the
+answer, and do not build verification phases for things a shipping addon already demonstrates.
+
+## Reminder Block — Consumed 2026-09-20
+
+The starred reminder that sat here (999.2 README/store copy, 999.3 single-TOC, 999.4
+`@project-version@`) was delivered to the user at v0.4.0 kickoff and **all four backlog phases were
+pulled into this milestone**. Outcomes decided at kickoff:
+
+- **999.3 — migrate to a single TOC now**, all interface versions in one
+  TOC, and **one zip for everything**. This reverses the locked two-flavour-zip decision.
+  **Settled 2026-09-20:** the shipped file is the unsuffixed `TerribleBuffTracker.toc` — a
+  `_Mainline`-suffixed name can never declare `16001`, because the BigWigs packager reads the game type
+  from the filename suffix and hard-fails any `## Interface:` value that disagrees with it. Verified
+  loading on Forever, and packaging as `multi-version / Game version: 12.1.0, 1.60.1`.
+- **999.2 — runs last**, immediately before merge/release, after everything is reviewed and tested.
+  Its product half is already settled: **Trinket and Pot meta-trackers stay as-is**; only the public
+  copy changes.
+- **999.4 and 999.1 — run up front** in the small backlog-cleanup block.
 
 ## Last Milestone at a Glance
 
@@ -82,7 +507,8 @@ Full record: `.planning/MILESTONES.md` (v0.3.0 entry), `.planning/milestones/v0.
 
 ## Deferred Items
 
-Acknowledged and deferred at milestone close, 2026-09-19.
+Acknowledged and deferred at v0.3.0 close, 2026-09-19. **Re-read 2026-09-20 at v0.4.0 kickoff — the
+table below is no longer current, see the note under it.**
 
 | Category | Item | Status |
 |----------|------|--------|
@@ -97,7 +523,20 @@ Acknowledged and deferred at milestone close, 2026-09-19.
 | todo | `2026-09-18-runtime-file-set-enumerated-three-places.md` | pending — `install.bat` `FILES` + both TOCs enumerate independently |
 | todo | `2026-09-18-release-bat-pushes-main-with-no-branch-guard.md` | pending — tags whatever `HEAD` it runs from, always pushes `origin main` |
 
-**`DIST-03`…`DIST-07` were deferred by explicit user decision, 2026-09-18:** *"do the impl and we will
+### What changed at v0.4.0 kickoff (2026-09-20)
+
+- **`DIST-03`…`DIST-07` are superseded, not deferred.** Every one of them describes two distinctly-named
+  zips, per-flavour game-version tags, or a two-job matrix. v0.4.0 moves to **one TOC and one zip**, so
+  the mechanism they were written against no longer exists. v0.4.0 must restate the distribution
+  requirements in single-zip terms rather than carry these forward verbatim. The Phase 29 Deferred
+  Verification checklist is likewise obsolete in its two-zip specifics.
+- **All four tooling todos are now in scope.** `install.bat` pruning and the three-place file-set
+  enumeration are both touched directly by 999.4 and the single-TOC migration; the `.pkgmeta` drift guard
+  becomes moot once there is only one `.pkgmeta`; and the `release.bat` branch guard belongs with the
+  release-script pass. Reconcile them inside this milestone rather than leaving them pending.
+
+**Original v0.3.0 note, kept for the record —** `DIST-03`…`DIST-07` were deferred by explicit user
+decision, 2026-09-18: *"do the impl and we will
 test once we close the milestone and add any hotfix straight to main later if needed."* The checklist to
 run at that time is the Deferred Verification table in
 `.planning/phases/29-packaging-distribution/29-01-SUMMARY.md`.
@@ -114,12 +553,21 @@ empty and `-g` did not take.
 Full decision log lives in `.planning/PROJECT.md` (Key Decisions) and the v0.3.0 archive. Only the
 constraints that outlive the milestone are repeated here:
 
-- **One shared source set, no flavour fork.** The two TOCs may differ on `## Interface:` and `## Notes:`
-  only; `scripts/check-toc.ps1` enforces it pre-tag. No flavour-forked Lua or XML file may exist.
-- **No `WOW_PROJECT_ID` / `GetBuildInfo` / `IsTestBuild` branching.** Forever differences are handled as
-  data-absence conditions with nil checks. This held end to end through v0.3 and is still binding.
-- **`_Camelot` is case-sensitive**, and capitalisation is verified through `git ls-files`, never a
-  Windows file browser.
+- **One shared source set, no flavour fork.** No flavour-forked Lua or XML file may exist — still
+  binding. **Changed 2026-09-20:** the two-TOC half is retired. v0.4.0 moves to a single
+  `TerribleBuffTracker_Mainline.toc` declaring all interface versions, which also retires
+  `scripts/check-toc.ps1` and both `.pkgmeta-*` files.
+- **Runtime flavour detection: one sanctioned exception, otherwise still banned.** Forever differences
+  are handled as data-absence conditions with nil checks — the default, and it held end to end through
+  v0.3. **Narrowed 2026-09-20 by user decision:** the add panel's "cover all ranks" checkbox is present
+  on Forever and absent on retail by an explicit version check. The user was offered the data-driven
+  alternative (show it only when the spell resolves to a multi-rank family, needing no flavour check)
+  and declined it — they want the control unconditionally present on one flavour and unconditionally
+  absent on the other, not appearing dynamically and not disabled-but-visible. **This licenses exactly
+  one flavour check, not a pattern.**
+- **`_Camelot` is case-sensitive** — relevant only until the single-TOC migration deletes that file.
+  Capitalisation is verified through `git ls-files`, never a Windows file browser; the same rule applies
+  to any TOC rename this milestone performs.
 - **Capability checks, not client-identity checks.** Guard on the API symbol existing, so a client
   lacking it degrades to a silent no-op rather than a load error.
 - **`issecretvalue()` comes first**, before any comparison or concatenation — including on values
@@ -131,9 +579,37 @@ constraints that outlive the milestone are repeated here:
 
 ### Pending Todos
 
-Four, all listed under Deferred Items above.
+**None.** All four were resolved in Phases 32-33 and moved to `.planning/todos/done/` on 2026-09-20.
 
 ### Blockers/Concerns
+
+- **The TOC filename carries the game type — never re-suffix it.** `TerribleBuffTracker.toc` must stay
+  unsuffixed. The BigWigs packager derives the game type from the filename suffix and then hard-fails any
+  `## Interface:` value that disagrees, so `_Mainline.toc` can never declare `16001`. Resolved 2026-09-20;
+  do not reopen. Any TOC change needs a **full client restart** to test — `/reload` never re-reads the
+  AddOns folder.
+- **Never inject into Blizzard's CDM containers.** Measured 2026-09-20: five injection variants — up to
+  one using zero Blizzard Lua, C-level `GetChildren()` and deferred writes only — all tainted the CDM
+  with `CooldownViewerItemData.lua:782 hasTotem` errors. Calling any Blizzard CDM mixin method leaves the
+  frame tainted afterwards, and the taint is **sticky**: it survives leaving combat and clears only on
+  `/reload`. A combat guard is preventive, never curative. This is why v0.4.0 mirrors into TBT's own
+  containers instead.
+- **Direct aura APIs hard-error for tainted callers under restriction.** Both enumeration and ID-based
+  calls, and a cached instance ID does not help. Curve evaluation results are secret even from an
+  addon-built curve. Both closed, not deferred — see
+  `.planning/research/EXPERIMENTS-BUFF-API-AND-CDM.md`.
+- **The cast-driven stack model can never self-verify in combat.** The nominal duration timer must always
+  run as a backstop. `C_Spell.IsSpellHarmful` means "can target an enemy", not "deals damage", so it
+  over-fires — Frost Nova consumed a Eureka! stack the game did not. Accepted by the user 2026-09-20:
+  over-consuming is preferred to under-consuming, since the failure mode is a tracker ending early rather
+  than showing a buff the player no longer has. Recorded so it is not re-opened as a bug.
+- **Ranked spell IDs on Forever disagree with the CDM.** Vanilla ships rank variants with distinct IDs
+  (Frostbolt `116` vs the CDM's `205`; Fireball `133`/`143` vs `145`). TBT keys everything by spellID, so
+  a user adding the rank they cast silently disagrees with the CDM. `GetBaseSpell` / `GetOverrideSpell`
+  are readable in combat and are the bridge. This is what the "cover all ranks" checkbox exists to solve.
+- **`.planning/` records no retail probing for any of this.** Every measurement behind v0.4.0's feature
+  design was taken on Forever build `1.60.1.69913` / interface `16001`. Retail M+/raid validation was
+  deliberately skipped to save time and is the milestone's second-to-last phase.
 
 - **Settings do not persist between sessions on the Forever beta.** A client-side bug, not TBT's: the
   file is written correctly on logout and is byte-identical to its `.bak`, but never read back on login.

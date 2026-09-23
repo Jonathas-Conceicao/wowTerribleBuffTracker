@@ -2,6 +2,89 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v0.4.0 — Cooldown Tracking and Full CDM View
+
+**Shipped:** 2026-09-23 (archived; not yet tagged)
+**Phases:** 15 (31-45; 39 renumbered to 35.1) | **Plans:** 34 | **Commits:** 229 | **Span:** 4 days
+
+### What Was Built
+
+- Cooldown trackers as a first-class type, icon-only with charge counts, and schema v6 re-keying
+  cooldowns into a `cd:<spellID>` namespace so a spell can be tracked as a buff *and* a cooldown
+- Merge Mode: Blizzard's CDM containers move off screen, their entries drawn inside TBT's own
+  containers, with merged buff icons swept by Blizzard's `AuraContainer` engine
+- Four base containers plus user-created ones, each with independent settings; Centered growth
+- Collapse back to a single TOC (`120100, 16001`), one `.pkgmeta`, one CI job, one zip
+- A settings panel under Options > AddOns; rank grouping on Forever; gnome/troll/orc racials
+- v3→v6 migration verified against a real v0.3.0 saved-variables file
+
+### What Worked
+
+- **Inverting a problem instead of grinding at it.** The merged-sweep problem consumed real effort
+  against the read path before the shape changed to "hand Blizzard widgets to the engine". The
+  lesson generalises: when every variant of an approach fails for the *same* structural reason
+  — here, secrets on every getter and `AllowedWhenUntainted` on every setter — that is a signal to
+  change shape, not to try harder.
+- **Swapping cleanup before the verification pass.** Phase 42 ran before Phase 43 by user decision,
+  so the end-to-end pass exercised the cleaned code rather than code about to be rewritten.
+- **Writing the hot-path audit down instead of acting on it.** 14 findings, 1 removed and 13
+  justified in writing. The audit is the durable output; most of what looks like waste in the render
+  path is load-bearing, and now says why.
+- **Fixing bugs against a live client, one at a time.** Fourteen Merge Mode defects across two
+  characters, each re-tested on the same client before moving on. For an addon with no test suite,
+  this tight loop is the only real gate.
+
+### What Was Inefficient
+
+- **Tracking lagged the work by three days and then needed a reconciliation pass.** The traceability
+  table was written at roadmap creation on 2026-09-20 with rows reading "in-game pass in Phase 43".
+  Those passes ran and nobody ticked anything. At close, 38 of 58 checkboxes were open, eight
+  `VERIFICATION.md` files still said `human_needed`, the ROADMAP still recorded `STEAL-04` and
+  `STEAL-05` as PARTIAL, the Progress table said "Not started" for eleven completed phases, and the
+  retail run sheet's own header said "not started" while its body recorded the run complete. None of
+  it was wrong work — it was unrecorded work, and reconstructing it at the end cost a full pass and
+  produced weaker evidence than ticking as it happened would have.
+- **A stale fact reached public copy through a plan.** `45-01-PLAN.md` instructed the README to say
+  merged buff icons draw no sweep — true when the plan's context was written, false by the time it
+  executed. The executor followed it faithfully. Only a review against the live code caught it.
+- **Line-ending damage, twice, in one session.** `sed -i` silently reflowed a `.md` file CRLF→LF with
+  an empty `git diff`, and a regex replacement whose `\r?$` consumed the CR left eight files mixed.
+  Both were caught only by `git ls-files --eol`.
+
+### Patterns Established
+
+- **Engine-driven rendering for anything the client marks secret.** Do not read and draw; hand
+  Blizzard widgets to a Blizzard container and let it draw. The only route that survives combat.
+- **One function owns grid arithmetic** (`ns:GridSlotPlacement`). Every time two paths derived
+  placement separately they drifted — by padding, then scale, then origin.
+- **Module-level scratch tables plus a hoisted comparator** in any per-tick function, with the
+  shared-buffer contract and its single-caller assumption written into the source.
+- **Amend history with dated notes; never rewrite it.** Used for the PROJECT.md Key Decisions row,
+  the ROADMAP Phase 40 block, and the requirement rows that changed meaning rather than status.
+
+### Key Lessons
+
+1. **Tick the box when the work happens.** Everything else in this retrospective's "inefficient"
+   section is downstream of not doing that.
+2. **A plan written from older context can carry a stale fact past a faithful executor.** Plans are
+   not self-validating; a review against live code is the only thing that catches this class.
+3. **"Zero deletions in the diff" does not prove a file is unharmed.** With `text=auto`, a CRLF→LF
+   reflow is invisible to `git diff` entirely. `git ls-files --eol` is the only witness.
+4. **A PARTIAL marked once tends to stay marked.** `STEAL-04` was fixed during play-testing and the
+   record said PARTIAL for another two days, in three separate files, and made it into public copy.
+
+### Tooling Observations
+
+- `gsd-sdk`'s write-side handlers were unusable again and are now actively dangerous, not merely
+  absent: `state.begin-phase` parsed its `--phase/--name/--plans` flags positionally, wrote
+  `Phase: --phase` and invented progress counters into STATE.md, and deleted a hand-written line in
+  the process. `worktree.reap-orphans` and `audit-open` are unregistered;
+  `roadmap.update-plan-progress` returned "no matching checkbox found" against a checkbox that was
+  plainly there. Every STATE/ROADMAP/MILESTONES write this milestone was done by hand.
+- Worktree isolation worked cleanly for both Phase 45 plans — fast-forward merges, no conflicts.
+
+---
+
 ## Milestone: v0.3.0 — WoW Forever compatibility
 
 **Shipped:** 2026-09-19
@@ -120,6 +203,7 @@
 | v0.2.4 | 8 | 23 | Provider architecture; unified `ActiveProc`; zero type-branching in Display |
 | v0.2.5 / v0.2.6 | 0 | 0 | **Shipped outside GSD** — no phase artifacts exist, and were not reconstructed |
 | v0.3.0 | 7 | 12 | First multi-flavour release; first inserted decimal phase (27.1); first milestone to close with a deliberate requirement-level deferral |
+| v0.4.0 | 15 | 34 | Largest milestone by 2×; first renumbered phase (39→35.1) and first swapped pair (42↔43); first to close 100% of its requirements — and the first to need a full reconciliation pass at close because tracking lagged the work by three days |
 
 ### Cumulative Quality
 
@@ -131,6 +215,7 @@ against a named build.
 |-----------|--------------|----------------------|----------|
 | v0.2.4 | stylua + grep-gated dead-code sweep | per-phase human verify | yes |
 | v0.3.0 | + `check-toc.ps1`, `.gitattributes`, `stylua.toml` | two ordered run-sheets, build `1.60.1.69913` | yes |
+| v0.4.0 | − `check-toc.ps1` (single TOC made it moot); grep-asserted plan acceptance criteria; byte-level append-only proof on `CHANGELOG.md` | continuous play-testing on Forever `1.60.1.69913`, then retail M+ and raid — neither itemised row by row | yes |
 
 ### Top Lessons (Verified Across Milestones)
 
