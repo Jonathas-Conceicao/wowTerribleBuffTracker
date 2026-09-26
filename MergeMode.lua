@@ -687,6 +687,271 @@ local function ResolveMergedAuraTiming(entry)
 	end
 end
 
+-- Phase 48 (D-03) -- the state-change half of the /tbt debug dump for PANDEMIC.md's five
+-- unknowns. A NEW call site of the existing ns.debugLogging flag (Core.lua:1055-1058);
+-- Core.lua's protected debug cast/item log (D-04) is untouched -- this neither calls, wraps,
+-- extends nor relocates any part of it. Guard-clause early return, same idiom Core.lua's own
+-- logging functions use, so the hot path costs one boolean test and allocates nothing when
+-- debug is off.
+--
+-- Only prints on a state CHANGE (old boolean vs new), using the previous value already on the
+-- entry rather than a fourth stamped field. The OFF line's GetTime() compared against the last
+-- readable `finish` answers unknown 1 (does PandemicIcon clear promptly or linger); the
+-- secret/type columns in and out of combat answer unknown 2; running it on a target-debuff
+-- entry answers unknown 5.
+local function LogPandemicStateChange(entry, wasActive, startTime, endTime)
+	if not ns.debugLogging then
+		return
+	end
+
+	local isActive = entry.pandemicActive == true
+	if wasActive == isActive then
+		return
+	end
+
+	-- issecretvalue(v) and type(v) are themselves always safe to print -- they are the
+	-- introspection functions used to detect a secret and never return one -- but the VALUE
+	-- behind them is screened the same issecretvalue()-then-type() way as everywhere else in
+	-- this file before it is allowed anywhere near a concatenation.
+	local startSecret, startType = issecretvalue(startTime), type(startTime)
+	local startVal = (not startSecret and startType == "number") and startTime or nil
+	local endSecret, endType = issecretvalue(endTime), type(endTime)
+	local endVal = (not endSecret and endType == "number") and endTime or nil
+
+	local line = "|cff00ccffTBT Debug|r: |cffff8040PANDEMIC|r "
+		.. (entry.label ~= "" and entry.label or "(no label)")
+		.. " id="
+		.. tostring(entry.cooldownID)
+		.. " "
+		.. (isActive and "ON" or "OFF")
+		.. " t="
+		.. GetTime()
+		.. " start(secret="
+		.. tostring(startSecret)
+		.. ",type="
+		.. startType
+		.. ",val="
+		.. tostring(startVal)
+		.. ") finish(secret="
+		.. tostring(endSecret)
+		.. ",type="
+		.. endType
+		.. ",val="
+		.. tostring(endVal)
+		.. ")"
+	print(line)
+end
+
+-- Phase 48 (PAND-03/04/05) -- stamps entry.pandemicActive and the guarded
+-- entry.pandemicStart/entry.pandemicFinish pair from the CDM item frame cached for this
+-- entry's cooldownID. This is the only place in the phase that touches a CDM-owned object
+-- (this file's header, :5-25): every access below is a plain table-field read, never a mixin
+-- method, never a write onto the frame, and the CDM-owned pool backing Blizzard's own
+-- pandemic frame is never touched, acquired or released.
+--
+-- Reads ns.mergeItemFrames[entry.cooldownID] only -- the cache CollectShownCooldownIDs already
+-- populates (:497) -- and does nothing else to reach the frame: no EnumerateActive, no viewer
+-- lookup, no C_CooldownViewer call. Called only through pcall(ReadPandemicState, entry) from
+-- ns:RefreshMergeShownSlots, below.
+local function ReadPandemicState(entry)
+	local itemFrame = ns.mergeItemFrames[entry.cooldownID]
+	if not itemFrame then
+		-- No cached frame for this cooldownID this pass: a merged entry with no observable
+		-- pandemic state. Clear all three stamps rather than leaving a stale `true` from a
+		-- previous pass on the entry -- that stuck highlight is exactly what PAND-05 forbids.
+		local wasActive = entry.pandemicActive == true
+		entry.pandemicActive = false
+		entry.pandemicStart = nil
+		entry.pandemicFinish = nil
+		entry.pandemicTrigger = nil
+		LogPandemicStateChange(entry, wasActive, nil, nil)
+		return
+	end
+
+	-- Primary signal (48-CONTEXT.md D-01): PandemicIcon is a frame REFERENCE, not a data
+	-- field -- only numeric/string data on a frame can be secret-tainted, so there is nothing
+	-- here for issecretvalue to catch. This whole function is pcall'd at its one call site
+	-- below, so even a future client that made this read raise would degrade the feature
+	-- rather than take the refresh pass down.
+	local wasActive = entry.pandemicActive == true
+	local nextActive = itemFrame.PandemicIcon ~= nil
+
+	-- Refinement (D-01): the two timestamps, guarded issecretvalue() THEN type(), exactly as
+	-- MergeMode.lua:650-656 guards aura.expirationTime/duration -- never the reverse. Stamped
+	-- all-or-nothing: if either is unreadable, BOTH entry.pandemicStart and
+	-- entry.pandemicFinish go nil, so no consumer can ever see a half window. No
+	-- duration<=0-style sanity check here -- that belongs to aura-duration semantics and has
+	-- no equivalent for a pandemic window.
+	-- The single trigger timestamp, read alongside the pair. See ns:IsMergedEntryInPandemic for
+	-- why: the live retail frame carries Get/SetPandemicAlertTriggerTime but no start/end pair,
+	-- so this is the name the shipped methods actually imply. Same guard, same all-or-nothing
+	-- staging as everything else here.
+	local triggerTime = itemFrame.pandemicAlertTriggerTime
+	local nextTrigger
+	if not issecretvalue(triggerTime) and type(triggerTime) == "number" and triggerTime > 0 then
+		nextTrigger = triggerTime
+	end
+
+	local startTime = itemFrame.pandemicStartTime
+	local endTime = itemFrame.pandemicEndTime
+	local nextStart, nextFinish
+	if
+		not issecretvalue(startTime)
+		and type(startTime) == "number"
+		and not issecretvalue(endTime)
+		and type(endTime) == "number"
+	then
+		nextStart = startTime
+		nextFinish = endTime
+	end
+
+	-- Phase 48 code review CR-01: all three fields are STAGED into locals above and committed
+	-- together here, with no read of a CDM field between the first write and the last.
+	--
+	-- Writing entry.pandemicActive at the point it was read -- before the two timestamp reads --
+	-- broke the all-or-nothing guarantee the comment above claims. The timestamp reads are the
+	-- ones that can plausibly raise (they are the secret-tainted candidates, which is why they
+	-- are guarded at all), and this whole function is pcall'd at its call site. So a raise
+	-- between the two left entry.pandemicActive holding THIS pass's answer beside
+	-- entry.pandemicStart/Finish holding the PREVIOUS pass's -- and because
+	-- ns:IsMergedEntryInPandemic gives the numeric pair precedence over the boolean, a stale
+	-- window could silently suppress a highlight Blizzard was actively showing, or hold one
+	-- past its true end. That is the stuck highlight PAND-05 forbids, reached from the read side.
+	--
+	-- Committing together means a raise anywhere in this function leaves the entry exactly as
+	-- the previous pass left it -- a coherent state, and the same one the absent-frame branch
+	-- above already produces.
+	entry.pandemicActive = nextActive
+	entry.pandemicStart = nextStart
+	entry.pandemicFinish = nextFinish
+	entry.pandemicTrigger = nextTrigger
+
+	-- Not gated on category, hideAura, engineOwns, isAuraCategory, equipSlot or
+	-- spellCategoryID: Blizzard's own pandemic-trigger check short-circuits on IsItem() before
+	-- it ever computes a window (CooldownViewer.lua:530), so item-backed entries structurally
+	-- never carry the signal and need no filter here (PANDEMIC.md, "no filtering needed"). Do
+	-- not add one back.
+
+	LogPandemicStateChange(entry, wasActive, startTime, endTime)
+end
+
+-- Phase 48.1 (DISP-01/DISP-02/DISP-03) -- stamps entry.dispelAtlas, the dispel-type border
+-- Blizzard is currently drawing on this entry's CDM item frame, or nil when it draws none.
+--
+-- WHY MIRROR AN ATLAS NAME RATHER THAN RESOLVE THE DISPEL TYPE.
+-- The dispel type lives on aura data, and every route to it from a tainted addon is closed the
+-- same way the aura DURATION routes were (:505-560 above): C_UnitAuras.GetAuraDispelTypeColor is
+-- RequiresUnitAuraAccess -- the flag measured on 2026-09-22 to RAISE rather than degrade -- and it
+-- keys off an auraInstanceID, which Blizzard holds in a DisallowTaintedAccess table. So TBT cannot
+-- compute this value, in combat or out of it.
+--
+-- It does not need to. Blizzard's own UNTAINTED code already did the read and wrote the answer
+-- onto a texture: CooldownViewerItemMixin:RefreshIconBorder calls DebuffBorder:UpdateFromAuraData,
+-- which calls AuraUtil.SetAuraBorderAtlasFromAura, which Show()s the border and sets one of six
+-- atlases from auraData.dispelName -- or Hide()s it when the aura is not harmful
+-- (AuraUtil.lua:645-652). Reading the atlas name back is the same "Blizzard computes, TBT mirrors"
+-- trade Phase 48 made for the pandemic window, and it holds up in combat for the same reason: the
+-- computation happened on Blizzard's side of the taint line, not TBT's.
+--
+-- DEBUFF-ONLY IS INHERITED, NOT IMPLEMENTED. There is no isHarmful test here and there must not be
+-- one: Blizzard's Show/Hide already encodes it, so a hidden border means "not a harmful aura" and
+-- TBT draws nothing. A helpful aura carries a dispelName too -- that is what makes a buff
+-- Spellstealable -- so adding a polarity test here would be the only way to start drawing one.
+-- Matching Blizzard exactly was the user's decision, 2026-09-24.
+--
+-- Deliberately its own function with its own pcall at the call site rather than folded into
+-- ReadPandemicState, for the reason ResolveMergedAuraTiming's call site already gives: one pcall
+-- per concern, so a raise in either half stays distinguishable from the other.
+local function ReadDispelBorder(entry)
+	local itemFrame = ns.mergeItemFrames[entry.cooldownID]
+	local border = itemFrame and itemFrame.DebuffBorder
+
+	-- Two plain table-field reads (parentKey children, this file's header :5-25), then two plain C
+	-- widget getters. No mixin method -- UpdateFromAuraData is precisely the mixin call the locked
+	-- rule forbids, and it is never made here. Nothing is written onto the frame.
+	--
+	-- IsShown, NOT IsVisible: under Merge Mode TBT hides Blizzard's CDM containers, so the border's
+	-- EFFECTIVE visibility is false for every merged entry on screen. IsShown reports the frame's
+	-- own flag, which is what UpdateFromAuraData set and therefore what carries the answer.
+	-- IsVisible here would silently mean "no entry ever has a border".
+	--
+	-- `border` is nil on any client whose CooldownViewer has no DebuffBorder -- Forever's 1.60.1
+	-- CDM is the live candidate -- in which case nextAtlas stays nil and the feature degrades to
+	-- exactly today's rendering (DISP-03), with no version check needed.
+	-- TWO stamps, and the split is the whole point.
+	--
+	-- MEASURED, retail 2026-09-24, Moonfire as a bar in combat:
+	--   dispel=unreadable(secret=true,type=string)  aura(dispelName=<secret>,harmful=<secret>)
+	-- The atlas NAME is a secret string in combat, and so is dispelName on auraDataCached, so both
+	-- mirror sources go dark together. Out of combat both read fine -- which is exactly why
+	-- Entangling Roots bordered on a bar out of combat and nothing bordered in it. Same shape as
+	-- Phase 48's pandemic timestamps, and the same lesson: one signal is not enough.
+	--
+	-- But the two halves of the answer do NOT have the same secrecy. `border:IsShown()` is a plain
+	-- boolean in combat -- proven by that very log line, which could only have been printed from
+	-- inside the branch this test guards. So WHETHER to draw is readable; only WHAT to draw is not.
+	--
+	-- So the atlas is stamped WITHOUT the issecretvalue/type filter that used to be here. That
+	-- filter was correct for a value TBT reads and wrong for one it only relays: Texture:SetAtlas
+	-- is SecretArguments = "AllowedWhenTainted", and `atlas` is the single parameter of the six not
+	-- marked NeverSecret (SimpleTextureBaseAPIDocumentation.lua:366-377) -- Blizzard's explicit
+	-- permission for a tainted caller to pass one through. ApplyDispelBorder therefore hands it
+	-- straight to SetAtlas and never inspects it. Nothing downstream may branch on dispelAtlas;
+	-- branch on dispelShown, which is what it is for.
+	--
+	-- A shown border always has a real atlas, so there is no secret-wrapping-nil case to defend
+	-- against: SetAuraBorderAtlas falls back to DEBUFF_DISPLAY_INFO["None"].basicAtlas, which is
+	-- never nil, and Blizzard sets it before Show()ing (AuraUtil.lua:609-613).
+	local nextShown = false
+	local nextAtlas
+	if border and border.Texture and border:IsShown() then
+		nextShown = true
+		nextAtlas = border.Texture:GetAtlas()
+	end
+
+	-- Staged and committed together, the CR-01 discipline -- now that there are two fields, the
+	-- guarantee has to be earned rather than being structural. A half-written pair would mean
+	-- dispelShown true beside last pass's atlas.
+	entry.dispelShown = nextShown
+	entry.dispelAtlas = nextAtlas
+end
+
+-- Render-time resolver Display consumes (Plan 48-02): touches no frame, no API, allocates
+-- nothing. D-01's precedence, not inverted: readable numbers win because they give the exact
+-- window bounds, so the highlight can clear at the true end of the window on the render tick
+-- (PAND-03) instead of inheriting Blizzard's own OnUpdate-deregistration lag (PANDEMIC.md
+-- unknown 1); the boolean is the fallback, mirroring whatever Blizzard is currently drawing.
+-- Both stamped numbers are already proven plain by ReadPandemicState above, and `now` is the
+-- caller's own GetTime(), so neither needs a guard here -- do not add one, it would pay for
+-- the hot path twice.
+function ns:IsMergedEntryInPandemic(entry, now)
+	if not entry then
+		return false
+	end
+
+	if entry.pandemicStart and entry.pandemicFinish then
+		return now >= entry.pandemicStart and now <= entry.pandemicFinish
+	end
+
+	-- entry.pandemicTrigger is deliberately NOT a route here, though it is read and stamped for
+	-- the debug dump. Measured on retail 2026-09-24, Entangling Roots, out of combat:
+	--
+	--   window ACTIVE   icon=yes  trigger=nil       start=86547.021  finish=86556.021
+	--   window PENDING  icon=no   trigger=86577.006 start=86577.006  finish=86586.006
+	--
+	-- So pandemicAlertTriggerTime is "the time this alert is SCHEDULED to fire", consumed and
+	-- nil'd once it does -- which is what PANDEMIC.md's OnUpdate-deregistration note was
+	-- describing. It is not the window start, and it is present exactly when the window is NOT
+	-- yet active.
+	--
+	-- Using it as a fallback was a guess made while no window had ever been observed, and it was
+	-- wrong twice over: it would read true for a window that has not started, and `now >= trigger`
+	-- has no upper bound, so it would latch on forever if the pair were ever absent -- the stuck
+	-- highlight PAND-05 exists to forbid. The pair and the icon are both measured working, so
+	-- there is nothing for a third route to add.
+	return entry.pandemicActive == true
+end
+
 -- Rebuilds ns.mergeShownSlots from the CDM's live per-item shown flags. Event-driven only,
 -- exactly like ns:RefreshMergeMirror -- never called from ns:UpdateDisplay or any OnUpdate.
 -- Allocates nothing per pass beyond the iterator closure SecureMap:Enumerate returns: the
@@ -784,6 +1049,24 @@ function ns:RefreshMergeShownSlots()
 				-- no viewer, or a viewer with no item frames -- and there everything counts as
 				-- shown, exactly as the publish filter below treats it.
 				entry.cdmShown = (seen == 0) or (shownCooldownIDs[entry.cooldownID] == true)
+
+				-- pcall'd for the same structural reason as pcall(ResolveMergedAuraTiming, entry)
+				-- below, not because a specific raise is expected from a frame-reference read:
+				-- this pass wipes the shown-slot arrays before refilling them, so ANY raise
+				-- partway through leaves every merged container empty until the next aura event
+				-- -- exactly what the GetAuraDataByIndex raise did on 2026-09-22. Deliberately
+				-- its own pcall rather than folded into ResolveMergedAuraTiming's: that one's
+				-- scope is aura-timing resolution, and widening it would make a raise in either
+				-- half indistinguishable. Unconditional, for every entry, exactly as
+				-- entry.cdmShown above -- not gated behind the publish branch below.
+				pcall(ReadPandemicState, entry)
+
+				-- Phase 48.1 (DISP-01): same placement and same reasoning as the pandemic read
+				-- above -- unconditional for every entry, ahead of the publish branch, in its own
+				-- pcall so a raise here cannot be mistaken for one in pandemic state. An entry
+				-- whose frame has gone is cleared rather than left holding the previous pass's
+				-- atlas, which is the stuck-border twin of what PAND-05 forbids (DISP-03).
+				pcall(ReadDispelBorder, entry)
 
 				if engineOwns or seen == 0 or shownCooldownIDs[entry.cooldownID] then
 					-- entry.hideAura is Blizzard's CanUseAuraForDisplay, stamped at mirror-build
@@ -1148,6 +1431,77 @@ local function InitializeAuraFrame(frame)
 		local applications = frame:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 		applications:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
 		pcall(frame.SetApplicationCount, frame, applications)
+	end
+
+	-- Phase 48.1 (DISP-01), and the ONLY route that works for an ordinary merged tracked buff.
+	--
+	-- The atlas mirror in ReadDispelBorder cannot reach this case, and the reason is structural
+	-- rather than a bug in it: RenderIconContainer HIDES TBT's own pooled icon for a merged
+	-- tracked buff whenever the engine draws that aura (Display.lua, the engineDrawsHere branch's
+	-- icon:Hide()), so a border drawn on the pooled icon is a border on a hidden frame. That is
+	-- the same hidden-parent hazard EnsurePandemicIconFX already documents and dodges by
+	-- parenting to the container. Here there is something better available than dodging it.
+	--
+	-- The engine draws this one too. An aura button takes a dispel-type texture and fills it from
+	-- the same AuraUtil.SetAuraBorderAtlas the CDM's own DebuffBorder uses
+	-- (Blizzard_CustomAuraButton.lua:437-443), so TBT registers a texture and reads nothing --
+	-- exactly the trade SetApplicationCount above makes for the stack count, and for the same
+	-- reason: the values stay on Blizzard's side of the taint line.
+	--
+	-- THE OPTIONS ARE CHOSEN TO REPRODUCE THE CDM'S OWN RULE, NOT TO RESTATE THE DEFAULTS.
+	--
+	-- An earlier version of this comment claimed all three relevant defaults already matched and
+	-- that passing any of them would be noise. That was wrong on one, and the mismatch was real:
+	--
+	--   CDM      (AuraUtil.lua:645-652)  show iff auraData.isHarmful -- full stop. A harmful aura
+	--                                    with NO dispel type still shows, on
+	--                                    DEBUFF_DISPLAY_INFO["None"].basicAtlas, the grey default.
+	--   Engine   (Blizzard_CustomAuraButton.lua:372-384, with defaults) hides exactly that case,
+	--                                    because showWithoutDispelType defaults to false.
+	--
+	-- So a harmful, undispellable debuff bordered grey on an unmerged CDM tile and nothing at all
+	-- on TBT's merged one. showWithoutDispelType = true is what closes that, and it is passed
+	-- BECAUSE it differs from the default, not to restate one.
+	--
+	-- The other two are left implicit because they genuinely do match: showWhenHarmful defaults
+	-- true and showWhenHelpful defaults false, which is the CDM's isHarmful test exactly. That is
+	-- still the DISP-04 distinction -- debuff-only stays inherited from Blizzard rather than
+	-- reimplemented here; only the no-dispel-type case had to be steered back onto the CDM's
+	-- answer. User's rule, 2026-09-24: show whatever atlas the CDM shows, and only when the CDM
+	-- says it should be shown.
+	--
+	-- Border, not the BorderWithIcon default: the CDM calls SetAuraBorderAtlasFromAura with no
+	-- showDispelType argument, which selects basicAtlas -- the plain border with no corner symbol
+	-- (AuraUtil.lua:609-613). Matching the unmerged tile is the whole point.
+	--
+	-- Hosted on a child frame created after the Cooldown rather than as a bare OVERLAY texture on
+	-- `frame`, for the reason Display.lua's own dispelBorder records: a sibling child created
+	-- later draws above the swipe, an OVERLAY texture on the parent draws beneath it. The host is
+	-- still a descendant of `frame`, which is what AddDispelTypeTexture's
+	-- ValidateInboundScriptObject requires.
+	--
+	-- pcall'd on its own exactly as the stack count is, and guarded on both the method and the
+	-- enum: SyncEntryContainers treats any raise from frame setup as "latch the whole engine path
+	-- off", and a missing border is not worth losing every merged sweep over. A client without
+	-- either -- Forever 1.60.1 is the candidate -- keeps the icon, the sweep and the stacks.
+	if frame.AddDispelTypeTexture and Enum and Enum.CustomAuraButtonDispelTypeTextureStyle then
+		local borderHost = CreateFrame("Frame", nil, frame)
+		borderHost:SetPoint("TOPLEFT", frame, "TOPLEFT", -3, 3)
+		borderHost:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 3, -3)
+
+		local dispelBorder = borderHost:CreateTexture(nil, "ARTWORK")
+		dispelBorder:SetAllPoints()
+
+		-- Stamped rather than discarded, because this call failing is INVISIBLE otherwise: a
+		-- border that never appears looks identical whether the texture was rejected here or the
+		-- aura simply is not dispellable. "/tbt merge" prints this, so one dump separates them.
+		local ok = pcall(frame.AddDispelTypeTexture, frame, dispelBorder, {
+			style = Enum.CustomAuraButtonDispelTypeTextureStyle.Border,
+			showWithoutDispelType = true,
+		})
+		ns.mergeDispelTextureState = ok and "ok" or "rejected"
+	else
+		ns.mergeDispelTextureState = "unsupported"
 	end
 end
 
@@ -1954,6 +2308,17 @@ local REASSERT_VISIBILITY = {
 	VARIABLES_LOADED = true,
 	CVAR_UPDATE = true,
 	EDIT_MODE_LAYOUTS_UPDATED = true,
+	-- Reported on retail 2026-09-24: after a spec change the player's own CDM reappeared and the
+	-- newly-learned spells did not stay merged. Both events were already in REFRESH_MIRROR
+	-- above, so the mirror DID rebuild -- but rebuilding the mirror and parking Blizzard's
+	-- viewers off-screen are two different passes, and only the first was queued. Blizzard
+	-- re-shows its own viewers when the spec change repopulates them, so the park has to be
+	-- re-asserted on the same edge.
+	--
+	-- Being in both tables is correct and not a double-apply: each pass is queued separately,
+	-- single-flight, and idempotent.
+	PLAYER_SPECIALIZATION_CHANGED = true,
+	TRAIT_CONFIG_UPDATED = true,
 }
 
 mergeEventFrame:SetScript("OnEvent", function(_, event)
@@ -2215,6 +2580,283 @@ function ns:PrintMergeDiagnostics()
 					bits[#bits + 1] = "|cffff6600aura=unresolved|r"
 				end
 				print("    " .. (entry.label ~= "" and entry.label or "(no label)") .. "  " .. table.concat(bits, " "))
+
+				-- Phase 48 (D-03, unknowns 3 and 4) -- the on-demand half of the pandemic debug
+				-- dump. Deliberately not a new slash command: Core.lua is protected this phase
+				-- (D-03, D-04), so this is a new block on the existing "/tbt debug" then
+				-- "/tbt merge" call site, printing only when ns.debugLogging is on -- ordinary
+				-- "/tbt merge" output above is byte-identical for a user who has not enabled
+				-- debug.
+				if ns.debugLogging then
+					-- The backwards-trace check (48-CONTEXT.md's Phase 47 lesson): a highlight
+					-- that never appears with frame=no on every row means
+					-- CollectShownCooldownIDs has not run, not that the pandemic signal itself
+					-- is broken.
+					local mergeFrame = ns.mergeItemFrames[entry.cooldownID]
+					local hasFrame = mergeFrame ~= nil
+					local iconPresent = hasFrame and mergeFrame.PandemicIcon ~= nil
+
+					local rawTrigger = hasFrame and mergeFrame.pandemicAlertTriggerTime or nil
+					local triggerSecret, triggerType = issecretvalue(rawTrigger), type(rawTrigger)
+					local triggerVal = (not triggerSecret and triggerType == "number") and rawTrigger or nil
+
+					local rawStart = hasFrame and mergeFrame.pandemicStartTime or nil
+					local rawEnd = hasFrame and mergeFrame.pandemicEndTime or nil
+					local startSecret, startType = issecretvalue(rawStart), type(rawStart)
+					local startVal = (not startSecret and startType == "number") and rawStart or nil
+					local endSecret, endType = issecretvalue(rawEnd), type(rawEnd)
+					local endVal = (not endSecret and endType == "number") and rawEnd or nil
+					-- "trigger" is not a route -- see ns:IsMergedEntryInPandemic. It is printed
+					-- because it distinguishes a PENDING window from an active one, which is
+					-- useful when reading a log, but it never decides the answer.
+					local route = (startVal ~= nil and endVal ~= nil) and "numbers" or "boolean"
+
+					-- Unknown 3: is Enum.CooldownViewerAlertEventType.PandemicTime a member of
+					-- this cooldownID's native alert capability set (the same set
+					-- CanTriggerAlertType gates on)? A plain C_CooldownViewer namespace call --
+					-- the same class of API this file already uses everywhere -- not a mixin
+					-- method on a frame, so it is permitted, but treated defensively anyway:
+					-- capability-checked (the Enum.CooldownViewerCategory idiom at :43-54),
+					-- pcall'd, the result verified with ns:CanReadTable before iterating, and
+					-- each element guarded with issecretvalue before comparing it. "?" on any
+					-- degrade; a run where every entry reports "no" is the answer to unknown 4.
+					local alertCap = "?"
+					local pandemicAlertType = Enum.CooldownViewerAlertEventType
+						and Enum.CooldownViewerAlertEventType.PandemicTime
+					-- Namespace existence only, not the specific function -- pcall below already
+					-- degrades cleanly if that one field is absent (calling a nil value raises
+					-- INSIDE pcall's own protected call, which it catches), so there is no need
+					-- for a second reference to the API name here.
+					if pandemicAlertType and C_CooldownViewer then
+						local ok, validTypes = pcall(C_CooldownViewer.GetValidAlertTypes, entry.cooldownID)
+						if ok and ns:CanReadTable(validTypes) then
+							alertCap = "no"
+							for _, v in pairs(validTypes) do
+								if not issecretvalue(v) and v == pandemicAlertType then
+									alertCap = "yes"
+									break
+								end
+							end
+						end
+					end
+
+					-- Phase 48.1 (DISP-01) diagnostics. Three outcomes have to stay
+					-- distinguishable or this field is worth nothing: the client has no
+					-- DebuffBorder on its item frames at all (absent -- the expected Forever
+					-- answer), it has one and Blizzard is deliberately not drawing it (hidden --
+					-- the expected answer for every buff and every non-dispellable debuff), and
+					-- it is drawn but the atlas name did not come back as a plain string
+					-- (unreadable). Collapsing any two of those into "no border" is exactly the
+					-- mistake the previewNote below exists to avoid.
+					--
+					-- pcall'd around the two widget getters because this runs inside "/tbt merge",
+					-- which must not be takeable down by a diagnostic; the render path's own read
+					-- is separately pcall'd at its call site.
+					-- The SECOND possible mirror source, probed here before anything is built on
+					-- it. CooldownViewerItemDataMixin:GetAuraDataCached is a one-line return of
+					-- self.auraDataCached (CooldownViewerItemData.lua:730), so the table is
+					-- reachable as a plain field read -- no mixin call, inside the locked rule --
+					-- and it carries dispelName and isHarmful directly, which is everything
+					-- AuraUtil.SetAuraBorderAtlasFromAura uses to decide what to draw.
+					--
+					-- Worth knowing because it does NOT depend on Blizzard having drawn its own
+					-- border. If the bar's DebuffBorder turns out to be absent or never shown
+					-- under Merge Mode, this route can still answer, and the dump has to say so
+					-- in the same pass rather than costing another test round trip.
+					local auraCached = hasFrame and mergeFrame.auraDataCached or nil
+					local auraNote
+					if not auraCached then
+						auraNote = "none"
+					elseif not ns:CanReadTable(auraCached) then
+						auraNote = "unreadable"
+					else
+						local dn = auraCached.dispelName
+						local harmful = auraCached.isHarmful
+						auraNote = "dispelName="
+							.. ((not issecretvalue(dn) and type(dn) == "string") and dn or ("<" .. (issecretvalue(dn) and "secret" or type(
+								dn
+							)) .. ">"))
+							.. ",harmful="
+							.. (issecretvalue(harmful) and "<secret>" or tostring(harmful))
+					end
+
+					-- entry.dispelAtlas may now hold a SECRET string -- that is the point of the
+					-- relay -- so it can never go through tostring() into this line.
+					--
+					-- Measured on Forever 2026-09-24: it printed the whole row as "???". A secret
+					-- concatenated into a string makes the RESULT secret, and print() renders a
+					-- secret string as "???" rather than leaking it. So one secret field did not
+					-- corrupt one field, it silently destroyed every other field on the row --
+					-- frame, icon, the timestamps, alertCap, all of it -- and only on the rows
+					-- where a border was actually being drawn, which are the interesting ones.
+					--
+					-- Regression introduced by the relay change itself: before it, the atlas was
+					-- filtered to plain strings on the way in, so tostring() here was safe. The
+					-- read stopped filtering and this line was not revisited.
+					-- issecretvalue FIRST, before the nil test and not after it: the addon-wide
+					-- ordering rule is not only about type(), it is about every inspection. A
+					-- secret compared against nil is the same class of mistake as a secret handed
+					-- to type(), and `== nil` on a secret is exactly what ApplyDispelBorder had to
+					-- be restructured to avoid.
+					local stamped
+					if issecretvalue(entry.dispelAtlas) then
+						stamped = "<secret,relayed>"
+					elseif entry.dispelAtlas == nil then
+						stamped = "nil"
+					else
+						stamped = tostring(entry.dispelAtlas)
+					end
+
+					local borderFrame = hasFrame and mergeFrame.DebuffBorder or nil
+					local dispel
+					if not borderFrame then
+						dispel = "absent"
+					else
+						local okShown, isShown = pcall(borderFrame.IsShown, borderFrame)
+						if not okShown then
+							dispel = "raised"
+						elseif not isShown then
+							dispel = "hidden"
+						else
+							-- pcall(tex.GetAtlas, tex) rather than pcall(function() ... end): the
+							-- closure form allocates one per entry per dump, and the method-value
+							-- form matches pcall(borderFrame.IsShown, borderFrame) above. The
+							-- `tex` nil test has to happen BEFORE the pcall either way -- indexing
+							-- a nil `tex` to build the argument list would raise outside the
+							-- pcall, where nothing catches it.
+							local tex = borderFrame.Texture
+							local okAtlas, rawAtlas = true, nil
+							if tex then
+								okAtlas, rawAtlas = pcall(tex.GetAtlas, tex)
+							end
+							if not okAtlas then
+								dispel = "raised"
+							elseif not issecretvalue(rawAtlas) and type(rawAtlas) == "string" then
+								dispel = rawAtlas
+							else
+								dispel = "unreadable(secret="
+									.. tostring(issecretvalue(rawAtlas))
+									.. ",type="
+									.. type(rawAtlas)
+									.. ")"
+							end
+						end
+					end
+
+					-- WHY frame=no, when it is no. ns.mergeItemFrames is filled by
+					-- CollectShownCooldownIDs, which ns:RefreshMergeShownSlots skips entirely
+					-- while ns:IsMergePreviewState() is true -- that is, whenever the Cooldown
+					-- Manager settings window or Edit Mode is open. Running "/tbt merge" with
+					-- either of those on screen is the natural thing to do, and it would report
+					-- frame=no on every row: indistinguishable from the read being broken.
+					--
+					-- Saying which it is costs one boolean. Two outcomes that look identical in
+					-- a log are the thing that makes a probe useless, which this project has
+					-- already paid for once (the aura-route comparator, 2026-09-23).
+					local previewNote = ""
+					if not hasFrame and ns:IsMergePreviewState() then
+						previewNote = " |cffffff00(preview state -- frame cache is empty by design;"
+							.. " close the CDM settings window and Edit Mode, then re-run)|r"
+					end
+
+					-- engineBorder is the ENGINE route's status, and it is the one that matters for
+					-- an ordinary merged tracked buff: that case is drawn by the aura engine, which
+					-- gets its border from InitializeAuraFrame's AddDispelTypeTexture, not from the
+					-- dispel/stamped pair beside it. Those two cover bars, item-backed entries, and
+					-- the fallback where the engine path is latched off.
+					print(
+						"      |cffff8040PANDEMIC|r frame="
+							.. (hasFrame and "yes" or "no")
+							.. previewNote
+							.. " icon="
+							.. (iconPresent and "yes" or "no")
+							.. " trigger(secret="
+							.. tostring(triggerSecret)
+							.. ",type="
+							.. triggerType
+							.. ",val="
+							.. tostring(triggerVal)
+							.. ") start(secret="
+							.. tostring(startSecret)
+							.. ",type="
+							.. startType
+							.. ",val="
+							.. tostring(startVal)
+							.. ") finish(secret="
+							.. tostring(endSecret)
+							.. ",type="
+							.. endType
+							.. ",val="
+							.. tostring(endVal)
+							.. ") answer="
+							.. tostring(ns:IsMergedEntryInPandemic(entry, GetTime()))
+							.. " route="
+							.. route
+							.. " alertCap="
+							.. alertCap
+							.. " dispel="
+							.. dispel
+							.. " stamped="
+							.. stamped
+							.. " engineBorder="
+							.. tostring(ns.mergeDispelTextureState)
+							.. " aura("
+							.. auraNote
+							.. ")"
+					)
+
+					-- Field census, printed only when the frame is cached but reports no
+					-- pandemic state at all. Closes the one hypothesis the fields above cannot:
+					-- "type=nil" means ABSENT, and absent looks identical whether Blizzard has
+					-- simply not computed a window yet, or this client's build names the fields
+					-- something other than what the 12.1 source snapshot says.
+					--
+					-- Measured on retail 2026-09-24: every entry reported icon=no with both
+					-- timestamps type=nil, on a Frost mage -- a spec with no player-refreshable
+					-- DoT, so plausibly nothing to compute a window FOR. This census tells the
+					-- two apart instead of leaving it to inference, per the project's own
+					-- "a source dump cannot prove absence" rule: the live client outranks the
+					-- snapshot, so ask the live client.
+					--
+					-- Plain pairs() over the frame's own Lua fields: a read, never a mixin call
+					-- and never a write, so it sits on the permitted side of this file's header
+					-- (:5-25). pcall'd because a secure proxy may refuse enumeration outright,
+					-- and capped so a frame with many fields cannot flood the chat frame.
+					if hasFrame and not iconPresent and startType == "nil" and endType == "nil" then
+						-- DATA fields are separated from methods and counted rather than named.
+						-- Measured 2026-09-24: the live frame carries nine pandemic-named
+						-- FUNCTIONS and, so far, no data field at all -- so naming the functions
+						-- on every entry of every dump is pure noise, and it was the bulk of a
+						-- very long log. The functions are also the forbidden half: every one is
+						-- a mixin method this file may never call.
+						--
+						-- Data first, and never truncated ahead of a method: a data field is the
+						-- entire point of the census, and the old shared cap could have dropped
+						-- the one key worth seeing behind nine known-uninteresting ones.
+						local dataNames, dataCount, fnCount = {}, 0, 0
+						local okEnum = pcall(function()
+							for k, v in pairs(mergeFrame) do
+								if type(k) == "string" and k:lower():find("pandemic") then
+									if type(v) == "function" then
+										fnCount = fnCount + 1
+									elseif dataCount < 16 then
+										dataCount = dataCount + 1
+										dataNames[dataCount] = k .. "(" .. type(v) .. ")"
+									end
+								end
+							end
+						end)
+						local census
+						if not okEnum then
+							census = "|cffff6600enumeration refused|r"
+						elseif dataCount == 0 then
+							census = "no data fields -- " .. fnCount .. " pandemic methods only"
+						else
+							census = table.concat(dataNames, " ", 1, dataCount) .. " (+" .. fnCount .. " methods)"
+						end
+						print("        |cff808080pandemic fields:|r " .. census)
+					end
+				end
 			end
 		end
 	end

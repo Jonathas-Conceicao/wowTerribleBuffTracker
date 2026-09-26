@@ -2282,6 +2282,805 @@ local function Run()
 	end
 end
 
+---------------------------------------------------------------------------------------------------
+-- CONSUMABLES PROBE (Forever)
+--
+-- Gathers the data a bag-driven consumables meta-tracker would need:
+--   * which bag items are usable, and how they classify (classID/subClassID)
+--   * how many the player holds, and whether a use decrements that count
+--   * each item's cooldown, and WHICH OTHER ITEMS went on cooldown alongside it
+--     -- the sharing group MEASURED rather than declared, so no spell-category
+--     table and no hardcoded grouping is needed to find it
+--   * for bandages, which debuff a use applies and how long it lasts, since a
+--     bandage has no item cooldown to read
+--
+-- Armed with /tbtp consum. Captures ONLY in combat, one entry per item use.
+-- /tbtp consum show opens the copy window.
+--
+-- Every API is resolved namespaced-first with a legacy global fallback, and the
+-- resolution is logged. Forever is not retail: C_Item/C_Container may not carry
+-- the same members, and a probe that assumed the modern name would report
+-- "missing" for an API the client simply has under its older one. Which name
+-- answered is itself a finding the tracker's implementation depends on.
+--
+-- The debuff sample is NOT a single reading after the use. A bandage is
+-- channelled, so its debuff lands seconds after the button was pressed -- a
+-- +0.5s sample would report "no debuff" and be believed. Instead every use opens
+-- a UNIT_AURA watch window and logs each new debuff with its delay.
+
+local consumArmed = false
+local consumLog = {}
+local consumSkipped = 0
+local consumCombatStart = nil
+-- A LIST, not a single slot. The first run held one pending watch, so using a
+-- healthstone 10s after a bandage replaced the bandage's watch and cut its
+-- debuff window short -- and a bandage is channelled, so its debuff is exactly
+-- the thing that lands late. Every use now keeps its own window.
+local consumWatches = {}
+local consumTicker = nil
+-- itemID -> label, for every item seen used this session. Survives the stack
+-- emptying, which the bag walk cannot.
+local consumSeenUsed = {}
+local CONSUM_DEBUFF_WATCH = 20
+
+local function CLog(fmt, ...)
+	local ok, line = pcall(string.format, fmt, ...)
+	consumLog[#consumLog + 1] = ok and line or tostring(fmt)
+end
+
+local function CStamp()
+	if not consumCombatStart then
+		return "  --  "
+	end
+	return string.format("%6.1f", GetTime() - consumCombatStart)
+end
+
+-- Namespaced first, then the legacy global. Both flavours are in scope here.
+local CAPI, CAPI_SOURCE = {}, {}
+local CONSUM_API_SPECS = {
+	{ "GetItemCount", "C_Item" },
+	{ "GetItemCooldown", "C_Item" },
+	{ "GetItemSpell", "C_Item" },
+	{ "GetItemInfoInstant", "C_Item" },
+	{ "GetItemInfo", "C_Item" },
+	{ "GetItemNameByID", "C_Item" },
+	{ "GetContainerNumSlots", "C_Container" },
+	{ "GetContainerItemID", "C_Container" },
+	-- Candidates for replacing the "has a use-spell" filter, which pulled in
+	-- quest items, recipes and a door key on the first run.
+	{ "IsUsableItem", "C_Item" },
+	{ "IsConsumableItem", "C_Item" },
+	-- ByID, not GetItemMaxStackSize: that one takes an ItemLocation mixin, not an
+	-- itemID, so passing an itemID returned nothing and printed "?" for every row.
+	{ "GetItemMaxStackSizeByID", "C_Item" },
+	{ "GetItemQualityByID", "C_Item" },
+}
+
+local function ConsumResolveAPIs()
+	wipe(CAPI)
+	wipe(CAPI_SOURCE)
+	for _, spec in ipairs(CONSUM_API_SPECS) do
+		local name, nsName = spec[1], spec[2]
+		local namespace = _G[nsName]
+		local fn
+		if type(namespace) == "table" then
+			local ok, value = pcall(function()
+				return namespace[name]
+			end)
+			if ok and type(value) == "function" then
+				fn, CAPI_SOURCE[name] = value, nsName .. "." .. name
+			end
+		end
+		if not fn and type(_G[name]) == "function" then
+			fn, CAPI_SOURCE[name] = _G[name], "global " .. name
+		end
+		CAPI[name] = fn
+		if not fn then
+			CAPI_SOURCE[name] = "MISSING (" .. nsName .. "." .. name .. " and global)"
+		end
+	end
+end
+
+-- issecretvalue FIRST, then type -- type() reports "number" for a secret number.
+local function CNum(value)
+	if IsSecret(value) or type(value) ~= "number" then
+		return nil
+	end
+	return value
+end
+
+local function CStr(value)
+	if IsSecret(value) or type(value) ~= "string" then
+		return nil
+	end
+	return value
+end
+
+local function ConsumCall(name, ...)
+	local fn = CAPI[name]
+	if type(fn) ~= "function" then
+		return false
+	end
+	return pcall(fn, ...)
+end
+
+-- Distinct itemIDs across every bag the client admits to having. Bag 5 is the
+-- retail reagent bag and simply returns nothing on a client without one.
+local function ConsumBagItems()
+	local items, seen = {}, {}
+	for bag = 0, 5 do
+		local ok, slots = ConsumCall("GetContainerNumSlots", bag)
+		local count = ok and CNum(slots) or 0
+		for slot = 1, (count or 0) do
+			local ok2, itemID = ConsumCall("GetContainerItemID", bag, slot)
+			local id = ok2 and CNum(itemID)
+			if id and not seen[id] then
+				seen[id] = true
+				items[#items + 1] = id
+			end
+		end
+	end
+	return items
+end
+
+local function ConsumItemFacts(itemID)
+	local facts = { id = itemID }
+
+	local ok, name = ConsumCall("GetItemNameByID", itemID)
+	facts.name = ok and CStr(name) or nil
+	if not facts.name then
+		local ok2, n2 = ConsumCall("GetItemInfo", itemID)
+		facts.name = ok2 and CStr(n2) or nil
+	end
+
+	local okI, _, itemType, itemSubType, _, _, classID, subClassID = ConsumCall("GetItemInfoInstant", itemID)
+	if okI then
+		facts.itemType = CStr(itemType)
+		facts.itemSubType = CStr(itemSubType)
+		facts.classID = CNum(classID)
+		facts.subClassID = CNum(subClassID)
+	end
+
+	local okS, _, spellID = ConsumCall("GetItemSpell", itemID)
+	facts.useSpellID = okS and CNum(spellID) or nil
+
+	local okC, count = ConsumCall("GetItemCount", itemID)
+	facts.count = okC and CNum(count) or nil
+
+	-- NOT `ok and value or nil`. That idiom collapses a legitimate `false` into
+	-- nil, which the baseline table then prints as "?" -- so "this item is not
+	-- usable" and "this call could not be read" became the same glyph, and the
+	-- whole con/usa columns were unreadable in the last run. Booleans need an
+	-- explicit nil test, never and/or.
+	local okU, usable = ConsumCall("IsUsableItem", itemID)
+	if okU and type(usable) == "boolean" then
+		facts.usable = usable
+	end
+
+	local okCon, consumable = ConsumCall("IsConsumableItem", itemID)
+	if okCon and type(consumable) == "boolean" then
+		facts.consumable = consumable
+	end
+
+	local okM, maxStack = ConsumCall("GetItemMaxStackSizeByID", itemID)
+	facts.maxStack = okM and CNum(maxStack) or nil
+
+	local okQ, quality = ConsumCall("GetItemQualityByID", itemID)
+	facts.quality = okQ and CNum(quality) or nil
+
+	return facts
+end
+
+-- Compact tri-state for the baseline table: yes / no / could not tell.
+local function CFlag(value)
+	if value == nil or IsSecret(value) then
+		return "?"
+	end
+	if type(value) ~= "boolean" then
+		return "?"
+	end
+	return value and "Y" or "-"
+end
+
+-- nil when unreadable, so "could not read" never masquerades as "not on cooldown".
+local function ConsumCdState(itemID)
+	local ok, start, duration, enable = ConsumCall("GetItemCooldown", itemID)
+	if not ok then
+		return nil
+	end
+	local s, d = CNum(start), CNum(duration)
+	if not s or not d then
+		return nil
+	end
+	return { start = s, duration = d, enable = enable, active = (s > 0 and d > 0) }
+end
+
+local function ConsumCdMap(items)
+	local map = {}
+	for _, itemID in ipairs(items) do
+		map[itemID] = ConsumCdState(itemID)
+	end
+	return map
+end
+
+-- Reads the player's debuffs through EVERY route the client offers and reports
+-- what each one yielded. This is a comparator, not a getter, and that is the
+-- point: the first version picked one route and reported only its name.
+--
+-- It picked the wrong one. C_UnitAuras.GetAuraDataByIndex carries two silent
+-- failure modes that a pcall'd loop swallows into "no debuffs":
+--   * SecretWhenUnitAuraRestricted -- it hands back a SECRET when unit auras
+--     are restricted, and the CanRead() guard then breaks the loop on iteration
+--     one, indistinguishably from an empty debuff list.
+--   * RequiresUnitAuraAccess, FailureMode "Error" -- it RAISES when the caller
+--     lacks aura access, and the pcall turns that raise into a quiet false.
+-- C_UnitAuras.GetUnitAuras has the same access precondition but is only
+-- ConditionalSecretContents, not wholesale secret -- and it is the route this
+-- probe's own /tbtp auras dump has always used successfully on this client.
+-- Using GetAuraDataByIndex instead was the bug behind the missing bandage
+-- debuff, most likely, and comparing all four routes is what proves it.
+local CONSUM_AURA_ROUTES = {
+	{
+		name = "GetUnitAuras",
+		run = function(out)
+			if type(C_UnitAuras) ~= "table" or type(C_UnitAuras.GetUnitAuras) ~= "function" then
+				return nil, "api-missing"
+			end
+			local ok, auras = pcall(C_UnitAuras.GetUnitAuras, "player", "HARMFUL", 40)
+			if not ok then
+				return nil, "RAISED: " .. (IsSecret(auras) and "secret" or tostring(auras):sub(1, 50))
+			end
+			if type(auras) ~= "table" then
+				return nil, "returned " .. Describe(auras)
+			end
+			if not CanRead(auras) then
+				return nil, "SECRET TABLE"
+			end
+			local n = 0
+			for i = 1, #auras do
+				local aura = auras[i]
+				if type(aura) == "table" and CanRead(aura) then
+					local key = CNum(aura.spellId) or CStr(aura.name)
+					if key then
+						n = n + 1
+						out[key] = {
+							name = CStr(aura.name) or "?",
+							spellID = CNum(aura.spellId),
+							duration = CNum(aura.duration),
+							expires = CNum(aura.expirationTime),
+						}
+					end
+				end
+			end
+			return n, tostring(n)
+		end,
+	},
+	{
+		name = "GetAuraDataByIndex",
+		run = function(out)
+			if type(C_UnitAuras) ~= "table" or type(C_UnitAuras.GetAuraDataByIndex) ~= "function" then
+				return nil, "api-missing"
+			end
+			local n = 0
+			for i = 1, 40 do
+				local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HARMFUL")
+				if not ok then
+					return n,
+						string.format("%d then RAISED: %s", n, IsSecret(aura) and "secret" or tostring(aura):sub(1, 40))
+				end
+				if aura == nil then
+					break
+				end
+				if IsSecret(aura) then
+					return n, string.format("%d then SECRET at index %d", n, i)
+				end
+				if type(aura) ~= "table" or not CanRead(aura) then
+					return n, string.format("%d then unreadable at index %d", n, i)
+				end
+				local key = CNum(aura.spellId) or CStr(aura.name)
+				if key then
+					n = n + 1
+					out[key] = {
+						name = CStr(aura.name) or "?",
+						spellID = CNum(aura.spellId),
+						duration = CNum(aura.duration),
+						expires = CNum(aura.expirationTime),
+					}
+				end
+			end
+			return n, tostring(n)
+		end,
+	},
+	{
+		name = "UnitDebuff",
+		run = function(out)
+			if type(UnitDebuff) ~= "function" then
+				return nil, "api-missing"
+			end
+			local n = 0
+			for i = 1, 40 do
+				local ok, name, _, _, _, duration, expires, _, _, _, spellID = pcall(UnitDebuff, "player", i)
+				if not ok then
+					return n, string.format("%d then RAISED", n)
+				end
+				local key = CNum(spellID) or CStr(name)
+				if not key then
+					break
+				end
+				n = n + 1
+				out[key] = {
+					name = CStr(name) or "?",
+					spellID = CNum(spellID),
+					duration = CNum(duration),
+					expires = CNum(expires),
+				}
+			end
+			return n, tostring(n)
+		end,
+	},
+	{
+		name = "UnitAura(HARMFUL)",
+		run = function(out)
+			if type(UnitAura) ~= "function" then
+				return nil, "api-missing"
+			end
+			local n = 0
+			for i = 1, 40 do
+				local ok, name, _, _, _, duration, expires, _, _, _, spellID = pcall(UnitAura, "player", i, "HARMFUL")
+				if not ok then
+					return n, string.format("%d then RAISED", n)
+				end
+				local key = CNum(spellID) or CStr(name)
+				if not key then
+					break
+				end
+				n = n + 1
+				out[key] = {
+					name = CStr(name) or "?",
+					spellID = CNum(spellID),
+					duration = CNum(duration),
+					expires = CNum(expires),
+				}
+			end
+			return n, tostring(n)
+		end,
+	},
+}
+
+-- Name of the route that last returned anything, so the 0.25s poll can use one
+-- route instead of all four.
+local consumAuraRoute = nil
+
+-- Runs every route. Returns the richest result plus a one-line scoreboard.
+local function ConsumDebuffs()
+	local best, bestCount, parts = {}, -1, {}
+
+	for _, route in ipairs(CONSUM_AURA_ROUTES) do
+		local out = {}
+		local ok, count, status = pcall(route.run, out)
+		if not ok then
+			status = "HANDLER ERROR"
+			count = nil
+		end
+		parts[#parts + 1] = route.name .. "=" .. tostring(status)
+		if type(count) == "number" and count > bestCount then
+			best, bestCount = out, count
+			if count > 0 then
+				consumAuraRoute = route.name
+			end
+		end
+	end
+
+	return best, table.concat(parts, " | ")
+end
+
+-- Single-route read for the polling tick. Falls back to the full comparison
+-- until a route has proven itself.
+local function ConsumDebuffsFast()
+	if not consumAuraRoute then
+		return ConsumDebuffs()
+	end
+	for _, route in ipairs(CONSUM_AURA_ROUTES) do
+		if route.name == consumAuraRoute then
+			local out = {}
+			local ok, _, status = pcall(route.run, out)
+			return out, ok and (route.name .. "=" .. tostring(status)) or (route.name .. "=HANDLER ERROR")
+		end
+	end
+	return ConsumDebuffs()
+end
+
+local function ConsumLabel(facts)
+	return string.format(
+		"%s (item %d%s)",
+		facts.name or "?",
+		facts.id,
+		facts.useSpellID and (", spell " .. facts.useSpellID) or ", no use-spell"
+	)
+end
+
+-- Logs the cooldowns that became active between the two samples. This is the
+-- sharing group: nothing here is inferred from a category, it is the set of
+-- items the server actually put on cooldown at the same moment.
+local function ConsumLogSharing(tag, usedID, items, before, after)
+	local shared, selfLine, unreadable = {}, nil, 0
+	for _, itemID in ipairs(items) do
+		local pre, post = before[itemID], after[itemID]
+		if post == nil then
+			unreadable = unreadable + 1
+		elseif post.active and (pre == nil or not pre.active) then
+			local facts = ConsumItemFacts(itemID)
+			local entry = string.format("%s dur=%.1f", ConsumLabel(facts), post.duration)
+			if itemID == usedID then
+				selfLine = entry
+			else
+				shared[#shared + 1] = entry
+			end
+		end
+	end
+
+	CLog("    %s self-cd      : %s", tag, selfLine or "(none -- no item cooldown applied)")
+	if #shared > 0 then
+		CLog("    %s SHARED cd    : %d other item(s)", tag, #shared)
+		for _, line in ipairs(shared) do
+			CLog("        + %s", line)
+		end
+	else
+		CLog("    %s SHARED cd    : (none)", tag)
+	end
+	if unreadable > 0 then
+		CLog("    %s unreadable   : %d item(s) -- GetItemCooldown gave no usable answer", tag, unreadable)
+	end
+
+	return selfLine ~= nil
+end
+
+-- Returns whether the used item itself went on cooldown.
+local function ConsumSample(tag, usedID, items, before)
+	local after = ConsumCdMap(items)
+	return ConsumLogSharing(tag, usedID, items, before, after)
+end
+
+local function ConsumOnItemUse(itemID)
+	if not consumArmed then
+		return
+	end
+	local id = CNum(itemID)
+	if not id then
+		return
+	end
+	if not InCombatLockdown() then
+		consumSkipped = consumSkipped + 1
+		return
+	end
+
+	local facts = ConsumItemFacts(id)
+	local items = ConsumBagItems()
+	local before = ConsumCdMap(items)
+	local debuffsBefore, auraMethod = ConsumDebuffs()
+
+	CLog("")
+	CLog("[%ss] USE %s", CStamp(), ConsumLabel(facts))
+	CLog(
+		'    class        : %s/%s  "%s / %s"',
+		facts.classID ~= nil and tostring(facts.classID) or "?",
+		facts.subClassID ~= nil and tostring(facts.subClassID) or "?",
+		facts.itemType or "?",
+		facts.itemSubType or "?"
+	)
+	CLog("    count before : %s", facts.count ~= nil and tostring(facts.count) or "unreadable")
+	-- Sampled per use, not just at arm time. The arm-time reading was taken out
+	-- of combat and said auras were readable; every in-combat read then raised.
+	-- Only a sample taken at the same moment as the failure can tie the two
+	-- together instead of leaving it as an inference.
+	CLog(
+		"    secret gates : auras=%s cooldowns=%s",
+		Describe(C_Secrets and C_Secrets.ShouldAurasBeSecret()),
+		Describe(C_Secrets and C_Secrets.ShouldCooldownsBeSecret())
+	)
+	CLog("    aura routes  : %s", auraMethod)
+
+	consumSeenUsed[id] = ConsumLabel(facts)
+
+	local watch = {
+		itemID = id,
+		label = ConsumLabel(facts),
+		t0 = GetTime(),
+		debuffsBefore = debuffsBefore,
+		countBefore = facts.count,
+		sawCooldown = false,
+		countChanged = false,
+	}
+	consumWatches[#consumWatches + 1] = watch
+
+	-- Two cooldown samples: one for an instant item, one late enough to catch a
+	-- cooldown that only starts when a cast finishes.
+	C_Timer.After(0.5, function()
+		watch.sawCooldown = ConsumSample("+0.5s", id, items, before) or watch.sawCooldown
+		local okC, nowCount = ConsumCall("GetItemCount", id)
+		local after = okC and CNum(nowCount)
+		watch.countChanged = (after ~= nil and facts.count ~= nil and after ~= facts.count)
+		CLog(
+			"    count after  : %s%s",
+			after ~= nil and tostring(after) or "unreadable",
+			watch.countChanged and "  (DECREMENTED)" or ""
+		)
+	end)
+	C_Timer.After(2.5, function()
+		watch.sawCooldown = ConsumSample("+2.5s", id, items, before) or watch.sawCooldown
+		-- Neither a cooldown nor a count change means the button was pressed and
+		-- the game refused the use. Called out explicitly: a hook fires on the
+		-- PRESS, not on a successful use, and reading a silent entry as "this
+		-- item has no cooldown" is the wrong conclusion to draw from it.
+		if not watch.sawCooldown and not watch.countChanged then
+			CLog("    >> USE DID NOT TAKE: no cooldown and no count change (press was refused)")
+		end
+	end)
+end
+
+-- New debuffs inside each open watch window, which is how a bandage's debuff is
+-- caught however late it lands.
+--
+-- Driven by a 0.25s ticker as well as UNIT_AURA. Relying on the event alone left
+-- no way to tell "the event never fired" from "it fired and nothing was new",
+-- and the first run's missing bandage debuff could not be explained because of
+-- exactly that. The poll also closes each window with a verdict, so a window
+-- that ends having seen nothing says so in the log instead of ending silently.
+local function ConsumPollWatches()
+	if #consumWatches == 0 then
+		return
+	end
+
+	-- Fast single-route read: this runs four times a second. The full four-route
+	-- comparison runs at use time and at window close, where it is cheap.
+	local now, method = ConsumDebuffsFast()
+	local stillOpen = {}
+
+	for _, watch in ipairs(consumWatches) do
+		local elapsed = GetTime() - watch.t0
+		for key, aura in pairs(now) do
+			if watch.debuffsBefore[key] == nil then
+				watch.debuffsBefore[key] = aura
+				watch.sawDebuff = true
+				CLog(
+					"    +%.1fs DEBUFF  : %s (spell %s) duration=%s expires=%s",
+					elapsed,
+					aura.name,
+					aura.spellID ~= nil and tostring(aura.spellID) or "?",
+					aura.duration ~= nil and string.format("%.1f", aura.duration) or "?",
+					aura.expires ~= nil and string.format("%.1f", aura.expires) or "?"
+				)
+			end
+		end
+
+		if elapsed <= CONSUM_DEBUFF_WATCH then
+			stillOpen[#stillOpen + 1] = watch
+		elseif not watch.sawDebuff then
+			-- Full four-route comparison on the way out, not the fast route's
+			-- word alone: a window closing empty is exactly the claim that needs
+			-- the strongest evidence behind it.
+			local _, allRoutes = ConsumDebuffs()
+			CLog("    debuff window closed after %ds with NO new debuff for %s", CONSUM_DEBUFF_WATCH, watch.label)
+			CLog("        routes at close: %s", allRoutes)
+			CLog("        routes at poll : %s", method)
+		end
+	end
+
+	consumWatches = stillOpen
+end
+
+local function ConsumLogBaseline(header)
+	local items = ConsumBagItems()
+	CLog("%s (%d distinct bag items)", header, #items)
+	CLog(
+		"    %-32s %-6s %-4s %-3s %-3s %-5s %-6s %-9s %s",
+		"item (id)",
+		"class",
+		"qual",
+		"usa",
+		"con",
+		"count",
+		"stack",
+		"useSpell",
+		"type / subtype"
+	)
+
+	local withSpell, consumables, both = 0, 0, 0
+	for _, itemID in ipairs(items) do
+		local facts = ConsumItemFacts(itemID)
+		local isConsumable = (facts.classID == 0)
+		if facts.useSpellID then
+			withSpell = withSpell + 1
+		end
+		if isConsumable then
+			consumables = consumables + 1
+		end
+		if isConsumable and facts.useSpellID then
+			both = both + 1
+		end
+		CLog(
+			"    %-32s %-6s %-4s %-3s %-3s %-5s %-6s %-9s %s / %s",
+			string.sub((facts.name or "?") .. " (" .. itemID .. ")", 1, 32),
+			(facts.classID ~= nil and facts.subClassID ~= nil) and (facts.classID .. "/" .. facts.subClassID) or "?",
+			facts.quality ~= nil and tostring(facts.quality) or "?",
+			CFlag(facts.usable),
+			CFlag(facts.consumable),
+			facts.count ~= nil and tostring(facts.count) or "?",
+			facts.maxStack ~= nil and tostring(facts.maxStack) or "?",
+			facts.useSpellID ~= nil and tostring(facts.useSpellID) or "-",
+			facts.itemType or "?",
+			facts.itemSubType or "?"
+		)
+	end
+
+	CLog("    -> %d have a use-spell | %d are classID 0 | %d are both", withSpell, consumables, both)
+
+	-- Items the probe has watched being used, reported whether or not they are
+	-- still in the bags. This is the "did we run out" case: a consumed stack
+	-- vanishes from the bag walk entirely, so the only way to learn whether
+	-- GetItemCooldown still answers for it is to keep asking by itemID.
+	if next(consumSeenUsed) then
+		CLog("    previously-used items (asked by itemID, bag or no bag):")
+		for itemID, label in pairs(consumSeenUsed) do
+			local okC, count = ConsumCall("GetItemCount", itemID)
+			local held = okC and CNum(count)
+			local cd = ConsumCdState(itemID)
+			CLog(
+				"        %-34s count=%s  cooldown=%s",
+				string.sub(label, 1, 34),
+				held ~= nil and tostring(held) or "?",
+				cd == nil and "UNREADABLE" or (cd.active and string.format("active dur=%.1f", cd.duration) or "idle")
+			)
+		end
+	end
+end
+
+local consumFrame = CreateFrame("Frame")
+consumFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+consumFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+consumFrame:RegisterUnitEvent("UNIT_AURA", "player")
+-- Channel tracking exists for one question: a bandage that applies no debuff and
+-- a bandage whose channel was broken by damage look identical in a cooldown and
+-- count log. These three events tell them apart.
+for _, eventName in ipairs({
+	"UNIT_SPELLCAST_CHANNEL_START",
+	"UNIT_SPELLCAST_CHANNEL_STOP",
+	"UNIT_SPELLCAST_INTERRUPTED",
+	"UNIT_SPELLCAST_FAILED",
+}) do
+	pcall(consumFrame.RegisterUnitEvent, consumFrame, eventName, "player")
+end
+
+consumFrame:SetScript("OnEvent", function(_, event, _, _, spellID)
+	if not consumArmed then
+		return
+	end
+	if event == "PLAYER_REGEN_DISABLED" then
+		consumCombatStart = GetTime()
+		consumWatches = {}
+		CLog("")
+		CLog("================ COMBAT START  %s ================", date("%H:%M:%S"))
+		ConsumLogBaseline("  bag baseline at combat start")
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		ConsumPollWatches()
+		CLog("")
+		CLog("================ COMBAT END    %s ================", date("%H:%M:%S"))
+		consumCombatStart = nil
+		consumWatches = {}
+		print("|cff00ccffTBT Probe|r: combat ended — |cffffff00/tbtp consum show|r to copy the log.")
+	elseif event == "UNIT_AURA" then
+		ConsumPollWatches()
+	elseif consumCombatStart then
+		local id = CNum(spellID)
+		CLog("    [%ss] %s  spell %s", CStamp(), event, id ~= nil and tostring(id) or "?")
+	end
+end)
+
+-- Polls alongside UNIT_AURA so a window never closes without a verdict.
+consumTicker = C_Timer.NewTicker(0.25, function()
+	if consumArmed then
+		ConsumPollWatches()
+	end
+end)
+
+-- The four ways an item use can start, same set the addon's debug log hooks.
+local function ConsumTryHook(target, name, handler)
+	if type(target) ~= "table" or type(rawget(target, name)) ~= "function" then
+		return false
+	end
+	if target == _G then
+		return pcall(hooksecurefunc, name, handler)
+	end
+	return pcall(hooksecurefunc, target, name, handler)
+end
+
+ConsumTryHook(_G, "UseAction", function(slot)
+	if not consumArmed then
+		return
+	end
+	local ok, actionType, id = pcall(GetActionInfo, slot)
+	if ok and CStr(actionType) == "item" then
+		ConsumOnItemUse(id)
+	end
+end)
+
+ConsumTryHook(C_Container, "UseContainerItem", function(bagID, slotIndex)
+	if not consumArmed then
+		return
+	end
+	local ok, itemID = ConsumCall("GetContainerItemID", bagID, slotIndex)
+	if ok then
+		ConsumOnItemUse(itemID)
+	end
+end)
+
+ConsumTryHook(_G, "UseInventoryItem", function(slot)
+	if not consumArmed then
+		return
+	end
+	local ok, itemID = pcall(GetInventoryItemID, "player", slot)
+	if ok then
+		ConsumOnItemUse(itemID)
+	end
+end)
+
+ConsumTryHook(C_Item, "UseItemByName", function(itemInfo)
+	if not consumArmed then
+		return
+	end
+	local ok, itemID = ConsumCall("GetItemInfoInstant", itemInfo)
+	if ok then
+		ConsumOnItemUse(itemID)
+	end
+end)
+
+local function ConsumArm()
+	consumArmed = not consumArmed
+	if not consumArmed then
+		print("|cff00ccffTBT Probe|r: consumables probe |cffff6600OFF|r (log kept).")
+		return
+	end
+
+	ConsumResolveAPIs()
+	wipe(consumLog)
+	consumSkipped = 0
+	consumWatches = {}
+	consumSeenUsed = {}
+	consumCombatStart = nil
+
+	CLog("===== TBT PROBE — CONSUMABLES =====")
+	CLog("armed: %s", date("%Y-%m-%d %H:%M:%S"))
+	CLog("client: %s", (GetBuildInfo and select(1, GetBuildInfo())) or "?")
+	CLog("")
+	CLog("API resolution (which name this client actually answers to):")
+	for _, spec in ipairs(CONSUM_API_SPECS) do
+		CLog("    %-24s %s", spec[1], CAPI_SOURCE[spec[1]] or "?")
+	end
+	CLog("")
+	CLog("Secret gates right now:")
+	CLog("    ShouldAurasBeSecret()     %s", Describe(C_Secrets and C_Secrets.ShouldAurasBeSecret()))
+	CLog("    ShouldCooldownsBeSecret() %s", Describe(C_Secrets and C_Secrets.ShouldCooldownsBeSecret()))
+	CLog("")
+	ConsumLogBaseline("Bag baseline at arm time")
+
+	print("|cff00ccffTBT Probe|r: consumables probe |cff00ff00ARMED|r — logs in combat only.")
+	print("  Use your pots/stones/bandages in a fight, then |cffffff00/tbtp consum show|r.")
+end
+
+local function ConsumShow()
+	wipe(report)
+	for _, line in ipairs(consumLog) do
+		Add(line)
+	end
+	if consumSkipped > 0 then
+		Add("")
+		Add(string.format("(%d item use(s) ignored because they happened out of combat)", consumSkipped))
+	end
+	Add("")
+	Add("===== END =====")
+	ShowCopyWindow(table.concat(report, "\n"))
+end
+
 SLASH_TBTPROBE1 = "/tbtp"
 SLASH_TBTPROBE2 = "/tbtprobe"
 SlashCmdList.TBTPROBE = function(msg)
@@ -2365,6 +3164,22 @@ SlashCmdList.TBTPROBE = function(msg)
 		end
 	elseif cmd == "bar" then
 		ShowTestBar()
+	elseif cmd == "consum" then
+		if arg == "show" then
+			ConsumShow()
+		elseif arg == "clear" then
+			wipe(consumLog)
+			consumSkipped = 0
+			print("|cff00ccffTBT Probe|r: consumables log cleared.")
+		elseif arg == "scan" then
+			-- One-off bag dump, no combat needed; for reading the catalogue before a pull.
+			ConsumResolveAPIs()
+			wipe(consumLog)
+			ConsumLogBaseline("Bag scan (" .. date("%H:%M:%S") .. ")")
+			ConsumShow()
+		else
+			ConsumArm()
+		end
 	elseif cmd == "help" then
 		print("|cff00ccffTBT Probe|r commands:")
 		print("  /tbtp            run the probe and print a summary")
@@ -2381,6 +3196,10 @@ SlashCmdList.TBTPROBE = function(msg)
 		print("  /tbtp safe | unsafe   toggle calling Blizzard CDM mixin methods (taint source)")
 		print("  /tbtp watch <id> log a stacking aura over time + show a live stack widget")
 		print("  /tbtp watch stop stop watching")
+		print("  |cffffff00/tbtp consum|r      arm the consumables probe (logs in COMBAT only)")
+		print("  /tbtp consum show   open the copy window with the consumables log")
+		print("  /tbtp consum scan   one-off bag catalogue, no combat needed")
+		print("  /tbtp consum clear  empty the consumables log")
 	else
 		Run()
 	end

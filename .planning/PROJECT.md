@@ -8,13 +8,77 @@ A WoW addon for manually tracking buff and cooldown timers, running on both **Mi
 
 Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
 
-## Current Milestone: v0.4.0 Cooldown Tracking and Full CDM View
+## Current Milestone: none active — v0.4.1 archived 2026-09-26
+
+**v0.4.1 Generic Item Tracking and Forever Racials is COMPLETE and archived.** 8 phases (46-52,
+including 48.1 inserted mid-milestone), 18 plans, 22/22 requirements closed, verified in game on both
+the WoW Forever beta and Midnight retail on 2026-09-26. Archives:
+[`milestones/v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md) and
+[`milestones/v0.4.1-REQUIREMENTS.md`](milestones/v0.4.1-REQUIREMENTS.md).
+
+**It is NOT yet released, and the order matters.** In sequence: the user pastes their own `v0.4.1`
+entry into `CHANGELOG.md` from `.planning/phases/50-cleanup-release-prep/50-CHANGELOG-DRAFT.md`
+(no agent writes that file), then the milestone branch is **squash-merged to `main`**, then
+`scripts/release.bat` runs **from `main`** — which creates the tag itself. `release.bat` carries a
+branch guard enforcing this; `TBT_ALLOW_BRANCH=1` overrides it and must not be used here. **No tag
+was created at archive time, deliberately.**
+
+Phase numbering never restarts, so the next milestone starts after Phase 52.
+
+<details>
+<summary>v0.4.1 milestone goal, as set at kickoff</summary>
+
+**Goal:** TBT can track any usable consumable out of the player's own bags as a first-class cooldown
+tracker, completes the Forever racial catalogue, and carries the Cooldown Manager's pandemic refresh
+indicator through into Merge Mode.
+
+**Phases start at 46.** Numbering continues from v0.4.0's Phase 45 and never restarts.
+
+**Target features:**
+
+- **Generic item tracking (backlog 999.6), both flavours.** Opening the CDM scans the player's bags and
+  offers every likely consumable in Suggested on the Cooldowns tab, each showing its icon and current
+  count. Dragging one creates an ordinary cooldown tracker. **Spell categories are not used** — a
+  per-item `C_Item.GetItemCooldown(itemID)` read already reflects a shared cooldown, so tracking items
+  individually gets sharing for free. Counts decrement on `UNIT_SPELLCAST_SUCCEEDED` (the press is not
+  the use) and reconcile against `GetItemCount` out of combat. Measured on Forever 1.60.1 across two
+  probe runs; the findings and the settled design are in ROADMAP 999.6.
+  **Changed from Forever-only to both flavours** by user decision at kickoff, 2026-09-24 (`ITEM-10`):
+  unlike the racial tiles, this duplicates nothing retail's own CDM already provides for items the
+  player chooses to track. Both probe runs were Forever-only, so retail's item-cooldown secrecy in
+  combat is unmeasured — the reads are guarded `issecretvalue()`-then-`type()` and degrade to "no
+  cooldown shown" rather than erroring, and retail is verified in Phase 52's review pass.
+- **Forever racial catalogue (`RACE-07`).** v0.4.0 ships gnome, troll and orc; every other race resolves
+  to a "not yet supported" tile. This milestone fills in the remaining **Forever** races, each an
+  individually-specified special case supplied by the user. **`RACE-06` — the retail catalogue — stays
+  deferred** by user decision at kickoff, 2026-09-24.
+- **Pandemic highlight in Merge Mode (backlog 999.7).** Carry the CDM's refresh-window indicator onto
+  TBT's mirrored icons and bars. Researched 2026-09-24 (`.planning/research/PANDEMIC.md`): the signal is
+  the plain field `itemFrame.PandemicIcon`, read inside the already-whitelisted
+  `itemFramePool:EnumerateActive` walk — a frame reference can never be secret, unlike the
+  `pandemicStartTime`/`pandemicEndTime` numbers. Recomputing the window is **closed** — it needs
+  `auraInstanceID`, which Blizzard flags `DisallowTaintedAccess`. Five unknowns need an in-game spike
+  before the plan locks.
+
+**Bandages are explicitly out.** The gate is a debuff (Recently Bandaged, spell 11196, 60s) with no item
+cooldown, auras cannot be read in combat on Forever, and the debuff lands on the recipient rather than the
+caster — so a self-tracker cannot fire on "bandage used". Deferred with findings recorded, 2026-09-24.
+
+**All of the above shipped.** The only kickoff target that moved was `RACE-07`, which grew into
+`RACE-10` mid-milestone by user decision — every racial became its own race-gated tracker entry
+instead of filling two generic slots. `RACE-09` was closed as obsolete rather than implemented, its
+subject having stopped existing.
+
+</details>
+
+<details>
+<summary>v0.4.0 Cooldown Tracking and Full CDM View — SHIPPED 2026-09-23 as v0.4.0</summary>
 
 **Goal:** TBT stops being a buff-only addon anchored beside the CDM and becomes a complete tracking
 surface — cooldowns as well as buffs, four pinned base containers plus user-created ones, and an
 optional mode where it takes over the CDM's entire display.
 
-**Phases start at 31.** Numbering continues from v0.3's Phase 30 and never restarts.
+**Phases started at 31.** Numbering continues from v0.3's Phase 30 and never restarts.
 
 **Target features:**
 
@@ -51,6 +115,8 @@ optional mode where it takes over the CDM's entire display.
 3. **Last:** **999.2** — `README.md`, the CurseForge/Wago descriptions and `CHANGELOG.md`, written once
    everything is reviewed and tested, immediately before merge/release. **Trinket and Pot meta-trackers
    stay as-is**; only the wording changes.
+
+</details>
 
 <details>
 <summary>v0.3 WoW Forever compatibility — SHIPPED 2026-09-19 as v0.3.0</summary>
@@ -129,9 +195,15 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 
 ### Active
 
-*None — v0.3.0 shipped and `.planning/REQUIREMENTS.md` was archived to
-`.planning/milestones/v0.3.0-REQUIREMENTS.md`. A fresh REQUIREMENTS.md is created by
-`/gsd-new-milestone`. Carry-forward candidates are listed under Next Milestone Goals above.*
+v0.4.1's requirements live in `.planning/REQUIREMENTS.md`, written fresh at kickoff on 2026-09-24.
+v0.4.0's are archived to `.planning/milestones/v0.4.0-REQUIREMENTS.md`.
+
+Carried in from the backlog and still open:
+
+- **`RACE-06`** — every retail racial as its own specified special case. Deferred again at v0.4.1
+  kickoff by user decision; only the Forever half (`RACE-07`) is in this milestone.
+- **999.5** — a cooldown icon can stay grey through the GCD. Not selected for v0.4.1; never
+  consistently reproducible, so it stays open pending a repro rather than being closed on a guess.
 
 ## Current State
 
@@ -139,7 +211,9 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 
 **Planning drift note:** v0.2.5 (12.1 compatibility) and v0.2.6 (CDM tab placement) were both developed, tagged and released outside the GSD workflow, so they have no phase artifacts under `.planning/phases/`. They are recorded in `CHANGELOG.md`, `MILESTONES.md` and the Validated list above; that is the whole of their planning record — no phases are reconstructed retroactively.
 
-**Current milestone:** none active. v0.4.0 Cooldown Tracking and Full CDM View is **archived** (2026-09-23) — 15 phases (31-45), 34 plans, 58/58 requirements, see [`milestones/v0.4.0-ROADMAP.md`](milestones/v0.4.0-ROADMAP.md). It is **not yet released**: squash-merge the milestone branch to `main`, then run `scripts/release.bat 0.4.0` from `main`, which creates the `v0.4.0` tag itself and pushes. Phase numbering never restarts, so the next milestone starts after Phase 45.
+**v0.4.1 Generic Item Tracking and Forever Racials is archived (2026-09-26)** — 8 phases (46-52), 18 plans, 22/22 requirements, verified in game on both flavours. See [`milestones/v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md). **Not yet released:** CHANGELOG entry, then squash-merge to `main`, then `scripts/release.bat` from `main` — which creates the tag. The next milestone starts after Phase 52.
+
+**Earlier —** v0.4.0 Cooldown Tracking and Full CDM View is **archived** (2026-09-23) — 15 phases (31-45), 34 plans, 58/58 requirements, see [`milestones/v0.4.0-ROADMAP.md`](milestones/v0.4.0-ROADMAP.md). It is **not yet released**: squash-merge the milestone branch to `main`, then run `scripts/release.bat 0.4.0` from `main`, which creates the `v0.4.0` tag itself and pushes. Phase numbering never restarts, so the next milestone starts after Phase 45.
 
 **Phase 45 closed the documentation (2026-09-23):** `README.md` rewritten for what v0.4.0 actually ships, and the v0.4.0 `CHANGELOG.md` entry appended above v0.3.0 with a byte-level append-only proof. Both are drafts for the user to rewrite in their own voice; `README.md` is also the single source pasted by hand into CurseForge and Wago, so no separate store-description file exists by decision (D-08). All 58 v0.4.0 requirements are closed, including `DIST-09`…`DIST-12`, which superseded v0.3.0's deferred `DIST-03`…`DIST-07` when packaging collapsed to a single TOC and a single zip. What remains unproven is not a requirement but an observation: no real tag push has happened yet, so the published zip's name and its `## Version:` substitution are still only verified locally.
 
@@ -234,4 +308,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-23 after the v0.4.0 milestone*
+*Last updated: 2026-09-24 at v0.4.1 kickoff*

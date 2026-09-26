@@ -28,6 +28,12 @@ local function StartPreview()
 	-- D-14 / ICON-05: Refresh provider at-rest state (trinket/pot cache) before preview begins.
 	-- Combat-gated inside RefreshProvidersAtRest (D-07) — safe to call unconditionally.
 	ns:RefreshProvidersAtRest()
+	-- Phase 46 (ITEM-01): warm the item catalogue before Suggested draws. Rebuilt unconditionally
+	-- here rather than only when dirty -- a CDM open is a rare, user-driven event, and this is
+	-- what satisfies the locked cadence's "a bag update with the CDM closed marks the catalogue
+	-- dirty; the next open rebuilds it" without needing the dirty flag to be correct across a
+	-- whole session.
+	ns:RefreshItemCatalogue()
 	ns:RefreshTBTSections()
 	ns.configOpen = true
 	ns:StartAllPreviewTimers()
@@ -37,6 +43,38 @@ local function StopPreview()
 	ns.configOpen = false
 	ns:ClearAllTimers()
 end
+
+-- Phase 46 (ITEM-01/T-46-06): coalesces a BAG_UPDATE burst into at most one item-catalogue
+-- rebuild per frame, and only while the CDM is actually shown. ns.configOpen (set by StartPreview
+-- above) is the existing "CDM/config surface is open" flag -- this reuses it rather than
+-- inventing a second one.
+local itemCatalogueRebuildScheduled = false
+
+local function RequestItemCatalogueRebuild()
+	if not ns.configOpen then
+		return
+	end
+	if itemCatalogueRebuildScheduled then
+		return
+	end
+	itemCatalogueRebuildScheduled = true
+	C_Timer.After(0, function()
+		itemCatalogueRebuildScheduled = false
+		-- Re-check both: the CDM may have closed, or the dirty flag may already have been
+		-- cleared by another path, in the one frame between scheduling and this callback.
+		if ns:IsItemCatalogueDirty() and ns.configOpen then
+			ns:RefreshItemCatalogue()
+			ns:RefreshTBTSections()
+		end
+	end)
+end
+
+-- Exposed on ns, not called directly: Providers.lua's ns:MarkItemCatalogueDirty() late-binds
+-- through this field, guarded, because Providers.lua loads before CDMTab.lua and the field is nil
+-- until this file runs. Same idiom as ns:RacialCooldownSeed (Providers.lua:886-889) -- a Lua
+-- file-local is an upvalue only to functions declared AFTER it, and this project has produced
+-- that bug four times.
+ns.RequestItemCatalogueRebuild = RequestItemCatalogueRebuild
 
 ---------------------------------------------------------------------
 -- Section framework
@@ -104,11 +142,15 @@ local function AddSuggestedTracker(key, targetSection)
 		return
 	end
 
-	-- A cooldown tile carries its spell in the key; a meta tile IS its key. Either way the
-	-- display info is what fills the entry, which is why a racial cooldown's seed duration
-	-- matters -- see ns:RacialCooldownSeed.
+	-- A cooldown tile carries its spell in the key; a meta tile IS its key; an item tile carries
+	-- its itemID in the key. Either way the display info is what fills the entry, which is why a
+	-- racial cooldown's seed duration matters -- see ns:RacialCooldownSeed.
 	local cooldownSpellID = ns:CooldownKeySpellID(key)
-	if not cooldownSpellID then
+	local itemID = ns:ItemKeyItemID(key)
+	-- D-4: a racial buff tile is a fourth recognised key shape, following the same precedent
+	-- as the item: branch immediately above -- resolved here so the reject below admits it.
+	local racialSpellID = ns:RacialKeySpellID(key)
+	if not cooldownSpellID and not itemID and not racialSpellID then
 		local known = false
 		for _, suggestedKey in ipairs(ns.SUGGESTED_KEYS) do
 			if suggestedKey == key then
@@ -139,11 +181,41 @@ local function AddSuggestedTracker(key, targetSection)
 		duration = info.duration,
 		section = targetSection,
 		layoutOrder = maxOrder + 1,
-		-- Only a cooldown tile sets this. A meta buff entry leaves it nil, which
-		-- ns:GetTrackerCategory already reads as "buffs".
-		trackerType = cooldownSpellID and "cooldown" or nil,
-		spellID = cooldownSpellID or nil,
+		-- Only a cooldown tile sets this to "cooldown", an item tile to "item". A meta buff
+		-- entry leaves it nil, which ns:GetTrackerCategory already reads as "buffs".
+		trackerType = cooldownSpellID and "cooldown" or (itemID and "item") or nil,
+		-- An item entry carries no spellID -- writing itemID here would misroute
+		-- ApplyCooldownSlot's spellID branch and produce a spell-shaped tooltip and a wrong icon.
+		-- A racial DOES carry its real spellID here, unlike an item -- it resolves its icon
+		-- through ns:GetDisplayInfoForKey -> RacialProvider:GetDisplayInfo -> ns:GetSpellIcon,
+		-- an ordinary spell icon lookup that needs the numeric ID, not an override.
+		spellID = cooldownSpellID or racialSpellID or nil,
+		itemID = itemID or nil,
+		-- Not optional and no second chance: an item entry has no spellID, and
+		-- ApplyCachedIcon (Display.lua) reads entry.iconOverride straight off the DB entry and
+		-- NEVER re-derives it from ns:GetDisplayInfoForKey. Omit this and the tile renders the
+		-- 134400 question mark forever, identically for every item, with no error and no log
+		-- line. The "cd:" sibling above never needed this field, which is exactly what makes it
+		-- so easy to omit.
+		iconOverride = itemID and info.icon or nil,
 	}
+
+	if itemID then
+		-- D-05: the one guarded cooldown-and-count read at drop time, made in Providers.lua and
+		-- nowhere else. info.duration is always 0 for an item (ns:ItemDisplayInfo), so without
+		-- this a potion drunk moments ago would be dragged in looking ready -- wrong, and wrong
+		-- in the direction that matters most.
+		ns:SeedItemTracker(key, itemID, ns.db.trackedBuffs[key])
+	end
+
+	-- A generation bump, nothing more. ns.trackerGeneration is what
+	-- Display.lua's RefreshCooldownSlotCounts stamps its per-container cooldown slot count on --
+	-- without this, a container holding only the tracker just created here (item OR "cd:") can
+	-- stay hidden under hideWhenInactive until some unrelated event happens to bump it. Same
+	-- nil-guarded idiom as ns:AddTrackedBuff (BuffEngine.lua).
+	if ns.MarkTrackersDirty then
+		ns:MarkTrackersDirty()
+	end
 end
 
 local function CreateIconFrame(parent)
@@ -158,6 +230,21 @@ local function CreateIconFrame(parent)
 	highlight:SetAllPoints(f)
 	highlight:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
 	highlight:SetBlendMode("ADD")
+
+	-- Phase 46 (ITEM-03): charge count, copied field-for-field from Display.lua's
+	-- frame.chargeCount (Phase 38, CD-03) -- itself copied from Blizzard's own
+	-- CooldownViewerEssentialItemTemplate. Same child Frame + OVERLAY FontString +
+	-- NumberFontNormal + BOTTOMRIGHT(-2, 2) construction, same hidden-on-creation state.
+	-- Display.lua's "created after the Cooldown so it draws above the swipe" ordering
+	-- rationale does not apply here: CreateIconFrame has no Cooldown widget at all (a plain
+	-- icon + highlight), so this count fontstring is the only piece being borrowed, not
+	-- layered above a swipe that does not exist on this frame.
+	f.chargeCount = CreateFrame("Frame", nil, f)
+	f.chargeCount:SetAllPoints()
+	f.chargeCount.Current = f.chargeCount:CreateFontString(nil, "OVERLAY")
+	f.chargeCount.Current:SetFontObject(NumberFontNormal)
+	f.chargeCount.Current:SetPoint("BOTTOMRIGHT", -2, 2)
+	f.chargeCount:Hide()
 
 	f:EnableMouse(true)
 
@@ -176,6 +263,42 @@ local function CreateIconFrame(parent)
 		if not self.spellID then
 			return
 		end
+
+		-- An item tile gets the ITEM's own tooltip, not a spell-shaped one. ns:ShowBuffTooltip
+		-- below is built around SetSpellByID and an item entry carries no spellID at all, so
+		-- routing an item through it yields the "Unknown" fallback -- which is what the CDM tab
+		-- showed before this branch existed (reported on retail 2026-09-24).
+		--
+		-- SetItemByID is a GameTooltip method on Blizzard's own shared tooltip, not a CDM frame,
+		-- so none of MergeMode.lua's frame prohibitions are in play here.
+		--
+		-- Covers Suggested and tracked tiles alike: both key on "item:<itemID>".
+		local hoveredItemID = ns:ItemKeyItemID(self.spellID)
+		if hoveredItemID then
+			GameTooltip_SetDefaultAnchor(GameTooltip, self)
+			local ok = pcall(GameTooltip.SetItemByID, GameTooltip, hoveredItemID)
+			if not ok then
+				-- Uncached or unknown to this client: say so rather than leaving the empty frame
+				-- SetItemByID can otherwise render. Same defensive shape ns:ShowBuffTooltip uses
+				-- for a spellID that does not resolve.
+				local fallbackName = C_Item.GetItemNameByID(hoveredItemID)
+				if issecretvalue(fallbackName) or type(fallbackName) ~= "string" then
+					fallbackName = "Item"
+				end
+				GameTooltip:SetText(fallbackName, 1, 1, 1)
+			end
+			local heldCount = ns:TrackedItemCount(self.spellID) or ns:ItemCatalogueCount(hoveredItemID)
+			if type(heldCount) == "number" then
+				GameTooltip:AddLine(" ")
+				GameTooltip:AddLine(("In bags: %d"):format(heldCount), 1, 1, 1)
+			end
+			if ns.debugLogging then
+				GameTooltip:AddLine(("itemID %d"):format(hoveredItemID), 0.6, 0.6, 0.6)
+			end
+			GameTooltip:Show()
+			return
+		end
+
 		local info = ns:GetDisplayInfoForKey(self.spellID)
 		if not info then
 			-- Non-meta user spell with no provider info; still try bare tooltip
@@ -676,6 +799,14 @@ local function BuildTBTSection(parent, def)
 		frame.spellID = nil
 		frame.sectionName = nil
 		frame.layoutIndex = nil
+		-- Phase 46 (S10): a pooled frame keeps its previous tile's charge count. Clearing it
+		-- here, once, covers both acquisition paths -- a freshly created frame is already
+		-- hidden by CreateIconFrame's own f.chargeCount:Hide(), and a recycled frame is
+		-- cleared by ReleaseAll() running this reset function at the top of every
+		-- ns:RefreshTBTSections pass. The discipline lives here, not in the itemPool:Acquire()
+		-- call sites -- each tile loop only needs to Show()/SetText() when a count applies.
+		frame.chargeCount.Current:SetText("")
+		frame.chargeCount:Hide()
 	end)
 
 	-- No section-wide highlight — CDM uses a ReorderMarker (insertion line) instead
@@ -789,6 +920,55 @@ function ns:RefreshTBTSections()
 					item.layoutIndex = suggestedSlot
 					item:Show()
 				end
+
+				-- Phase 46 (ITEM-03): append the bag-derived item catalogue after the racial
+				-- tiles, continuing the same suggestedSlot counter so the racial tiles keep
+				-- their current position. No ns:IsSuggestedKeyResolvable call here -- that
+				-- function answers "does this provider's catalog exist on this client at all",
+				-- which has no meaning for a bag-derived, per-character-inventory list; the
+				-- item builder's own taxonomy filter (classID/subClassID/use-spell) already
+				-- decides membership, and it is baked into what ns:ItemCatalogue() contains.
+				-- This loop only reads the cache ns:RefreshItemCatalogue already built (CDM-open
+				-- scan + BAG_UPDATE dirty flag, Plan 02) -- no C_Container/C_Item call belongs
+				-- on this render path.
+				--
+				-- Dragging an item tile into a container creates a real "item:" tracker entry
+				-- (ITEM-04, Phase 47) -- AddSuggestedTracker now resolves ns:ItemKeyItemID(key)
+				-- as a third valid key shape alongside a cd:<spellID> key and a
+				-- ns.SUGGESTED_KEYS member. Once tracked, the item: itemID entry below is what
+				-- makes it drop out of this loop (ITEM-02) -- no separate removal code needed.
+				for _, itemID in ipairs(ns:ItemCatalogue()) do
+					local itemKey = ns.ITEM_KEY_PREFIX .. itemID
+					if not ns.db.trackedBuffs[itemKey] then
+						suggestedSlot = suggestedSlot + 1
+						local item = section.itemPool:Acquire()
+						local info = ns:GetDisplayInfoForKey(itemKey)
+						-- Opaque tracker key stored in the existing spellID field, not a new
+						-- item.itemID field -- every shared handler (drag, tooltip, right-click)
+						-- reads self.spellID and already treats it as opaque (Core.lua:466-467).
+						item.spellID = itemKey
+						item.Icon:SetTexture((info and info.icon) or 134400)
+						-- Item tiles have no unsupported state, but a pooled frame keeps the
+						-- previous tile's desaturation.
+						item.Icon:SetDesaturated(false)
+						item.sectionName = "suggested"
+						-- No item.suggestedIndex: grep -n suggestedIndex CDMTab.lua finds only
+						-- the two write sites above and no reader -- there is nothing to index
+						-- into for a bag-derived list, so adding one here would be noise.
+						local count = ns:ItemCatalogueCount(itemID)
+						if count then
+							item.chargeCount.Current:SetText(count)
+							item.chargeCount:Show()
+						else
+							-- The scan-time issecretvalue()/type() guard rejected this count at
+							-- catalogue build time; degrade the tile rather than show a stale or
+							-- wrong value (D-03/S10).
+							item.chargeCount:Hide()
+						end
+						item.layoutIndex = suggestedSlot
+						item:Show()
+					end
+				end
 			elseif def.key == "suggested" and ns.tbtActiveCategory ~= "buffs" then
 				-- Nothing to add beyond the reserved squares.
 			elseif def.key == "suggested" then
@@ -822,6 +1002,40 @@ function ns:RefreshTBTSections()
 						item:Show()
 					end
 				end
+
+				-- RACE-10/RACE-08 (D-4): a per-race racial buff tile, appended after the static
+				-- SUGGESTED_KEYS catalogue above and continuing its suggestedSlot counter. A
+				-- racial tile is per-character and per-race, one key per spellID -- dynamic
+				-- exactly like the item: catalogue below, not a static ordered list, so it
+				-- cannot live in ns.SUGGESTED_KEYS.
+				for _, def in ipairs(ns:RacialSuggestions()) do
+					-- Cooldown-only racials (Will of the Forsaken, Will to Survive, War Stomp,
+					-- Cultivation) have no buff to preview here -- they surface only as the
+					-- Cooldowns-tab "cd:<spellID>" tile ns:RacialCooldownKeys already emits.
+					if def.duration or def.indefinite then
+						local racialKey = ns.RACIAL_KEY_PREFIX .. def.spellID
+						-- Drop-out-once-tracked, no separate removal code -- the identical
+						-- mechanism the item: loop below uses.
+						if not ns.db.trackedBuffs[racialKey] then
+							suggestedSlot = suggestedSlot + 1
+							local item = section.itemPool:Acquire()
+							local info = ns:GetDisplayInfoForKey(racialKey)
+							item.spellID = racialKey
+							item.Icon:SetTexture((info and info.icon) or 134400)
+							-- Pooled frames keep a previous item tile's desaturation; a racial
+							-- tile has no unsupported state any more (D-7 removed the generic
+							-- greyed tile).
+							item.Icon:SetDesaturated(false)
+							item.sectionName = "suggested"
+							-- No item.suggestedIndex: like the bag-derived item list, there is
+							-- no ns.SUGGESTED_KEYS position to index into.
+							-- Pooled frames keep a previous item tile's count.
+							item.chargeCount:Hide()
+							item.layoutIndex = suggestedSlot
+							item:Show()
+						end
+					end
+				end
 			else
 				-- Collect and sort by layoutOrder for within-section ordering
 				local sorted = {}
@@ -831,7 +1045,17 @@ function ns:RefreshTBTSections()
 					-- it could be dragged into a cooldown container. For every other section the
 					-- test is free -- a section belongs to one category and so does everything
 					-- filed in it -- and it costs one derived comparison per entry.
-					if entry.section == def.key and ns:GetTrackerCategory(entry) == ns.tbtActiveCategory then
+					--
+					-- D-4: the loop variable is named spellID but holds the tracker KEY (a
+					-- "racial:<spellID>" string is just as valid here as a plain numeric key) --
+					-- exactly what the race gate below wants. An account-wide database plus a
+					-- per-character race means an orc can be holding a troll's racial; gating
+					-- here, not only in Suggested, is what keeps it out of this container too.
+					if
+						entry.section == def.key
+						and ns:GetTrackerCategory(entry) == ns.tbtActiveCategory
+						and ns:IsRacialKeyVisible(spellID)
+					then
 						table.insert(sorted, { spellID = spellID, order = entry.layoutOrder or 0 })
 					end
 				end
@@ -847,6 +1071,25 @@ function ns:RefreshTBTSections()
 					local iconID = (displayInfo and displayInfo.icon) or ns:GetSpellIcon(info.spellID) or 134400
 					item.Icon:SetTexture(iconID)
 					item.Icon:SetDesaturated(false)
+					-- An item tracker keeps its count here, not only in Suggested. Reported on
+					-- retail 2026-09-24: the number showed on the Suggested tile and then vanished
+					-- the moment the item was dragged into a container or into Not Displayed,
+					-- because this branch -- the one that draws every TRACKED entry -- never wrote
+					-- the fontstring the Suggested branch does.
+					--
+					-- Written on EVERY tile every pass, not only on item ones: these frames are
+					-- pooled, so a tile recycled from an item into a spell must lose the number
+					-- rather than inherit it. Same rule the SetDesaturated call above follows, and
+					-- the same trap its own comment records in the Suggested branch.
+					local trackedItemID = ns:ItemKeyItemID(info.spellID)
+					local trackedCount = trackedItemID and ns:TrackedItemCount(info.spellID)
+					if type(trackedCount) == "number" then
+						item.chargeCount.Current:SetText(trackedCount)
+						item.chargeCount:Show()
+					else
+						item.chargeCount.Current:SetText("")
+						item.chargeCount:Hide()
+					end
 					item.sectionName = def.key
 					item.layoutIndex = i -- sequential for GridLayoutFrame
 					item:Show()

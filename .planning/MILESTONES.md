@@ -1,5 +1,30 @@
 # Milestones
 
+## v0.4.1 Generic Item Tracking and Forever Racials (Shipped: 2026-09-26)
+
+**Scope:** Track any usable consumable from the player's bags, mirror the Cooldown Manager's pandemic and dispel-type indicators onto TBT's own trackers, and give every WoW Forever race its own racial trackers.
+**Phases:** 8 (46-52; Phase 48.1 inserted mid-milestone on user request rather than renumbered, following the Phase 27.1 precedent), 18 plans
+**Timeline:** 3 days (2026-09-24 → 2026-09-26), 163 commits, 7 source files changed (+4231 / -198)
+**Verified on:** WoW Forever beta and Midnight retail, both 2026-09-26 — retail including a Mythic+ run
+**Requirements:** 22 / 22 closed; RACE-09 closed as obsolete rather than implemented
+**Known deferred items at close:** 999.5 (GCD grey), 999.8 (aura icon for divergent racials), 999.9 (Edit Mode taint), 999.10 (Shadowmeld cooldown timing), `RACE-06` (retail racials), plus two shipped waivers — G8 and F-2's priest branch. See ROADMAP.md Backlog
+
+### Key accomplishments
+
+- **Generic item tracking, built on one measured bet that paid off.** The kickoff decision was that a per-item `C_Item.GetItemCooldown(itemID)` read already reflects a shared cooldown, so tracking items individually gets cooldown sharing *for free* and no spell-category table is needed. Confirmed in game: one health potion fired the cooldown on all three potions sharing it. Forever's categories were separately measured to differ from retail's, so the table that was avoided would also have been wrong.
+- **Blizzard computes, TBT mirrors — twice over.** Both the pandemic highlight and the dispel-type border read Blizzard's own computed state instead of recomputing it. Recomputing is closed by the platform in both cases: the inputs are secret, and the APIs that would redo the math key off `auraInstanceID`, flagged `DisallowTaintedAccess`.
+- **In-combat dispel borders, via an asymmetry in what stays readable.** `border:IsShown()` remains a plain boolean while `GetAtlas()` returns a secret string in combat. So *whether* to draw is decidable and *what* to draw is not — and the atlas is relayed into `SetAtlas` unread rather than discarded. Shipped as two routes: the aura engine draws it for an ordinary merged tracked buff, the atlas mirror covers bars, item-backed entries and the engine-off fallback.
+- **Every Forever racial, one tracker each, race-gated.** Ten races and 21 racials collected in game by the user over a single session, replacing the two generic `racial`/`racial2` slots with one entry per racial visible only to its own race — migrated from the old keys without losing placement, and verified across a real logout/login.
+- **Aura-loss cancellation became the default rather than an opt-in.** A per-row `cancelOnAuraLoss` flag existed for hours and was removed: making "does this end when its buff ends" something someone had to remember meant every racial that could end early arrived as its own separate bug report.
+
+### Bugs found in this milestone's own work
+
+- **A confident comment cost the same bug two investigations.** `StartRacialProc` asserted that a racial's cooldown tile "reads the live game handle, which already knows the longer in-combat cooldown". It does not — `ApplyUserCooldown` owns any tracker carrying a duration, by the deliberate CD-02 reversal. Shadowmeld's in-combat cooldown ran 10s instead of 2 minutes, and the first investigation repeated the comment's claim and closed it as cosmetic, because the comment made the claim look already-checked.
+- **A passing gate proves the path it walks, not the feature.** ITEM-07's gate exercised drift-then-correct and passed. The empty-at-login entry point was never walked — `itemTrackedCounts` is runtime-only and was seeded only at tracker creation, so counts were blank after every reload until a user noticed.
+- **`itemUseSpellToID` was fed by a table nothing filled** unless the player opened the Cooldown Manager. A correctly-wired chain reading from an empty table looks exactly like a working one when traced forwards; the defect is only visible tracing backwards from the table to ask who writes it.
+- **`stylua` writes CRCRLF for a comment inside a multi-line expression**, turning a Lua file binary to git — invisible to `file`, `grep` and `git diff`, catchable only by `git ls-files --eol`. Hit in Phase 48.1, and again by the Phase 50 planner via `awk` on a `.md` file.
+- **The Lua file-local upvalue trap fired for the fifth time**, hours after the developer had read the comment in `Providers.lua` documenting the four prior occurrences.
+
 ## v0.4.0 Cooldown Tracking and Full CDM View (Shipped: 2026-09-23)
 
 **Scope:** Cooldown tracking as a first-class tracker type, an all-or-nothing Merge Mode that draws Blizzard's Cooldown Manager entries inside TBT's own containers, four base containers plus user-created ones, and a collapse back to a single TOC covering both Midnight retail and the WoW Forever beta.

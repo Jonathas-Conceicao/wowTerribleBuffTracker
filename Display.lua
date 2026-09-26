@@ -87,8 +87,14 @@ local function SlotDraws(entry, timer, settings, iconEditing, engineDrawsHere)
 	if engineDrawsHere and entry.isMerged then
 		return entry.cdmShown == true
 	end
+	-- Phase 47: an item tracker produces no ns.activeTimers entry either, for exactly the same
+	-- reason a cooldown tracker does not, so it must draw on the same terms. Currently
+	-- unreachable for one: the centred layout this function gates is derived from
+	-- ns:GetContainerCategory(def) == "buffs", and an item tracker always lives in a spells
+	-- container. The widening is defensive, one token, and correct on its own terms rather than
+	-- load-bearing today.
 	return timer ~= nil
-		or entry.trackerType == "cooldown"
+		or (entry.trackerType == "cooldown" or entry.trackerType == "item")
 		or entry.isMerged
 		or not settings.hideWhenInactive
 		or ns.configOpen
@@ -344,6 +350,25 @@ local function CreateTimerBar(parent)
 	bar.stacks:SetPoint("BOTTOMRIGHT", -5, 5)
 	bar.stacks:Hide() -- a freshly pooled bar has no stack answer yet
 
+	-- Phase 48.1 (DISP-02): the bar's dispel-type border. On a bar Blizzard draws this around the
+	-- ICON, not around the bar -- CooldownViewerBuffBarItemTemplate anchors its DebuffBorder to
+	-- $parent.Icon at the same -3/+3 inset the icon template uses (CooldownViewer.xml:246-251), so
+	-- the two faces match and only the frame level differs.
+	--
+	-- Parented to `bar` and level-bumped, mirroring Blizzard's own numbers: its DebuffBorder is
+	-- frameLevel 520 against Icon 512 and Bar 511, i.e. above both. TBT's equivalents are
+	-- iconFrame at +2 and statusBar at +1, so +3 is the matching slot. Explicit rather than
+	-- creation-order-dependent, unlike the icon path above, because here it has to clear two
+	-- siblings rather than one parent's layers -- the same class of defect as S13 at the bar
+	-- border below, where omitting a bump rendered a border behind the fill.
+	bar.dispelBorder = CreateFrame("Frame", nil, bar)
+	bar.dispelBorder:SetFrameLevel(bar:GetFrameLevel() + 3)
+	bar.dispelBorder:SetPoint("TOPLEFT", bar.iconFrame, "TOPLEFT", -3, 3)
+	bar.dispelBorder:SetPoint("BOTTOMRIGHT", bar.iconFrame, "BOTTOMRIGHT", 3, -3)
+	bar.dispelBorder.Texture = bar.dispelBorder:CreateTexture(nil, "ARTWORK")
+	bar.dispelBorder.Texture:SetAllPoints()
+	bar.dispelBorder:Hide()
+
 	-- StatusBar (height 19, anchored to the right of icon)
 	bar.statusBar = CreateFrame("StatusBar", nil, bar)
 	bar.statusBar:SetHeight(19)
@@ -459,6 +484,26 @@ local function CreateTimerIcon(parent)
 	frame.cooldown:SetDrawEdge(true)
 	frame.cooldown:SetDrawSwipe(true)
 
+	-- Phase 48.1 (DISP-01): the dispel-type border, built field-for-field from Blizzard's
+	-- CooldownViewerItemDebuffBorderTemplate and its use inside CooldownViewerBuffIconItemTemplate
+	-- (Blizzard_CooldownViewer/CooldownViewer.xml:12-19, :189-193). A Frame holding one ARTWORK
+	-- texture, anchored to the ICON rather than the frame, inset -3/+3 on both corners.
+	--
+	-- A child Frame, not a bare texture on `frame`, and created immediately after the Cooldown for
+	-- the same load-bearing reason frame.chargeCount documents below: a same-level child created
+	-- after the Cooldown draws above the swipe, while an OVERLAY texture parented straight to the
+	-- icon would sit under it. Blizzard's own <Frames> order is Cooldown, DebuffBorder,
+	-- Applications, so this sits between the two -- the charge count stays on top, as it is there.
+	--
+	-- Hidden on creation: a freshly pooled icon has no dispel answer yet, and a merged entry that
+	-- never carries a harmful aura must never flash one.
+	frame.dispelBorder = CreateFrame("Frame", nil, frame)
+	frame.dispelBorder:SetPoint("TOPLEFT", frame.icon, "TOPLEFT", -3, 3)
+	frame.dispelBorder:SetPoint("BOTTOMRIGHT", frame.icon, "BOTTOMRIGHT", 3, -3)
+	frame.dispelBorder.Texture = frame.dispelBorder:CreateTexture(nil, "ARTWORK")
+	frame.dispelBorder.Texture:SetAllPoints()
+	frame.dispelBorder:Hide()
+
 	-- Phase 38 (CD-03): charge count, copied field-for-field from Blizzard's own source in
 	-- Blizzard_CooldownViewer/CooldownViewer.xml. Both CooldownViewerBuffIconItemTemplate
 	-- (its `Applications` frame) and CooldownViewerEssentialItemTemplate (its `ChargeCount`
@@ -540,6 +585,259 @@ local function GetIcon(key, index)
 		pool[index] = frame
 	end
 	return pool[index]
+end
+
+---------------------------------------------------------------------
+-- Pandemic highlight FX (Phase 48, PAND-01/PAND-02/PAND-05) -- render half only.
+-- Every frame below is created by TBT via CreateFrame and parented to a TBT widget. The
+-- CDM-owned pool backing Blizzard's own highlight frame is never acquired from, never released
+-- to, and Blizzard's own highlight frame is never read, reparented or touched -- this whole
+-- section crosses no CDM boundary at all, which is what makes Show/Hide/SetPoint/SetFrameLevel
+-- on these frames taint-free (the locked rule is about frames TBT does not own).
+---------------------------------------------------------------------
+
+-- Lazy, pcall-guarded creator for TBT's OWN instance of Blizzard's icon pandemic FX template.
+-- Parented to icon:GetParent() -- the TBT container -- and NOT to the icon itself. This is
+-- load-bearing: RenderIconContainer hides TBT's own pooled icon for a merged Tracked Buff
+-- whenever the engine draws that aura (see the engineDrawsHere/entry.isMerged branch's
+-- icon:Hide() below), and Tracked Buffs is exactly the pandemic-relevant category -- item-backed
+-- entries structurally never carry a pandemic window at all (Blizzard's own IsItem()
+-- short-circuit). An FX frame parented to the icon would therefore be invisible in the
+-- mainstream case -- the same hidden-parent hazard frame.mergedTime's own comment above already
+-- records. Parenting to the container avoids it entirely.
+local function EnsurePandemicIconFX(icon)
+	if icon.pandemicFX then
+		return icon.pandemicFX
+	end
+	if icon._pandemicFailed then
+		return nil
+	end
+
+	local parent = icon:GetParent()
+	-- No mechanism exists to introspect a virtual template's existence ahead of instantiation
+	-- (PANDEMIC.md, "Absence-of-template guard"), so pcall around CreateFrame itself is the only
+	-- defensive option -- same shape as pcall(CollectShownCooldownIDs, viewer) in MergeMode.lua.
+	-- A failure is stamped once here, never retried every tick (PAND-05, S10).
+	local ok, fx = pcall(CreateFrame, "Frame", nil, parent, "CooldownPandemicFXTemplate")
+	if not ok or not fx then
+		icon._pandemicFailed = true
+		return nil
+	end
+
+	-- Icon offsets, Blizzard's own default AnchorPandemicStateFrame (CooldownViewer.lua:2129-2133).
+	-- Anchored to the icon's own rect, not the container's -- a hidden frame keeps its points and
+	-- size, so this resolves whether or not the icon is currently shown, and follows the icon
+	-- whenever the layout moves it, with no per-tick repositioning needed.
+	fx:ClearAllPoints()
+	fx:SetPoint("TOPLEFT", icon, "TOPLEFT", -6, 6)
+	fx:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 6, -6)
+
+	-- SyncEntryContainers gives a merged aura container host:GetFrameLevel() + 10
+	-- (MergeMode.lua:1410, :1457) -- one level above that keeps this highlight from ever being
+	-- covered by an engine aura frame.
+	fx:SetFrameLevel(parent:GetFrameLevel() + 11)
+	fx:Hide() -- a freshly created FX has no answer yet, exactly like frame.chargeCount / bar.stacks
+
+	icon.pandemicFX = fx
+	return fx
+end
+
+-- Lazy, pcall-guarded creator for TBT's OWN instance of Blizzard's bar pandemic FX template.
+-- Parented to bar itself, unlike the icon's -- bars are never engine-drawn (the aura-group
+-- cover-up applies to the Tracked Buffs ICON category only) and RenderBarContainer calls
+-- bar:Show() unconditionally for every slot it lays out, so there is no hidden-parent hazard here
+-- and parenting straight to the widget matches Blizzard's own shape.
+local function EnsurePandemicBarFX(bar)
+	if bar.pandemicFX then
+		return bar.pandemicFX
+	end
+	if bar._pandemicFailed then
+		return nil
+	end
+
+	local ok, fx = pcall(CreateFrame, "Frame", nil, bar, "CooldownPandemicBarFXTemplate")
+	if not ok or not fx then
+		bar._pandemicFailed = true
+		return nil
+	end
+
+	-- Bar offsets, Blizzard's own BuffBarCooldownViewerMixin override
+	-- (CooldownViewer.lua:2353-2358), anchored to bar.statusBar -- the fill sub-region, TBT's
+	-- exact structural equivalent of Blizzard's cooldownItem.Bar (confirmed independently by
+	-- RelayMergedBar reading itemFrame.Bar). NOT bar, NOT bar.fillTexture.
+	fx:ClearAllPoints()
+	fx:SetPoint("TOPLEFT", bar.statusBar, "TOPLEFT", -9, 10)
+	fx:SetPoint("BOTTOMRIGHT", bar.statusBar, "BOTTOMRIGHT", 9, -10)
+
+	-- Omitting this bump renders the border behind the bar fill (S13) -- the same defect
+	-- Blizzard's own UI would have if its override were skipped (CooldownViewer.lua:2357).
+	fx:SetFrameLevel(bar.statusBar:GetFrameLevel() + 1)
+	fx:Hide() -- a freshly created FX has no answer yet, exactly like frame.chargeCount / bar.stacks
+
+	bar.pandemicFX = fx
+	return fx
+end
+
+-- Shared dirty-checked Show/Hide toggle both apply functions below call.
+-- AnimateWhileShownTemplate starts and stops its own AnimationGroup purely from the frame's own
+-- Show/Hide, with no controller code needed -- this toggle IS the entire animation lifecycle.
+-- Never call Play/Stop on the animation group directly.
+local function SetPandemicShown(widget, fx, active)
+	if widget._pandemicShown == active then
+		return
+	end
+	widget._pandemicShown = active
+	if active then
+		fx:Show()
+	else
+		fx:Hide()
+	end
+end
+
+-- Call-site entry point for icons (Task 2). Safe to call unconditionally for every icon slot on
+-- every tick. When active is false and no FX frame has ever been created, this costs exactly one
+-- field read -- the common case for every player who never sees a pandemic window.
+local function ApplyPandemicIcon(icon, active, settings)
+	if not active then
+		local fx = icon.pandemicFX
+		if not fx then
+			return
+		end
+		SetPandemicShown(icon, fx, false)
+		return
+	end
+
+	local fx = EnsurePandemicIconFX(icon)
+	if not fx then
+		return
+	end
+
+	-- The icon FX is parented to the container, not the icon, so unlike a true child of the icon
+	-- it does not inherit ApplyIconStyle's SetScale/SetAlpha -- match them explicitly here, each
+	-- behind its own dirty stamp so an unchanged value costs one comparison.
+	if icon._pandemicScale ~= settings.iconScale then
+		icon._pandemicScale = settings.iconScale
+		fx:SetScale(settings.iconScale)
+	end
+	if icon._pandemicAlpha ~= settings.alpha then
+		icon._pandemicAlpha = settings.alpha
+		fx:SetAlpha(settings.alpha)
+	end
+
+	SetPandemicShown(icon, fx, true)
+end
+
+-- Call-site entry point for bars (Task 2). ApplyPandemicBar needs neither scale nor alpha
+-- matching, unlike ApplyPandemicIcon -- the bar FX is a true child of bar and inherits both
+-- already.
+local function ApplyPandemicBar(bar, active)
+	if not active then
+		local fx = bar.pandemicFX
+		if not fx then
+			return
+		end
+		SetPandemicShown(bar, fx, false)
+		return
+	end
+
+	local fx = EnsurePandemicBarFX(bar)
+	if not fx then
+		return
+	end
+
+	SetPandemicShown(bar, fx, true)
+end
+
+-- Phase 48.1 (DISP-01/DISP-02/DISP-03) -- render half. One call site per widget kind, shared by
+-- icons and bars because both carry an identically-built `dispelBorder`; the only thing that
+-- differed between them was construction, and that is done by the time this runs.
+--
+-- `atlas` is entry.dispelAtlas straight off MergeMode's mirror, and it decides nothing: `shown`
+-- does. TBT never interprets the atlas -- it does not know or care which of the six dispel types
+-- it names -- so a client that adds a seventh works here with no change.
+--
+-- Dirty-checked on the widget exactly as SetPandemicShown is, and for the same reason: this runs
+-- per widget per render pass at 20 Hz, and the overwhelmingly common answer is nil-to-nil, which
+-- must cost one field compare and no widget call at all.
+--
+-- SetAtlas's second argument is useAtlasSize, passed false to match Blizzard's own
+-- TextureKitConstants.IgnoreAtlasSize at AuraUtil.lua:612 -- the texture is SetAllPoints to a
+-- frame that is already the right size, so letting the atlas resize it would undo the -3/+3 inset.
+-- The literal rather than the constant keeps this off a SharedXML global that Forever need not
+-- have.
+-- Sentinel standing in for "this pass's atlas is secret". A fresh table, so it can never collide
+-- with a real atlas name however Blizzard renames its assets.
+local SECRET_ATLAS_KEY = {}
+
+-- `shown` decides visibility and is always a plain boolean; `atlas` is RELAYED, never read, and
+-- in combat it is a secret string (measured retail 2026-09-24 -- see ReadDispelBorder for the log
+-- line and for why SetAtlas may be handed one).
+--
+-- The two are separate parameters rather than one nil-able atlas because a secret value cannot
+-- safely stand in for its own presence: `atlas ~= nil` and `atlas == widget._dispelAtlas` both
+-- feed a secret into a conditional, and the earlier version of this function did exactly that.
+-- That is what made the in-combat case fail closed even once the value was being relayed.
+--
+-- Phase 50 (SC3/D-04/D-05): a FOURTH parameter, `identity`, closes the trade the paragraph above
+-- describes: while the atlas is secret, `key == SECRET_ATLAS_KEY` used to force a re-set on every
+-- single pass, forever, for as long as combat lasted. `identity` is a second, NON-SECRET stamp --
+-- the entry's `cooldownID` -- that answers "is this the same entry as last pass?" without ever
+-- touching the atlas. `cooldownID` is provably plain: MergeMode.lua:341 builds
+-- `entry.key = "cdm:" .. cooldownID`, a concatenation, which raises on a secret value, so any
+-- entry that exists in that list already has a non-secret cooldownID. `issecretvalue(id)` still
+-- runs first, before any comparison, because a caller could in principle hand this function
+-- something else later -- belt and suspenders, not because cooldownID is expected to trip it.
+--
+-- ACCEPTED TRADE: while the atlas stays secret AND the identity is unchanged, a dispel type that
+-- somehow changed for that same cooldownID would not be re-issued until the identity changes or
+-- becomes unreadable. Accepted because a dispel type is a static property of the aura a
+-- cooldownID names -- it does not change out from under a live entry.
+local function ApplyDispelBorder(widget, atlas, shown, identity)
+	local border = widget.dispelBorder
+	if not border then
+		return
+	end
+
+	if not shown then
+		-- Dirty-checked on the plain boolean, so the overwhelmingly common no-border case still
+		-- costs one field compare and no widget call -- what the original dirty check bought,
+		-- kept, without ever touching the atlas.
+		if widget._dispelShown then
+			widget._dispelShown = false
+			widget._dispelKey = nil
+			widget._dispelID = nil
+			border:Hide()
+		end
+		return
+	end
+
+	-- issecretvalue() BEFORE any comparison -- the standing project rule -- so a secret identity
+	-- never reaches a `~=`, never reaches the widget, and falls back to the always-set behaviour
+	-- below rather than being trusted to prove a skip safe.
+	local id = identity
+	if issecretvalue(id) then
+		id = nil
+	end
+
+	-- The cache key is NEVER the secret itself: comparing a secret to a stored value is the trap
+	-- described above, and storing one would spread it to the next pass. A secret collapses to one
+	-- sentinel, which compares unequal to every real atlas name and equal to itself.
+	local key = issecretvalue(atlas) and SECRET_ATLAS_KEY or atlas
+	-- Re-issue SetAtlas when: the plain key changed (unchanged from before), OR the identity
+	-- changed (a pooled widget now shows a DIFFERENT entry -- the hazard D-05 names, and the
+	-- reason this cannot key on the atlas alone), OR there is no readable identity this pass (the
+	-- skip cannot be proven safe, so the old always-set behaviour is kept). This replaces the old
+	-- `or key == SECRET_ATLAS_KEY` clause, which WAS the always-re-set behaviour this task removes.
+	if widget._dispelKey ~= key or widget._dispelID ~= id or id == nil then
+		widget._dispelKey = key
+		widget._dispelID = id
+		border.Texture:SetAtlas(atlas, false)
+	end
+
+	if not widget._dispelShown then
+		widget._dispelShown = true
+		border:Show()
+	end
 end
 
 ---------------------------------------------------------------------
@@ -695,7 +993,10 @@ local function RefreshCooldownSlotCounts()
 	cooldownCountStamp = generation
 	wipe(cooldownSlotCounts)
 	for _, entry in pairs(tracked) do
-		if entry.trackerType == "cooldown" and entry.section then
+		-- Phase 47: a container holding only tracked items must stay visible too, for the
+		-- identical reason a cooldown-only container does -- neither produces a
+		-- ns.activeTimers entry, so #timers alone can never see them.
+		if (entry.trackerType == "cooldown" or entry.trackerType == "item") and entry.section then
 			cooldownSlotCounts[entry.section] = (cooldownSlotCounts[entry.section] or 0) + 1
 		end
 	end
@@ -935,6 +1236,32 @@ local function ApplyChargeCount(icon, spellID)
 	end
 end
 
+-- The item-count parallel to ApplyChargeCount above, and deliberately a separate function
+-- rather than a branch inside it: ApplyChargeCount is driven by the game's own charge API keyed
+-- on spellID, and an item entry's spellID is always nil, so it is a guaranteed Hide() for one --
+-- it cannot be reused, taught or extended into an item path.
+--
+-- Reads ns:TrackedItemCount(entry.key) only. It is deliberately NOT the Suggested list's own
+-- live bag-walk count cache: that table is wipe()d and rebuilt on every rescan and carries no
+-- row at all for a zero-stock item, so wiring a tracked tile to it would silently break ITEM-09
+-- (a stack that has left the bags entirely) the instant a bag change triggered a rescan.
+--
+-- A count of zero is a real answer and is shown, not hidden -- that is exactly the ITEM-09 case,
+-- where the stack is gone and the sweep is still running. No value stamp is kept on the icon:
+-- the caller's block already runs only on a generation change or a pooled-widget reassignment,
+-- and ns:MarkCooldownsDirty() -- called by both the provider's decrement and its reconcile -- is
+-- what makes a changed count reach this function.
+local function ApplyItemCount(icon, entry)
+	local count = ns:TrackedItemCount(entry.key)
+	if type(count) ~= "number" then
+		icon.chargeCount:Hide()
+		return
+	end
+
+	icon.chargeCount.Current:SetText(count)
+	icon.chargeCount:Show()
+end
+
 -- Render one cooldown slot into a pooled icon widget. Everything cheap (texture, style,
 -- tooltip target) happens every tick; everything that costs an API call happens only when
 -- ns.cooldownGeneration moved or this pooled widget changed which slot it draws.
@@ -952,7 +1279,11 @@ end
 -- Nothing here is secret: the start is GetTime() at the cast, the duration is the player's own
 -- number, and the comparison is between two plain numbers.
 local function ApplyUserCooldown(icon, entry, now)
-	local duration = entry.duration
+	-- Not entry.duration directly: a cast whose circumstances earned a different cooldown --
+	-- Shadowmeld used in combat -- left a one-cast override beside its start time, and
+	-- ns:CooldownDuration is the single place the two are reconciled. Still a plain number either
+	-- way, so everything this function says below about comparing numbers holds unchanged.
+	local duration = ns:CooldownDuration(entry.key, entry)
 	if type(duration) ~= "number" or duration <= 0 then
 		return false
 	end
@@ -1309,7 +1640,15 @@ local function ApplyCooldownSlot(icon, entry, settings, now)
 		--
 		-- Charges come from the game whoever owns the sweep: a typed duration says how long the
 		-- player wants to wait, never how many charges the spell has.
-		ApplyChargeCount(icon, spellID)
+		--
+		-- Phase 47: an item entry has no charges and no spellID for the charge API to answer
+		-- about, so it branches to the item-count parallel instead, in the same position in the
+		-- block -- the ordering reason above applies identically to it.
+		if entry.trackerType == "item" then
+			ApplyItemCount(icon, entry)
+		else
+			ApplyChargeCount(icon, spellID)
+		end
 
 		-- Keep the category -> spell cache warm, UNCONDITIONALLY, and not only when something
 		-- needs it. This was a catch-22 that exactly matched the symptom -- a potion cooldown out
@@ -1385,7 +1724,19 @@ local function ApplyCooldownSlot(icon, entry, settings, now)
 				if categorySpell then
 					ApplyCooldownHandle(icon, categorySpell, false)
 				else
+					-- This is the "nothing owns a sweep here" terminus, and it was the one arm of
+					-- the chain that cleared the cooldown without also clearing the grey. Every
+					-- other arm settles its own desaturation -- ApplyItemCooldown clears it,
+					-- ApplyCooldownHandle goes through ApplyCooldownGrey, the CDM relay copies
+					-- the CDM's own -- so a pooled widget arriving here simply kept whatever the
+					-- last entry to use it had left behind.
+					--
+					-- Reported on retail 2026-09-24: an augment rune has no cooldown on the
+					-- current patch, so entry.duration stays 0, ApplyUserCooldown declines it at
+					-- its first guard, and it falls through to here and renders grey. No
+					-- cooldown means READY, which is full colour.
 					icon.cooldown:Clear()
+					ClearIconDesaturation(icon)
 				end
 			end
 		end
@@ -1632,7 +1983,18 @@ local function RenderBarContainer(def, container, settings, timers, now)
 			-- Phase 38: "cooldowns are icons, never bars" is a locked user decision, so a
 			-- cooldown tracker misfiled into a bar container is skipped rather than drawn as
 			-- a permanently-empty bar. One extra field comparison per entry, no allocation.
-			if entry.section == def.key and entry.trackerType ~= "cooldown" then
+			-- Phase 47: a tracked item is icon-only for the identical reason -- the locked
+			-- v0.4.0 decision that item trackers render icon-only with a count -- so it is
+			-- excluded here on the same terms, or it would draw as a permanently-empty bar too.
+			-- D-4: an account-wide database plus a per-character race means an orc can be
+			-- holding a troll's racial -- the race gate below applies here, not only in
+			-- Suggested, or it would still draw in whatever container it was left in.
+			if
+				entry.section == def.key
+				and entry.trackerType ~= "cooldown"
+				and entry.trackerType ~= "item"
+				and ns:IsRacialKeyVisible(dbKey)
+			then
 				entry.key = dbKey -- stable slot identity (string for meta, numeric for user)
 				table.insert(slots, entry)
 			end
@@ -1675,6 +2037,24 @@ local function RenderBarContainer(def, container, settings, timers, now)
 		bar:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -((i - 1) * step))
 
 		ApplyBarStyle(bar, barWidth, settings)
+
+		-- Phase 48 (PAND-02, S14): one unconditional call per slot, ahead of the
+		-- timer/merged/placeholder chain below, so a pooled bar reused by a plain TBT timer
+		-- clears the previous slot's highlight the same way bar._stacks / bar._lastDuration
+		-- already are. Gated inline on slot.isMerged (D-05) so a native TBT tracker can never
+		-- light up. Uses the render pass's own `now` parameter; adds no clock read of its own.
+		ApplyPandemicBar(bar, slot.isMerged and ns:IsMergedEntryInPandemic(slot, now))
+
+		-- Phase 48.1 (DISP-02): same placement and same gate as the pandemic call above -- one
+		-- unconditional call per slot, ahead of the branch chain, so a pooled bar reused by a
+		-- plain TBT timer clears the previous slot's border. `and nil` rather than `and false`:
+		-- ApplyDispelBorder's dirty check compares against the stored value, and nil is the
+		-- no-border state everywhere else in this path, so a native tracker must resolve to nil
+		-- and not to a second falsy spelling that would defeat the compare on alternate passes.
+		-- Phase 50 (SC3): fourth argument is the non-secret identity (cooldownID) that lets the
+		-- dirty check tell "same entry, unchanged" from "pooled widget, different entry" without
+		-- ever inspecting the atlas.
+		ApplyDispelBorder(bar, slot.dispelAtlas, slot.isMerged and slot.dispelShown == true, slot.cooldownID)
 
 		-- Phase 22 (D-22/D-31): Unified icon/label resolution — single codepath for
 		-- all four buff types. Active timer (proc) wins; placeholder falls back to
@@ -1738,21 +2118,42 @@ local function RenderBarContainer(def, container, settings, timers, now)
 		bar.label:SetText(resolvedLabel or "")
 
 		if timer then
-			local remaining = timer.expiresAt - now
-			local fraction = remaining / timer.duration
+			-- 49-04/D-6: an indefinite proc (Shadowmeld, Find Treasure) has no natural end --
+			-- expiresAt/duration carry only the 86400s backstop (ns.INDEFINITE_DURATION), so
+			-- drawing a countdown from them would show a lie. Draw it as simply on instead: a
+			-- full bar, no fill animation, no number.
+			if timer.indefinite then
+				-- -1 sentinel: neither nil (the placeholder branch's own sentinel below) nor any
+				-- real duration, so a bar alternating between placeholder and indefinite never
+				-- skips its SetMinMaxValues.
+				if bar._lastDuration ~= -1 then
+					bar._lastDuration = -1
+					bar.statusBar:SetMinMaxValues(0, 1)
+				end
+				bar.statusBar:SetValue(1)
+				bar._mergedColor = nil
+				bar.fillTexture:SetVertexColor(GetBarColor(1))
 
-			if bar._lastDuration ~= timer.duration then
-				bar._lastDuration = timer.duration
-				bar.statusBar:SetMinMaxValues(0, timer.duration)
+				bar.pip:Show()
+
+				bar.time:SetText("")
+			else
+				local remaining = timer.expiresAt - now
+				local fraction = remaining / timer.duration
+
+				if bar._lastDuration ~= timer.duration then
+					bar._lastDuration = timer.duration
+					bar.statusBar:SetMinMaxValues(0, timer.duration)
+				end
+				bar.statusBar:SetValue(remaining)
+				local r, g, b = GetBarColor(fraction)
+				bar._mergedColor = nil
+				bar.fillTexture:SetVertexColor(r, g, b)
+
+				bar.pip:Show()
+
+				bar.time:SetText(FormatTime(remaining))
 			end
-			bar.statusBar:SetValue(remaining)
-			local r, g, b = GetBarColor(fraction)
-			bar._mergedColor = nil
-			bar.fillTexture:SetVertexColor(r, g, b)
-
-			bar.pip:Show()
-
-			bar.time:SetText(FormatTime(remaining))
 
 			-- Phase 41 (RACE-02): the bar-side analogue of the icon stack stamp above, driving
 			-- bar.stacks (Blizzard's CooldownViewerBuffBarItemTemplate `Applications`
@@ -1807,6 +2208,19 @@ local function RenderBarContainer(def, container, settings, timers, now)
 	-- Hide unused bars
 	for i = n + 1, #pool do
 		pool[i]:Hide()
+		-- Phase 48 code review WR-01: hiding the bar hides its FX child VISUALLY, but
+		-- AnimateWhileShownTemplate starts and stops its AnimationGroup from the FX frame's OWN
+		-- Show/Hide, not an ancestor's -- so a trailing bar that once showed a highlight would
+		-- keep that animation looping, invisible, until the pooled frame was reused. Cheap
+		-- (ApplyPandemicBar returns immediately when the frame has no FX yet), and it makes this
+		-- loop symmetric with the icon path's own clear.
+		ApplyPandemicBar(pool[i], false)
+		-- Phase 48.1: this one IS covered by pool[i]:Hide(), since the border is a true child of
+		-- the bar and carries no animation to keep running. Cleared anyway, so the pooled widget's
+		-- _dispelShown and _dispelKey match what it is actually showing -- otherwise a bar hidden
+		-- while bordered and later reused for an unbordered slot would dirty-check its way out of
+		-- the Hide it needs.
+		ApplyDispelBorder(pool[i], nil, false)
 	end
 end
 
@@ -1848,7 +2262,10 @@ local function RenderIconContainer(def, container, settings, timers, now)
 
 	wipe(slots)
 	for dbKey, entry in pairs(ns.db.trackedBuffs) do
-		if entry.section == def.key then
+		-- D-4: an account-wide database plus a per-character race means an orc can be holding
+		-- a troll's racial -- the race gate below applies here, not only in Suggested, or it
+		-- would still draw in whatever container it was left in.
+		if entry.section == def.key and ns:IsRacialKeyVisible(dbKey) then
 			entry.key = dbKey -- stable slot identity
 			table.insert(slots, entry)
 		end
@@ -1909,6 +2326,25 @@ local function RenderIconContainer(def, container, settings, timers, now)
 		if anchor then
 			icon:SetPoint(anchor, container, anchor, offsetMajor, offsetMinor)
 		end
+
+		-- Phase 48 (PAND-01, S14): resolved once, before the branch chain below, so it is
+		-- correct across all four of that chain's outcomes at once -- engine-drawn merged buff,
+		-- item-backed merged buff, merged placeholder, and a live TBT timer landing on the same
+		-- pooled widget. Because the FX is container-parented, a slot that stops being merged
+		-- must still reach this call with false, which it does unconditionally per slot -- a
+		-- non-merged entry always resolves to false (D-05), no second branch needed. Uses the
+		-- render pass's own `now` parameter; adds no clock read of its own.
+		ApplyPandemicIcon(icon, entry.isMerged and ns:IsMergedEntryInPandemic(entry, now), settings)
+
+		-- Phase 48.1 (DISP-01): resolved here for the same reason the pandemic call above is --
+		-- once, before the branch chain, so it is correct across all four of that chain's
+		-- outcomes at once. Unlike the pandemic FX this border IS a true child of the pooled
+		-- icon, so an engine-drawn merged aura that hides the icon hides its border too, which is
+		-- correct: the engine's own frame carries Blizzard's border in that case.
+		-- Phase 50 (SC3): fourth argument is the non-secret identity (cooldownID) that lets the
+		-- dirty check tell "same entry, unchanged" from "pooled widget, different entry" without
+		-- ever inspecting the atlas.
+		ApplyDispelBorder(icon, entry.dispelAtlas, entry.isMerged and entry.dispelShown == true, entry.cooldownID)
 
 		if engineDrawsHere and entry.isMerged then
 			-- PLACED, not drawn. The engine draws this aura and drives its sweep; TBT decides
@@ -1974,7 +2410,17 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			icon._mergedExpiry = nil
 			ApplyIconStyle(icon, settings)
 
-			if icon._lastStart ~= timer.startedAt then
+			-- 49-04/D-6: an indefinite proc (Shadowmeld, Find Treasure) has no natural end, so a
+			-- radial sweep drawn from its 86400s backstop duration would show a lie. SetCooldown(0,
+			-- 0) is the clear-the-sweep idiom, present on both flavours -- Cooldown:Clear() buys
+			-- nothing here and is one more symbol to be confident about. The -1 sentinel is neither
+			-- nil nor any real startedAt, keeping the write out of the per-frame path once applied.
+			if timer.indefinite then
+				if icon._lastStart ~= -1 then
+					icon._lastStart = -1
+					icon.cooldown:SetCooldown(0, 0)
+				end
+			elseif icon._lastStart ~= timer.startedAt then
 				icon._lastStart = timer.startedAt
 				icon.cooldown:SetCooldown(timer.startedAt, timer.duration)
 			end
@@ -1996,7 +2442,7 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			end
 
 			icon:Show()
-		elseif entry.trackerType == "cooldown" then
+		elseif entry.trackerType == "cooldown" or entry.trackerType == "item" then
 			-- Phase 38 (CD-02/CD-03/CD-04): placed BELOW the timer branch and ABOVE the
 			-- placeholder branch, and both halves of that order matter. Below the timer
 			-- branch so that in preview mode the synthetic proc BuffEngine builds for a
@@ -2005,6 +2451,11 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			-- branch so a cooldown icon is shown regardless of hideWhenInactive -- the
 			-- only sensible behaviour for a slot that produces no timers, and what
 			-- Blizzard's Essential and Utility viewers do.
+			-- Phase 47: a tracked item entry reaches here too, and needs no branch body change
+			-- -- ApplyCooldownSlot is already generic on entry.key/entry.duration, and its own
+			-- generation-gated block branches ApplyChargeCount vs ApplyItemCount internally.
+			-- entry.isMerged is always false for an item entry, so the merge-aura call below
+			-- is already a no-op for it and needs no guard.
 			ApplyCooldownSlot(icon, entry, settings, now)
 			icon.mergedTime:Hide()
 			icon._mergedExpiry = nil
@@ -2118,6 +2569,17 @@ local function RenderIconContainer(def, container, settings, timers, now)
 	-- Hide extra icons
 	for i = #slots + 1, #pool do
 		pool[i]:Hide()
+		-- Phase 48: pool[i]:Hide() does NOT hide the pandemic FX -- it hangs off the
+		-- container, not the icon (see EnsurePandemicIconFX's comment) -- so without this
+		-- explicit clear a shrinking container would leave a highlight floating over an empty
+		-- cell. The bar path's FX IS a true child of bar, so it needs no clear to stay out of
+		-- sight -- but it carries one anyway (WR-01), because the animation group stops on the
+		-- FX frame's own Hide, not an ancestor's.
+		ApplyPandemicIcon(pool[i], false, settings)
+		-- Phase 48.1: same reasoning as the bar pool's clear -- pool[i]:Hide() already takes the
+		-- border off screen with its parent, but the stored _dispelShown has to be cleared with it
+		-- or the dirty check will skip the Hide when this widget is reused unbordered.
+		ApplyDispelBorder(pool[i], nil, false)
 	end
 
 	-- Size the icon container to fit its visible children (inter-item padding only).

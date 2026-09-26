@@ -66,24 +66,19 @@ end
 -- Per-key display data (icon, label, duration, spellID) comes from ns:GetDisplayInfoForKey;
 -- description text is CDMTab-local (META_DESCRIPTIONS in CDMTab.lua).
 ns.SUGGESTED_KEYS = { "lust", "trinket", "pot" }
--- The racial cooldown tiles, offered on the COOLDOWNS tab rather than this list, which is the
--- Buffs catalogue. Their keys are ordinary "cd:<spellID>" strings resolved per character by
--- ns:RacialCooldownKeys, so adding one creates a normal cooldown tracker with nothing special
--- about it beyond having its duration filled in.
--- Racial is Forever-only. Retail's Cooldown Manager already carries racials, so offering TBT's
--- own would duplicate them -- and under Merge Mode it would land in the same container as the
--- CDM's copy of the same ability.
---
--- Appended rather than filtered so the list has no gap, and the Suggested section's
--- suggestedIndex stays a plain ipairs index. Only the OFFER is withheld: an entry already in a
--- player's database keeps working, because removing it would be destroying their data over a
--- presentation decision.
-if ns.CLIENT_IS_FOREVER then
-	-- Both slots. Forever gives most classes two racials, and the second is tracked exactly like
-	-- the first: its own tile, empty by default, nothing auto-added.
-	ns.SUGGESTED_KEYS[#ns.SUGGESTED_KEYS + 1] = "racial"
-	ns.SUGGESTED_KEYS[#ns.SUGGESTED_KEYS + 1] = "racial2"
-end
+-- RACE-10: the racial buff tiles no longer live in this static list -- a per-racial key is
+-- dynamic (one per spellID, not a fixed meta string), so it cannot sit in a plain array. The
+-- Buffs tab's racial offers now come from ns:RacialSuggestions() (49-03), and the Cooldowns tab's
+-- racial offers from ns:RacialCooldownKeys() (Providers.lua) -- both resolved per character. The
+-- Forever gate that used to live here -- "retail's Cooldown Manager already carries racials, so
+-- offering TBT's own would duplicate them" -- now lives inside ns:RacialSuggestions() instead,
+-- since that is the one place both offer paths read through.
+
+-- Hoisted to module scope (was function-local inside ns:InitBuffEngine) because schema v7's
+-- migration -- ns:MigrateRacialKeys, below -- runs OUTSIDE that function's chain: once from its
+-- own call site inside ns:InitBuffEngine, and again from Core.lua's PLAYER_ENTERING_WORLD branch,
+-- neither of which could read a local declared inside ns:InitBuffEngine.
+local CURRENT_SCHEMA_VERSION = 7
 
 function ns:InitBuffEngine()
 	-- v4 (CONT-01/CONT-03, Phase 35): renames the Tracked Buffs Edit Mode position key,
@@ -97,7 +92,6 @@ function ns:InitBuffEngine()
 	-- Phase 38 (CD-06): adds no migration block at all. entry.trackerType reads as nil on a
 	-- pre-Phase-37 entry, nil == "cooldown" is false, so a buff-only database is already
 	-- correct as-is -- the schema version below stays unbumped.
-	local CURRENT_SCHEMA_VERSION = 6
 	local ver = ns.db.schemaVersion or 0
 
 	if ver < 1 then
@@ -207,14 +201,20 @@ function ns:InitBuffEngine()
 			-- namespace, the record does not change meaning.
 			ns.db.trackedBuffs[ns:TrackerKey(key, "cooldown")] = entry
 		end
-		-- The ONLY block that writes the constant. The earlier blocks keep their literals on
-		-- purpose: `ns.db.schemaVersion = 3` inside `ver < 3` states where THAT migration ends,
-		-- which is a fact about the chain and must not move when the current version does.
-		-- Writing the constant here is what makes the declaration above load-bearing rather
-		-- than decorative, so a future bump that touches only one of the two stops compiling
-		-- the wrong answer silently.
-		ns.db.schemaVersion = CURRENT_SCHEMA_VERSION
+		-- v6 is now an EARLIER block in this chain, so by its own historical rule it keeps a
+		-- literal rather than the constant: `ns.db.schemaVersion = 6` states where THIS
+		-- migration ends, a fact about the chain that must not move just because the current
+		-- version does. Schema v7 (ns:MigrateRacialKeys, below) is the newest migration now, and
+		-- it is the one that writes CURRENT_SCHEMA_VERSION.
+		ns.db.schemaVersion = 6
 	end
+
+	-- Schema v7 (49-03): re-keys the old two-slot "racial"/"racial2" entries onto
+	-- racial:<spellID>. Called here, AFTER the migration chain above and BEFORE the
+	-- ns:PreallocateProc loop below, so a freshly re-keyed entry gets its buffers in the same
+	-- pass. Called a second time from Core.lua's PLAYER_ENTERING_WORLD branch -- see that call
+	-- site for why ADDON_LOADED alone is not enough.
+	ns:MigrateRacialKeys()
 
 	-- Pre-allocate a proc buffer for every tracker already in the database, so the first cast of
 	-- a session costs nothing either. Runs after the migrations above, which is the point: a
@@ -222,6 +222,88 @@ function ns:InitBuffEngine()
 	-- build buffers for keys that no longer exist and miss the ones that now do.
 	for key in pairs(ns.db.trackedBuffs) do
 		ns:PreallocateProc(key)
+	end
+end
+
+-- Schema v7 (49-03): re-keys the old two-slot "racial"/"racial2" tracker entries onto
+-- "racial:<spellID>" keys, resolving the owning race through ns:RacialDefsRaw.
+--
+-- This migration sits OUTSIDE ns:InitBuffEngine's if-chain because it is the first one that
+-- needs a GAME value -- UnitRace("player") -- rather than only data already sitting in the
+-- record. Every earlier migration transforms what the entry already carries; a "racial"/
+-- "racial2" record carries NO spellID of its own, because the old two-slot model derived one
+-- fresh from UnitRace every session, so the new key cannot be computed from the old record
+-- alone -- it has to ask ns:RacialDefsRaw which spellID that slot resolves to for the CURRENT
+-- character, right now.
+--
+-- Idempotent and safe to call any number of times: a no-op once schemaVersion has reached
+-- CURRENT_SCHEMA_VERSION, and a raceID that is not yet readable defers entirely rather than
+-- guessing -- collapsing "this race has no racial in that slot" with "UnitRace was unreadable"
+-- would delete a placement at an unlucky ADDON_LOADED, which is exactly what D-4's "Migration is
+-- required" clause exists to prevent. That is why it is called twice: once from
+-- ns:InitBuffEngine above, and again from Core.lua's PLAYER_ENTERING_WORLD, since
+-- UnitRace("player") is not guaranteed readable at ADDON_LOADED and the only other entry point
+-- would be the next login.
+function ns:MigrateRacialKeys()
+	if not ns.db or not ns.db.trackedBuffs then
+		return
+	end
+	if (ns.db.schemaVersion or 0) >= CURRENT_SCHEMA_VERSION then
+		return
+	end
+
+	local defs, raceID = ns:RacialDefsRaw()
+	-- raceID nil means UnitRace("player") was not readable this call -- defer entirely, without
+	-- touching a single entry or bumping the schema version. Do NOT treat an empty defs as "no
+	-- racials for this race" unless raceID came back as a real number; an empty table alone
+	-- cannot carry that distinction (see ns:RacialDefsRaw's own header comment).
+	if raceID == nil then
+		return
+	end
+
+	-- At most two keys, both known up front -- this loop never iterates ns.db.trackedBuffs
+	-- itself, so the v5->v6 block's "collected before mutating" concern does not apply here.
+	local rekeyed = false
+	local oldSlotKeys = { "racial", "racial2" }
+	for slot, oldKey in ipairs(oldSlotKeys) do
+		local entry = ns.db.trackedBuffs[oldKey]
+		if entry then
+			ns.db.trackedBuffs[oldKey] = nil
+			local def = defs[slot]
+			if def then
+				local newKey = ns.RACIAL_KEY_PREFIX .. def.spellID
+				if not ns.db.trackedBuffs[newKey] then
+					-- entry.section and entry.layoutOrder are the placement D-4 requires be
+					-- preserved -- deliberately left untouched below.
+					entry.key = newKey
+					entry.spellID = def.spellID
+					entry.duration = def.duration
+					entry.label = def.fallbackLabel or entry.label
+					ns.db.trackedBuffs[newKey] = entry
+					ns:PreallocateProc(newKey)
+					rekeyed = true
+				end
+				-- else: a "racial:<spellID>" record already exists for this slot (T-49-08) --
+				-- the old record is dropped rather than clobbering it.
+			end
+			-- else: this race has no racial in that slot under the new model (e.g. a
+			-- one-racial race's stale "racial2"). Under the old two-slot model that slot
+			-- resolved to false and rendered as a greyed unsupported placeholder; RACE-10
+			-- deletes that placeholder (D-7), so the record addresses nothing on any
+			-- character. This is the one case where data is removed, and it is removed only
+			-- once raceID is known to be real.
+		end
+	end
+
+	ns.db.schemaVersion = CURRENT_SCHEMA_VERSION
+
+	if rekeyed then
+		if ns.MarkTrackersDirty then
+			ns:MarkTrackersDirty()
+		end
+		if ns.UpdateDisplay then
+			ns:UpdateDisplay()
+		end
 	end
 end
 
@@ -287,11 +369,22 @@ local aliveBuffsPool = {}
 -- A caller that starts holding one across frames has to stop using this.
 local displayInfoPool = {}
 
--- Hands back the slot's proc table, wiped. The wipe is load-bearing rather than hygiene: the
--- racial proc carries "stacks" and no "aliveBuffs", every other proc carries "aliveBuffs" and no
+-- 49-04/D-6: the backstop written into an indefinite proc's duration/expiresAt, NOT a claim about
+-- how long the buff actually lasts. proc.indefinite is the real signal every render path and the
+-- expiry sweep below branch on; this constant only exists so that code which does arithmetic on
+-- duration/expiresAt without knowing about the flag still produces a sane number -- one in-game
+-- day, far longer than any session -- instead of nil-arithmetic or a negative remaining.
+ns.INDEFINITE_DURATION = 86400
+
+-- Hands back the slot's proc table, wiped. The wipe is load-bearing rather than hygiene: a racial
+-- proc carries "stacks" and (today) no "aliveBuffs", every other proc carries "aliveBuffs" and no
 -- "stacks", and a provider that stopped setting a field would otherwise inherit the previous
--- cast's value for it. Keys never cross providers -- "racial", "lust", "trinket", "pot" and the
--- numeric user-spell keys are disjoint -- so this guards against future edits, not present ones.
+-- cast's value for it. This is a warning about a stale field leaking through an unwiped table, NOT
+-- a prohibition on ever setting "aliveBuffs" on a racial proc -- the wipe on every acquire makes it
+-- safe for a racial proc built this session to set aliveBuffs deliberately, which is exactly what
+-- 49-04 does for Shadowmeld, Find Treasure and Plainsrunning. Keys never cross providers --
+-- "racial:<spellID>", "lust", "trinket", "pot" and the numeric user-spell keys are disjoint -- so
+-- this guards against future edits, not present ones.
 function ns:AcquireProc(key)
 	local proc = procPool[key]
 	if proc then
@@ -392,7 +485,10 @@ function ns:GetActiveTimers()
 
 	-- 2. Real active entries override previews for same key (real-priority per D-05)
 	for key, proc in pairs(ns.activeTimers) do
-		if proc.expiresAt <= now then
+		-- 49-04/D-6: an indefinite proc's expiresAt is only the 86400s backstop, not a real
+		-- deadline -- it is ended by ns:ScanActiveTimersForCancellation (aura-loss) or
+		-- ns:EndTimer (combat entry), never by this lazy-expiry sweep.
+		if not proc.indefinite and proc.expiresAt <= now then
 			ns.activeTimers[key] = nil
 		else
 			activeTimerSet[key] = proc
@@ -585,7 +681,11 @@ function ns:StartAllPreviewTimers()
 		-- demo built from a number the user typed, with no game value read and no secret
 		-- involved. The existing icon render path below already turns it into a demo sweep
 		-- with no type branch needed.
-		if entry.section ~= "hidden" then
+		--
+		-- D-4: an account-wide database plus a per-character race means an orc can be
+		-- holding a troll's racial -- the race gate below keeps it from ever getting a
+		-- preview here, not only from being offered in Suggested.
+		if entry.section ~= "hidden" and ns:IsRacialKeyVisible(key) then
 			-- Skip if a live real proc already owns this key (D-05 priority at insertion time).
 			--
 			-- ns.activeTimers is not the whole answer any more. A custom cooldown never enters it
@@ -597,7 +697,13 @@ function ns:StartAllPreviewTimers()
 			local live = (real and real.expiresAt > now) or ns:IsCooldownRunning(key, entry, now)
 			if not live then
 				local info = ns:GetDisplayInfoForKey(key)
-				if info then
+				-- RACE-10/49-03: an indefinite racial (Shadowmeld, Find Treasure,
+				-- Plainsrunning) reports no duration at all, and `now + nil` would raise. A
+				-- tracker with no meaningful duration has no demo sweep to show, so it
+				-- previews as the ordinary placeholder the render path already draws for an
+				-- entry with no proc. This guard is also what makes 49-04's indefinite work
+				-- safe to land on top.
+				if info and type(info.duration) == "number" and info.duration > 0 then
 					ns.previewTimers[key] = {
 						key = key,
 						spellID = info.spellID, -- numeric (D-10); Display tooltip handler uses uniformly
