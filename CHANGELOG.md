@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.4.1 — Generic Item Tracking, Pandemic support and Forever Racials
+
+Adding support for tracking items' cooldowns, Pandemic indicator on
+Merge mode and Forever Racials.
+
+### New Features
+- **Consumable tracking** - Consumable items you have now show on
+  suggested section and you can drag them to any container for
+  cooldown and quantity tracking
+- **Pandemic and dispel outline support** - Tracked spells from Merge
+  mode now show pandemic on retail and dispel outline indicators when
+  available
+- **Forever Racials** - Suggested buffs and cooldowns now offer
+  trackers for all racials
+
 ## v0.4.0 — Cooldown Tracking and Full CDM View
 
 Big update with Cooldown tracking, full CDM view and extra
