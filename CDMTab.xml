@@ -6,8 +6,10 @@
 	<!-- TBT tab buttons: inherit the visual template but do NOT use parentArray,
 	     to avoid tainting CDM's secure TabButtons iteration.
 	     The anchors below are load-time placeholders only — CDMTab.lua re-anchors
-	     TBTSpellsTab under the bottom-most Blizzard tab and TBTSettingsTab under
-	     that, so the order on screen is Blizzard's tabs, TBT Spells, TBT Buffs.
+	     TBTSpellsTab under the bottom-most Blizzard tab, TBTSettingsTab under that
+	     and TBTRemindersTab (Phase 57.2) under TBTSettingsTab, so the order on
+	     screen is Blizzard's tabs, TBT Cooldowns, TBT Buffs, TBT Reminders. The
+	     same taint rule holds for all three: no parentArray.
 
 	     TBTSettingsTab keeps its name although it is the "TBT Buffs" tab: it is the
 	     original tab, every tracker that existed before v0.4.0 is a buff, and the
@@ -27,6 +29,15 @@
 		<Size x="43" y="55"/>
 		<Anchors>
 			<Anchor point="TOP" relativeTo="TBTSpellsTab"
+			        relativePoint="BOTTOM" x="0" y="-3"/>
+		</Anchors>
+	</Frame>
+
+	<Frame name="TBTRemindersTab" parent="CooldownViewerSettings"
+	       inherits="LargeSideTabButtonTemplate">
+		<Size x="43" y="55"/>
+		<Anchors>
+			<Anchor point="TOP" relativeTo="TBTSettingsTab"
 			        relativePoint="BOTTOM" x="0" y="-3"/>
 		</Anchors>
 	</Frame>

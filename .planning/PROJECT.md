@@ -8,22 +8,86 @@ A WoW addon for manually tracking buff and cooldown timers, running on both **Mi
 
 Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
 
-## Current Milestone: none active — v0.4.1 archived 2026-09-26
+## Current Milestone: none active — v0.5.0 archived 2026-09-29
 
-**v0.4.1 Generic Item Tracking and Forever Racials is COMPLETE and archived.** 8 phases (46-52,
-including 48.1 inserted mid-milestone), 18 plans, 22/22 requirements closed, verified in game on both
-the WoW Forever beta and Midnight retail on 2026-09-26. Archives:
-[`milestones/v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md) and
-[`milestones/v0.4.1-REQUIREMENTS.md`](milestones/v0.4.1-REQUIREMENTS.md).
+**v0.5.0 Elaborate tracking is COMPLETE and archived.** 13 phases (53-60, including 57.1-57.5
+inserted mid-milestone), 42 plans, 33/33 requirements closed (4 adjusted by later user decisions),
+verified in game on both the WoW Forever beta and Midnight retail (including M+) on 2026-09-29, with
+both full reviews approved by the user. Archives:
+[`milestones/v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md) and
+[`milestones/v0.5.0-REQUIREMENTS.md`](milestones/v0.5.0-REQUIREMENTS.md).
 
-**It is NOT yet released, and the order matters.** In sequence: the user pastes their own `v0.4.1`
-entry into `CHANGELOG.md` from `.planning/phases/50-cleanup-release-prep/50-CHANGELOG-DRAFT.md`
-(no agent writes that file), then the milestone branch is **squash-merged to `main`**, then
+**It is NOT yet released, and the order matters.** In sequence: the user writes their own `v0.5.0`
+entry in `CHANGELOG.md` (no agent writes that file unless asked), then the milestone branch is
+**squash-merged to `main`** (the next step, done by the orchestrating session), then
 `scripts/release.bat` runs **from `main`** — which creates the tag itself. `release.bat` carries a
 branch guard enforcing this; `TBT_ALLOW_BRANCH=1` overrides it and must not be used here. **No tag
 was created at archive time, deliberately.**
 
-Phase numbering never restarts, so the next milestone starts after Phase 52.
+Phase numbering never restarts, so the next milestone starts after Phase 60.
+
+<details>
+<summary>v0.5.0 milestone goal, as set at kickoff</summary>
+
+**Goal:** User-defined trackers become fully configurable after creation, every tracker kind follows
+one naming scheme, and custom trackers gain a detailed mode that can describe richer behaviour than
+"a cast starts a fixed timer".
+
+**Phases start at 53.** Numbering continues from v0.4.1's Phase 52 and never restarts. Branch:
+`milestone/v0.5.0-elaborate-tracking`, cut from `topic/dev` on 2026-09-28.
+
+**Target features** (scope set with the user at kickoff, 2026-09-28):
+
+- **Naming scheme (backlog 999.13).** One consistent set of tracker kinds — user buff, user cooldown,
+  meta skill (Lust, racials, ...), meta item (trinket, pot, bag consumables), and user item if custom
+  item trackers ever exist. **Renamed in code AND in saved data** (`trackerType` values and key
+  prefixes), with a schema migration on the existing `schemaVersion` chain. Comes first: editing and
+  detailed tracking both add behaviour per kind.
+- **Edit trackers (backlog 999.12).** Every input of a user-defined tracker is editable after creation,
+  including the spell ID. The edit dialog is driven by the same field list as the add dialog, so any
+  option added later is editable automatically.
+- **Simple and detailed tracking — both modes get:**
+  - a **live preview** of the spell/aura ID being entered (icon, name, and the game tooltip on hover);
+  - an **auto-suggested cooldown** from the game when one is available;
+  - the **secrecy level** (`C_Secrets.GetSpellAuraSecrecy` → `Enum.SecrecyLevel`) shown beside the
+    spell ID, on **both** TBT's own tooltips and the global spell/aura-ID tooltip line TOOL-01 adds;
+  - a small **"secret?" highlight** whenever a spell being added has a secrecy level > 0
+    (`AlwaysSecret` or `ContextuallySecret`), whose tooltip explains what that means for the tracker —
+    e.g. aura-driven behaviour will not update in combat or M+.
+- **Detailed tracking only (backlog 999.14):**
+  - a **separate aura ID** — by default a custom tracker keeps aura ID = spell ID, as today;
+  - **show when present / show when absent** — visibility driven by the aura;
+  - an **opt-out of aura-loss cancellation** (default stays ON, the lesson of the removed racial
+    `cancelOnAuraLoss` opt-in);
+  - **cross-spell rules**, such as "aura A clears when skill B is cast" — cast-driven, so they work in
+    combat too.
+
+**Explicitly out:** special handling for a spell that is also tracked by the CDM (backlog 999.16);
+alerts (999.15); profiles (999.11); the open bugs 999.5, 999.9 and 999.10. The detailed-tracking
+design itself is settled in that phase's discussion, not here.
+
+**Closing sequence, following v0.4.1:** cleanup, then a Forever review pass, then a retail review pass
+as the literal last phase.
+
+**All of the above shipped, reshaped by five inserted phases.** The simple/detailed switch became
+General and Advanced settings with no saved mode flag (57.1), and "show when present / absent" was
+replaced by a Buff Reminders category of its own (57.2), so "only while present" was dropped. The
+milestone also gained a When known / Always / Never load rule that replaced the racial race gate
+(57.3), Forever class-buff meta reminders (57.4) and reminder alternatives (57.5). Everything
+listed under "Explicitly out" stayed out.
+
+</details>
+
+<details>
+<summary>v0.4.1 Generic Item Tracking and Forever Racials — SHIPPED 2026-09-26 as v0.4.1</summary>
+
+8 phases (46-52, including 48.1 inserted mid-milestone), 18 plans, 22/22 requirements closed,
+verified in game on both flavours on 2026-09-26. Squash-merged to `main` as `c30084a` and tagged
+`v0.4.1`. Archives: [`milestones/v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md),
+[`milestones/v0.4.1-REQUIREMENTS.md`](milestones/v0.4.1-REQUIREMENTS.md) and
+`milestones/v0.4.1-phases/`.
+
+</details>
 
 <details>
 <summary>v0.4.1 milestone goal, as set at kickoff</summary>
@@ -192,18 +256,26 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 - META-01 data-driven meta-tile hide via per-provider `HasResolvableCatalog` and the memoised `ns:IsSuggestedKeyResolvable`, plus the PAR-02 resolve-before-`SetSpellByID` guard; verified in both directions — Forever hides all three tiles as designed, retail keeps all three present and draggable — v0.3 Phase 27.1
 - Forever in-game verification pass on build `1.60.1.69913`, interface `16001`, 2026-09-18: `UNIT_SPELLCAST_SUCCEEDED` delivers a usable spellID, CDM attaches, the tab injects, bars and icons render on CDM's atlases, Edit Mode works end-to-end, combat produces no uncaught aura-read error; zero failures, two Forever-only defects found and fixed (`9fde1eb`, `9e32f92`). **Correction:** the pass originally recorded SavedVariables as persisting, on the basis of a `/reload` test. That test could not have failed — `/reload` keeps the data in memory and never exercises the load path. Cross-session persistence is broken on this beta; see Context — v0.3 Phase 28
 - Packaging split into two flavor-pure configs: `.pkgmeta` replaced by `.pkgmeta-mainline` / `.pkgmeta-camelot` (identical shared config, each cross-ignoring the other flavor's TOC); `release.yml` gained a serialised two-job matrix (`max-parallel: 1`) passing `-m .pkgmeta-<flavor>` and a `{game-type}`-templated `-n`, with `RELEASE_NOTES.md` regenerated per job; `CHANGELOG.md`'s v0.3.0 entry names the tested beta build and interface. Guard-verified via `check-toc.ps1` assertion 3 and reviewed statically — configured and guard-verified, **not yet exercised by a real tag push** (`DIST-03`…`DIST-07` remain the milestone's one open gap, deferred to the first release by user decision) — v0.3 Phase 29
+- One naming scheme for every tracker kind in code and saved data (`userBuff`, `userCd`, `metaSkill`, `metaSkillCd`, `metaItem`, `userItem` reserved), a v0.4.1 database migrated by schema v8 with nothing lost across a real logout/login — v0.5.0 Phase 53 (NAME-01/02)
+- Every user tracker editable after creation, spell ID included, from one shared `TRACKER_FIELDS` definition driving both the add and the edit dialog; ID changes keep the tracker's place; duplicates rejected per kind — v0.5.0 Phase 54 (EDIT-01..04)
+- Live ID preview (50px CDM-styled portrait, game tooltip on hover), a suggested cooldown from the game (and a live-aura duration for buffs), the aura secrecy level on TBT tooltips and the TOOL-01 line, and a "secret?" badge — v0.5.0 Phases 55-56 (ADD-04..06, SECR-01..03)
+- General/Advanced settings with no saved mode flag (schema v9), on Blizzard's panel frame with CDM-style icon side tabs: a separate aura ID, the aura-loss opt-out, cross-spell "ends/resets when you cast" rules that work in combat, and an unreadable aura never treated as absent — v0.5.0 Phases 56-57.1 (ADD-07, DTRK-01/02/04/05/06; DTRK-03 superseded by REM)
+- Buff Reminders: a third TBT tab and container; a reminder is a buff tracker shown while its buff is missing, with its state held while unreadable and its timer synced to a readable expiry; "show when absent" buffs migrated by schema v10 — v0.5.0 Phase 57.2 (REM-01..04)
+- One load rule, When known / Always / Never, on every tracker; unloaded trackers are never processed or drawn and show greyed; the racial race gate is gone — v0.5.0 Phase 57.3 (LOAD-01..04)
+- Forever class-buff meta reminders from Suggested, every known rank counting; "Also satisfied by" alternatives for reminders (schema v11), the paladin blessings satisfying each other — v0.5.0 Phases 57.4-57.5 (MREM-01..03, RALT-01..03)
 
 ### Active
 
-v0.4.1's requirements live in `.planning/REQUIREMENTS.md`, written fresh at kickoff on 2026-09-24.
-v0.4.0's are archived to `.planning/milestones/v0.4.0-REQUIREMENTS.md`.
+None — no milestone is active. v0.5.0's requirements are archived at
+[`milestones/v0.5.0-REQUIREMENTS.md`](milestones/v0.5.0-REQUIREMENTS.md) and validated above; the next
+milestone writes a fresh `.planning/REQUIREMENTS.md`. Earlier milestones' are archived under
+`.planning/milestones/`.
 
-Carried in from the backlog and still open:
+Still open in the backlog, for the next milestone discussion:
 
-- **`RACE-06`** — every retail racial as its own specified special case. Deferred again at v0.4.1
-  kickoff by user decision; only the Forever half (`RACE-07`) is in this milestone.
-- **999.5** — a cooldown icon can stay grey through the GCD. Not selected for v0.4.1; never
-  consistently reproducible, so it stays open pending a repro rather than being closed on a guess.
+- **`RACE-06`** — every retail racial as its own specified special case.
+- **999.5** — a cooldown icon can stay grey through the GCD; pending a repro.
+- **999.8, 999.9, 999.10, 999.11, 999.15, 999.16** — see the ROADMAP Backlog.
 
 ## Current State
 
@@ -211,7 +283,9 @@ Carried in from the backlog and still open:
 
 **Planning drift note:** v0.2.5 (12.1 compatibility) and v0.2.6 (CDM tab placement) were both developed, tagged and released outside the GSD workflow, so they have no phase artifacts under `.planning/phases/`. They are recorded in `CHANGELOG.md`, `MILESTONES.md` and the Validated list above; that is the whole of their planning record — no phases are reconstructed retroactively.
 
-**v0.4.1 Generic Item Tracking and Forever Racials is archived (2026-09-26)** — 8 phases (46-52), 18 plans, 22/22 requirements, verified in game on both flavours. See [`milestones/v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md). **Not yet released:** CHANGELOG entry, then squash-merge to `main`, then `scripts/release.bat` from `main` — which creates the tag. The next milestone starts after Phase 52.
+**v0.5.0 Elaborate tracking is archived (2026-09-29)** — 13 phases (53-60, including 57.1-57.5 inserted), 42 plans, 33/33 requirements, verified in game on both flavours including retail M+. See [`milestones/v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md). **Not yet released:** the user's CHANGELOG entry, then squash-merge to `main`, then `scripts/release.bat` from `main` — which creates the tag. The next milestone starts after Phase 60.
+
+**Earlier —** v0.4.1 Generic Item Tracking and Forever Racials shipped 2026-09-26 — 8 phases (46-52), 18 plans, 22/22 requirements, verified in game on both flavours, squash-merged to `main` and tagged `v0.4.1`. See [`milestones/v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md).
 
 **Earlier —** v0.4.0 Cooldown Tracking and Full CDM View is **archived** (2026-09-23) — 15 phases (31-45), 34 plans, 58/58 requirements, see [`milestones/v0.4.0-ROADMAP.md`](milestones/v0.4.0-ROADMAP.md). It is **not yet released**: squash-merge the milestone branch to `main`, then run `scripts/release.bat 0.4.0` from `main`, which creates the `v0.4.0` tag itself and pushes. Phase numbering never restarts, so the next milestone starts after Phase 45.
 
@@ -241,7 +315,7 @@ client-side bug — see Context.
 - WoW Midnight (Interface 120000+), COMBAT_LOG_EVENT_UNFILTERED disabled
 - **Forever ships no retail spell data (found 2026-09-18, `FOREVER-TEST-PASS.md`):** the lust Suggested tile rendered the `134400` question-mark icon, which only occurs when `C_Spell.GetSpellInfo(2825)` returns nil. That nil is the exact discriminator META-01's data-driven hide relies on — the mechanism needs no flavor check, and a client that later ships those spells shows the tiles again with no code change.
 - **`GetScaledCursorPositionForFrame` is absent from Forever's engine (found 2026-09-18, `FOREVER-TEST-PASS.md`):** `CDMTab.lua`'s ghost-frame `OnUpdate` called it every frame of every drag — 53 errors in one session. Fixed in `9e32f92` by reusing the `GetCursorPosition()`/`GetScale()` idiom the file's three other cursor sites already used, removing the engine dependency instead of shimming it. The defect was pre-existing since v0.2.0, not a v0.3 regression — the lesson generalises: an engine-side global present on Midnight is not guaranteed on Forever.
-- **SavedVariables do NOT persist across sessions on the Forever beta (corrected 2026-09-19):** an earlier note here claimed they did, on build `1.60.1.69913`, because Edit Mode container positions survived `/reload`. **That test was invalid** — `/reload` keeps the data in memory and never exercises the load path, so it could not have failed. Logout and log back in and every value is a hardcoded default; the saved file is written correctly on logout and is byte-identical to its `.bak`, so the client writes but never reads. Other addons are affected identically, which is what first surfaced it. The third-party report filed against build `69893` was right. **TBT is not at fault and there is nothing to adapt to:** `Blizzard_ClientSavedVariables` is present on both flavours and no new TOC directive governs addon storage. Documented as a known issue in `CHANGELOG.md` and `README.md`; retail is unaffected.
+- **SavedVariables do NOT persist across sessions on the Forever beta (corrected 2026-09-19):** an earlier note here claimed they did, on build `1.60.1.69913`, because Edit Mode container positions survived `/reload`. **That test was invalid** — `/reload` keeps the data in memory and never exercises the load path, so it could not have failed. Logout and log back in and every value is a hardcoded default; the saved file is written correctly on logout and is byte-identical to its `.bak`, so the client writes but never reads. Other addons are affected identically, which is what first surfaced it. The third-party report filed against build `69893` was right. **TBT is not at fault and there is nothing to adapt to:** `Blizzard_ClientSavedVariables` is present on both flavours and no new TOC directive governs addon storage. Documented as a known issue in `CHANGELOG.md` and `README.md`; retail is unaffected. **Superseded 2026-09-28:** the user reports SavedVariables have been persisting on Forever for a while now — Blizzard fixed it platform-side. Persistence can be tested on either client again; `README.md` no longer carries the known issue; `CHANGELOG.md` keeps it only under the v0.3.0 release notes, where it was accurate at the time.
 - CDM is Blizzard's Cooldown Manager — addon must integrate with its settings UI
 - Blizzard UI source available at `C:\Users\jonat\Repositories\wow-ui-source`
 - CDM templates: `Interface/AddOns/Blizzard_CooldownViewer/CooldownViewer.xml` and `.lua`
@@ -308,4 +382,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-24 at v0.4.1 kickoff*
+*Last updated: 2026-09-29 at v0.5.0 archive*

@@ -337,6 +337,9 @@ function ns:RefreshMergeMirror()
 							-- No layoutOrder: CDM order is preserved by insertion order, and
 							-- Plan 02 appends mirrored slots after the user's own without
 							-- re-sorting.
+							-- Mirrored CDM entries are runtime-only (never saved) and take the
+							-- user kinds so the shared slot predicates (ns:IsCooldownSlotEntry,
+							-- ns:IsBagItemEntry) treat them exactly as before the naming scheme.
 							table.insert(list, {
 								key = "cdm:" .. cooldownID,
 								-- Kept alongside the key rather than re-parsed out of it: the
@@ -354,8 +357,8 @@ function ns:RefreshMergeMirror()
 								label = label,
 								section = def.key,
 								trackerType = (def.kind == "icon" and def.cdmCategoryName ~= "TrackedBuff")
-										and "cooldown"
-									or "buff",
+										and ns.KIND.USER_CD
+									or ns.KIND.USER_BUFF,
 								-- Phase 43.1: Blizzard's CanUseAuraForDisplay, resolved here rather
 								-- than at render time -- the flag cannot change without a mirror
 								-- rebuild, and reading it per frame would mean a bit.band per

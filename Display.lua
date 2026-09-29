@@ -83,18 +83,30 @@ end
 -- them. That flag is Blizzard's own "is this up", already computed, and readable as a plain
 -- boolean; TBT must not re-derive it from the aura APIs, and cannot ask the engine, whose frames
 -- refuse tainted reads while auras are secret.
+-- Phase 57.2 (REM-03): the reminder gate sits right here, at the same position as the hide
+-- branch RenderIconContainer's own chain adds -- after the engine-drawn merged early return,
+-- before anything that would otherwise draw.
 local function SlotDraws(entry, timer, settings, iconEditing, engineDrawsHere)
 	if engineDrawsHere and entry.isMerged then
 		return entry.cdmShown == true
 	end
+
+	local gate = ns:ReminderGate(entry.key, entry)
+	if gate == false and not (ns.configOpen or iconEditing) then
+		return false
+	end
+	if gate == true then
+		return true
+	end
+
 	-- Phase 47: an item tracker produces no ns.activeTimers entry either, for exactly the same
 	-- reason a cooldown tracker does not, so it must draw on the same terms. Currently
 	-- unreachable for one: the centred layout this function gates is derived from
-	-- ns:GetContainerCategory(def) == "buffs", and an item tracker always lives in a spells
-	-- container. The widening is defensive, one token, and correct on its own terms rather than
-	-- load-bearing today.
+	-- ns:GetContainerCategory(def) ~= "spells" (buffs and reminders), and an item tracker
+	-- always lives in a spells container. The widening is defensive, one token, and correct on
+	-- its own terms rather than load-bearing today.
 	return timer ~= nil
-		or (entry.trackerType == "cooldown" or entry.trackerType == "item")
+		or ns:IsCooldownSlotEntry(entry)
 		or entry.isMerged
 		or not settings.hideWhenInactive
 		or ns.configOpen
@@ -250,8 +262,31 @@ end
 -- wiring (DISP-03). Callers pass the proc directly — no legacy meta-info fallback chains.
 ---------------------------------------------------------------------
 
+-- Fills GameTooltip with an item's own tooltip. SetItemByID is pcall'd: an item the client has
+-- not cached (or does not know) falls back to its name, or "Item", rather than the empty frame
+-- SetItemByID can otherwise leave. Shared by the on-screen icons (ns:ShowBuffTooltip below) and
+-- the CDM tab's item tiles, which add their own lines after it.
+function ns:SetTooltipItem(itemID)
+	local ok = pcall(GameTooltip.SetItemByID, GameTooltip, itemID)
+	if not ok then
+		local fallbackName = C_Item.GetItemNameByID(itemID)
+		if issecretvalue(fallbackName) or type(fallbackName) ~= "string" then
+			fallbackName = "Item"
+		end
+		GameTooltip:SetText(fallbackName, 1, 1, 1)
+	end
+end
+
 function ns:ShowBuffTooltip(frame, proc, opts)
 	GameTooltip_SetDefaultAnchor(GameTooltip, frame)
+	-- An item tracker (a bag item's saved entry is the on-screen icon's proc) gets the item's own
+	-- tooltip: it has no spellID, and the spell path below would show only its label.
+	local itemID = proc and proc.itemID
+	if not opts and not issecretvalue(itemID) and type(itemID) == "number" and itemID > 0 then
+		ns:SetTooltipItem(itemID)
+		GameTooltip:Show()
+		return
+	end
 	local spellID = (proc and type(proc.spellID) == "number") and proc.spellID or nil
 	-- PAR-02 (D-13/D-14/D-15/D-16): a numeric spellID is not proof the client knows the
 	-- spell. SetSpellByID on an unknown spell populates nothing while GameTooltip:Show()
@@ -272,6 +307,12 @@ function ns:ShowBuffTooltip(frame, proc, opts)
 		if opts.showSpellID and spellID and not spellResolves then
 			GameTooltip:AddLine(" ")
 			GameTooltip:AddLine("Spell ID: " .. spellID, 0.8, 0.8, 0.8)
+			-- TOOL-01 never ran here, since SetSpellByID was skipped for an
+			-- unresolved spell, so this branch adds its own secrecy line.
+			local secrecyLine = ns:SecrecyLine(ns:SpellAuraSecrecy(spellID))
+			if secrecyLine then
+				GameTooltip:AddLine(secrecyLine, 0.8, 0.8, 0.8)
+			end
 			addedIDLine = true
 		end
 		if opts.showDuration and proc and proc.duration and proc.duration > 0 then
@@ -992,11 +1033,14 @@ local function RefreshCooldownSlotCounts()
 
 	cooldownCountStamp = generation
 	wipe(cooldownSlotCounts)
-	for _, entry in pairs(tracked) do
+	for key, entry in pairs(tracked) do
 		-- Phase 47: a container holding only tracked items must stay visible too, for the
 		-- identical reason a cooldown-only container does -- neither produces a
 		-- ns.activeTimers entry, so #timers alone can never see them.
-		if (entry.trackerType == "cooldown" or entry.trackerType == "item") and entry.section then
+		-- Phase 57.3 (LOAD-03): an unloaded tracker does not count, so a container holding only
+		-- unloaded cooldowns stays hidden under hideWhenInactive. ns:RebuildTrackerLoad bumps
+		-- ns.trackerGeneration whenever the loaded set changes, so this stamp follows it.
+		if ns:IsCooldownSlotEntry(entry) and entry.section and ns:IsTrackerLoaded(key) then
 			cooldownSlotCounts[entry.section] = (cooldownSlotCounts[entry.section] or 0) + 1
 		end
 	end
@@ -1644,7 +1688,7 @@ local function ApplyCooldownSlot(icon, entry, settings, now)
 		-- Phase 47: an item entry has no charges and no spellID for the charge API to answer
 		-- about, so it branches to the item-count parallel instead, in the same position in the
 		-- block -- the ordering reason above applies identically to it.
-		if entry.trackerType == "item" then
+		if ns:IsBagItemEntry(entry) then
 			ApplyItemCount(icon, entry)
 		else
 			ApplyChargeCount(icon, spellID)
@@ -1959,6 +2003,8 @@ local function RenderBarContainer(def, container, settings, timers, now)
 	local merged, mergedCount = MergedSlotsFor(def)
 	-- Phase 40 (STEAL-03): a container holding only mirrored CDM bars must still be visible
 	-- under hideWhenInactive.
+	-- Phase 57.2 review WR-03: reminders are icon-only (CreateUserContainer, v10 migration); the
+	-- bar path has no reminder gate.
 	local hasActiveTimers = #timers > 0 or mergedCount > 0
 	local barEditing = ns.editModeActive
 	local visible = ShouldShow(settings.visibleSetting, hasActiveTimers, settings.hideWhenInactive, barEditing)
@@ -1986,23 +2032,27 @@ local function RenderBarContainer(def, container, settings, timers, now)
 			-- Phase 47: a tracked item is icon-only for the identical reason -- the locked
 			-- v0.4.0 decision that item trackers render icon-only with a count -- so it is
 			-- excluded here on the same terms, or it would draw as a permanently-empty bar too.
-			-- D-4: an account-wide database plus a per-character race means an orc can be
-			-- holding a troll's racial -- the race gate below applies here, not only in
-			-- Suggested, or it would still draw in whatever container it was left in.
-			if
-				entry.section == def.key
-				and entry.trackerType ~= "cooldown"
-				and entry.trackerType ~= "item"
-				and ns:IsRacialKeyVisible(dbKey)
-			then
-				entry.key = dbKey -- stable slot identity (string for meta, numeric for user)
-				table.insert(slots, entry)
+			-- Phase 57.3 (LOAD-03): a tracker that is not loaded takes no slot and no grid cell,
+			-- in Edit Mode and the settings preview too. One cached table read per entry.
+			if entry.section == def.key and not ns:IsCooldownSlotEntry(entry) and ns:IsTrackerLoaded(dbKey) then
+				-- Phase 57 (DTRK-03): a gated-off tracker is skipped here unless the settings or
+				-- Edit Mode are open.
+				local gate = ns:ReminderGate(dbKey, entry)
+				if gate ~= false or ns.configOpen or barEditing then
+					entry.key = dbKey -- stable slot identity, a `<kind>:<id>` string
+					table.insert(slots, entry)
+				end
 			end
 		end
 		table.sort(slots, ByLayoutOrder)
 	else
 		for _, t in ipairs(timers) do
-			table.insert(slots, t) -- procs already have .key from provider
+			-- Phase 57 (DTRK-03): this branch only runs with the settings and Edit Mode
+			-- closed, so a gated-off timer is dropped here rather than drawn.
+			local gate = ns:ReminderGate(t.key, ns.db.trackedBuffs[t.key])
+			if gate ~= false then
+				table.insert(slots, t) -- procs already have .key from provider
+			end
 		end
 	end
 
@@ -2249,7 +2299,13 @@ local function RenderIconContainer(def, container, settings, timers, now)
 	local engineDrawsHere = ns.mergeAuraGroupsActive
 		and def.cdmCategoryName == "TrackedBuff"
 		and ns.db.mergeMode == true
-	local hasActiveIcons = #timers > 0 or (cooldownSlotCounts[def.key] or 0) > 0 or mergedCount > 0 or engineDrawsHere
+	-- Phase 57.2 (REM-03): a reminder whose buff is missing must keep its container shown
+	-- under hideWhenInactive, exactly like a cooldown slot does above.
+	local hasActiveIcons = #timers > 0
+		or (cooldownSlotCounts[def.key] or 0) > 0
+		or mergedCount > 0
+		or engineDrawsHere
+		or ns:ReminderShowsIn(def.key)
 	local iconEditing = ns.editModeActive
 	local iconVisible = ShouldShow(settings.visibleSetting, hasActiveIcons, settings.hideWhenInactive, iconEditing)
 
@@ -2262,12 +2318,17 @@ local function RenderIconContainer(def, container, settings, timers, now)
 
 	wipe(slots)
 	for dbKey, entry in pairs(ns.db.trackedBuffs) do
-		-- D-4: an account-wide database plus a per-character race means an orc can be holding
-		-- a troll's racial -- the race gate below applies here, not only in Suggested, or it
-		-- would still draw in whatever container it was left in.
-		if entry.section == def.key and ns:IsRacialKeyVisible(dbKey) then
-			entry.key = dbKey -- stable slot identity
-			table.insert(slots, entry)
+		-- Phase 57.3 (LOAD-03): a tracker that is not loaded takes no slot and no grid cell, in
+		-- Edit Mode and the settings preview too. One cached table read per entry.
+		if entry.section == def.key and ns:IsTrackerLoaded(dbKey) then
+			-- Phase 57 review WR-01, reminders since Phase 57.2: a reminder whose gate is false
+			-- (its buff is up, or its state is unknown) is dropped here, exactly as the bar path
+			-- drops it, so it takes no grid cell and does not count toward the container's size.
+			-- Only the settings or Edit Mode keep it in the list.
+			if ns:ReminderGate(dbKey, entry) ~= false or ns.configOpen or iconEditing then
+				entry.key = dbKey -- stable slot identity
+				table.insert(slots, entry)
+			end
 		end
 	end
 	table.sort(slots, ByLayoutOrder)
@@ -2286,10 +2347,10 @@ local function RenderIconContainer(def, container, settings, timers, now)
 	local direction = settings.iconDirection -- 0=Right/Down, 1=Left/Up, 2=Centered
 	local perRow = settings.itemsPerRow
 
-	-- Centred is a buff-container setting. Re-derived here rather than trusted from the database,
-	-- so a value left behind by a container that changed category cannot produce a layout its
-	-- dropdown never offered.
-	local centered = direction == ns.GROWTH_CENTERED and ns:GetContainerCategory(def) == "buffs"
+	-- Centred is a buff- and reminder-container setting (Phase 57.2: reminders centre like buffs).
+	-- Re-derived here rather than trusted from the database, so a value left behind by a
+	-- container that changed category cannot produce a layout its dropdown never offered.
+	local centered = direction == ns.GROWTH_CENTERED and ns:GetContainerCategory(def) ~= "spells"
 
 	-- The run is centred against the container's own width in cells, so this is the reserved
 	-- count -- not the drawn one. See CenteredSlotPlacement.
@@ -2308,6 +2369,7 @@ local function RenderIconContainer(def, container, settings, timers, now)
 	for slotIndex, entry in ipairs(slots) do
 		local icon = GetIcon(def.key, slotIndex)
 		local timer = activeByKey[entry.key]
+		local gate = ns:ReminderGate(entry.key, entry)
 
 		local anchor, offsetMajor, offsetMinor
 		if centered then
@@ -2442,7 +2504,7 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			end
 
 			icon:Show()
-		elseif entry.trackerType == "cooldown" or entry.trackerType == "item" then
+		elseif ns:IsCooldownSlotEntry(entry) then
 			-- Phase 38 (CD-02/CD-03/CD-04): placed BELOW the timer branch and ABOVE the
 			-- placeholder branch, and both halves of that order matter. Below the timer
 			-- branch so that in preview mode the synthetic proc BuffEngine builds for a
@@ -2473,7 +2535,10 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			if entry.isMerged and anchor then
 				ns:PlaceMergeAura(entry, container, anchor, offsetMajor, offsetMinor, settings.iconScale)
 			end
-		elseif entry.isMerged or not settings.hideWhenInactive or ns.configOpen or iconEditing then
+		elseif gate == true or entry.isMerged or not settings.hideWhenInactive or ns.configOpen or iconEditing then
+			-- Phase 57.2 (REM-03): a reminder is this placeholder -- full colour, no sweep, no
+			-- timer -- drawn even under hideWhenInactive via `gate == true` (its buff is missing).
+			--
 			-- Phase 38: same pooled-widget reset as the timer branch above -- see
 			-- ClearCooldownStamps.
 			if icon._cdKey then

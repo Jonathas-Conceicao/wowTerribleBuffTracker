@@ -31,6 +31,8 @@ local GAP_AFTER_HEADER = 10 -- header to its first control
 local GAP_TIGHT = 8 -- between related controls
 local TEXT_W = 520 -- wrap width for description paragraphs
 local BUTTON_W, BUTTON_H = 180, 24
+-- The three New ... Container buttons: three 170px buttons with 10px gaps fit the text width.
+local ROW_BTN_W, ROW_GAP = 170, 10
 local ROW_H = 26 -- one container row in the list
 local SCROLLBAR_W = 22 -- gutter the scroll bar lives in, to the right of the list
 
@@ -222,18 +224,22 @@ local function BuildPanel()
 
 	AddParagraph(
 		f,
-		"Extra places to put your trackers. A buff container can show icons or bars; a cooldown "
-			.. "container shows icons only.",
+		"Extra places to put your trackers. A buff container can show icons or bars; cooldown and "
+			.. "reminder containers show icons only.",
 		y
 	)
 	y = y - 30
 
+	-- Three ROW_BTN_W buttons with ROW_GAP gaps, so the row fits the panel's text width.
 	f.NewBuffButton = AddButton(f, "New Buff Container", y, PAD_X, function()
 		ns:OpenContainerDialog("buffs")
-	end)
-	f.NewCooldownButton = AddButton(f, "New Cooldown Container", y, PAD_X + BUTTON_W + 12, function()
+	end, ROW_BTN_W)
+	f.NewCooldownButton = AddButton(f, "New Cooldown Container", y, PAD_X + (ROW_BTN_W + ROW_GAP), function()
 		ns:OpenContainerDialog("spells")
-	end)
+	end, ROW_BTN_W)
+	f.NewReminderButton = AddButton(f, "New Reminder Container", y, PAD_X + 2 * (ROW_BTN_W + ROW_GAP), function()
+		ns:OpenContainerDialog("reminders")
+	end, ROW_BTN_W)
 	y = y - BUTTON_H - GAP_TIGHT
 
 	local listTop = y
@@ -348,7 +354,12 @@ function ns:RefreshConfigPanel()
 
 		row:SetPoint("TOPLEFT", panel.ContainerList, "TOPLEFT", 0, -((i - 1) * ROW_H))
 
-		local categoryName = (record.category == "spells") and "Cooldowns" or "Buffs"
+		local categoryName = "Buffs"
+		if record.category == "spells" then
+			categoryName = "Cooldowns"
+		elseif record.category == "reminders" then
+			categoryName = "Reminders"
+		end
 		local kindName = (record.kind == "bar") and "Bars" or "Icons"
 		row.Label:SetText(record.title .. "  |cff808080(" .. categoryName .. ", " .. kindName .. ")|r")
 
@@ -434,7 +445,8 @@ function ns:OpenCooldownManager()
 end
 
 -- Opens the New Container dialog pre-set to a category. The dialog itself still lives in
--- CDMTab.lua beside the other dialogs; this only reaches it and picks the starting pair.
+-- CDMTab.lua beside the other dialogs; this only reaches it and picks the starting category
+-- (the dialog itself falls back to Buffs for anything it does not know).
 function ns:OpenContainerDialog(category)
 	local dlg = ns.tbtContainerDialog
 	if not dlg then
@@ -443,8 +455,8 @@ function ns:OpenContainerDialog(category)
 	dlg.nameBox:SetText("")
 	dlg.errorLabel:SetText("")
 	dlg.ResetChoices()
-	if category == "spells" then
-		dlg.SelectCategory("spells")
+	if category then
+		dlg.SelectCategory(category)
 	end
 	dlg:Show()
 	dlg.nameBox:SetFocus()

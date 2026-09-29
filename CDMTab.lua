@@ -9,9 +9,9 @@ local ICON_PATH = "Interface\\AddOns\\TerribleBuffTracker\\tbt_icon_64x64"
 -- Description text for meta-buff tiles in the CDM Suggested section (D-06/D-07 Phase 23).
 -- Kept CDMTab-local — this is settings UX text, not provider concern.
 local META_DESCRIPTIONS = {
-	trinket = "Tracks all current season's on-use trinkets",
-	pot = "Tracks all current season's damage potions",
-	lust = "Matches all Heroism/Bloodlust effects",
+	[ns.META_KEY.TRINKET] = "Tracks all current season's on-use trinkets",
+	[ns.META_KEY.POT] = "Tracks all current season's damage potions",
+	[ns.META_KEY.LUST] = "Matches all Heroism/Bloodlust effects",
 }
 
 -- Phase 35.1 (CFG-01): the Suggested section's grid reserves its first two slots for the
@@ -108,7 +108,7 @@ end
 
 ns.RebuildContainerSectionDefs()
 
--- Which tracker category the CDM tab is currently showing: "spells" or "buffs".
+-- Which tracker category the CDM tab is currently showing: "spells", "buffs" or "reminders".
 --
 -- Defaults to "buffs" because every tracker that existed before v0.4.0 is a buff, so a player
 -- who has not touched the new tab finds their own trackers where they left them. Runtime-only:
@@ -134,9 +134,12 @@ local BeginDrag, EndDrag
 --
 -- Written once and called from both add paths -- the right-click menu and the drag drop --
 -- which were the same twenty lines twice over. Unifying them is what lets the racial COOLDOWN
--- tiles work without a third copy: their keys are "cd:<spellID>" rather than meta strings, so
--- validating against ns.SUGGESTED_KEYS alone would have created nothing at all.
+-- tiles work without a third copy: their keys are "metaSkillCd:<spellID>" rather than meta
+-- strings, so validating against ns.SUGGESTED_KEYS alone would have created nothing at all.
 local function AddSuggestedTracker(key, targetSection)
+	-- Only the tile's own key is ever reused. A built-in tracker never touches a user tracker for
+	-- the same spell (user decision 2026-09-29): a metaSkillCd:X tile creates or moves
+	-- metaSkillCd:X alone, and a userCd:X for the same spell stays exactly where it is.
 	if ns.db.trackedBuffs[key] then
 		ns:SetBuffSection(key, targetSection)
 		return
@@ -150,7 +153,13 @@ local function AddSuggestedTracker(key, targetSection)
 	-- D-4: a racial buff tile is a fourth recognised key shape, following the same precedent
 	-- as the item: branch immediately above -- resolved here so the reject below admits it.
 	local racialSpellID = ns:RacialKeySpellID(key)
-	if not cooldownSpellID and not itemID and not racialSpellID then
+	-- A class-buff tile (Phase 57.4) is a fifth recognised key shape, admitted only for a spell in
+	-- the Providers.lua class-buff table: a metaReminder key for any other spell creates nothing.
+	local metaReminderSpellID = ns:KeyNumericID(key, ns.KIND.META_REMINDER)
+	if metaReminderSpellID and not ns:MetaReminderDef(metaReminderSpellID) then
+		metaReminderSpellID = nil
+	end
+	if not cooldownSpellID and not itemID and not racialSpellID and not metaReminderSpellID then
 		local known = false
 		for _, suggestedKey in ipairs(ns.SUGGESTED_KEYS) do
 			if suggestedKey == key then
@@ -181,22 +190,25 @@ local function AddSuggestedTracker(key, targetSection)
 		duration = info.duration,
 		section = targetSection,
 		layoutOrder = maxOrder + 1,
-		-- Only a cooldown tile sets this to "cooldown", an item tile to "item". A meta buff
-		-- entry leaves it nil, which ns:GetTrackerCategory already reads as "buffs".
-		trackerType = cooldownSpellID and "cooldown" or (itemID and "item") or nil,
+		-- Every Suggested key is canonical, so its own kind IS the entry's kind -- Lust and
+		-- racial buffs mint metaSkill, trinket/pot/bag items mint metaItem, racial cooldowns
+		-- mint metaSkillCd. Unlike before this scheme, a meta buff entry now carries a kind too.
+		-- Class-buff tiles (Phase 57.4) mint metaReminder, whose duration and rank coverage the
+		-- next rebuild re-applies from the Providers.lua table (ns:ApplyMetaReminderDef).
+		trackerType = ns:KeyKind(key),
 		-- An item entry carries no spellID -- writing itemID here would misroute
 		-- ApplyCooldownSlot's spellID branch and produce a spell-shaped tooltip and a wrong icon.
 		-- A racial DOES carry its real spellID here, unlike an item -- it resolves its icon
 		-- through ns:GetDisplayInfoForKey -> RacialProvider:GetDisplayInfo -> ns:GetSpellIcon,
 		-- an ordinary spell icon lookup that needs the numeric ID, not an override.
-		spellID = cooldownSpellID or racialSpellID or nil,
+		spellID = cooldownSpellID or racialSpellID or metaReminderSpellID or nil,
 		itemID = itemID or nil,
 		-- Not optional and no second chance: an item entry has no spellID, and
 		-- ApplyCachedIcon (Display.lua) reads entry.iconOverride straight off the DB entry and
 		-- NEVER re-derives it from ns:GetDisplayInfoForKey. Omit this and the tile renders the
 		-- 134400 question mark forever, identically for every item, with no error and no log
-		-- line. The "cd:" sibling above never needed this field, which is exactly what makes it
-		-- so easy to omit.
+		-- line. The cooldown-kind sibling above never needed this field, which is exactly what
+		-- makes it so easy to omit.
 		iconOverride = itemID and info.icon or nil,
 	}
 
@@ -208,9 +220,22 @@ local function AddSuggestedTracker(key, targetSection)
 		ns:SeedItemTracker(key, itemID, ns.db.trackedBuffs[key])
 	end
 
+	-- The pooled proc buffers for the new key, so its first cast allocates nothing (the pool rule).
+	ns:PreallocateProc(key)
+
+	-- The cast path reads the cast indexes (ns.metaCooldownKeyBySpell etc.), not a per-cast concat,
+	-- so a freshly-minted key (e.g. a racial cooldown tile) is invisible to the next cast until
+	-- the indexes learn it. ns:RebuildRankIndex runs ns:RebuildCastIndex first, and also builds the
+	-- rank families and the rank-aware aura watch, so a new metaReminder (Phase 57.4) answers a
+	-- lower-rank cast and reads its aura at once (it refreshes the aura states itself) -- the same
+	-- call ns:AddTrackedBuff makes.
+	if ns.RebuildRankIndex then
+		ns:RebuildRankIndex()
+	end
+
 	-- A generation bump, nothing more. ns.trackerGeneration is what
 	-- Display.lua's RefreshCooldownSlotCounts stamps its per-container cooldown slot count on --
-	-- without this, a container holding only the tracker just created here (item OR "cd:") can
+	-- without this, a container holding only the tracker just created here (item or cooldown) can
 	-- stay hidden under hideWhenInactive until some unrelated event happens to bump it. Same
 	-- nil-guarded idiom as ns:AddTrackedBuff (BuffEngine.lua).
 	if ns.MarkTrackersDirty then
@@ -272,21 +297,12 @@ local function CreateIconFrame(parent)
 		-- SetItemByID is a GameTooltip method on Blizzard's own shared tooltip, not a CDM frame,
 		-- so none of MergeMode.lua's frame prohibitions are in play here.
 		--
-		-- Covers Suggested and tracked tiles alike: both key on "item:<itemID>".
+		-- Covers Suggested and tracked tiles alike: both key on the metaItem:<itemID> shape.
 		local hoveredItemID = ns:ItemKeyItemID(self.spellID)
 		if hoveredItemID then
 			GameTooltip_SetDefaultAnchor(GameTooltip, self)
-			local ok = pcall(GameTooltip.SetItemByID, GameTooltip, hoveredItemID)
-			if not ok then
-				-- Uncached or unknown to this client: say so rather than leaving the empty frame
-				-- SetItemByID can otherwise render. Same defensive shape ns:ShowBuffTooltip uses
-				-- for a spellID that does not resolve.
-				local fallbackName = C_Item.GetItemNameByID(hoveredItemID)
-				if issecretvalue(fallbackName) or type(fallbackName) ~= "string" then
-					fallbackName = "Item"
-				end
-				GameTooltip:SetText(fallbackName, 1, 1, 1)
-			end
+			-- Shared with the on-screen icons (Display.lua), including the uncached fallback.
+			ns:SetTooltipItem(hoveredItemID)
 			local heldCount = ns:TrackedItemCount(self.spellID) or ns:ItemCatalogueCount(hoveredItemID)
 			if type(heldCount) == "number" then
 				GameTooltip:AddLine(" ")
@@ -301,11 +317,20 @@ local function CreateIconFrame(parent)
 
 		local info = ns:GetDisplayInfoForKey(self.spellID)
 		if not info then
-			-- Non-meta user spell with no provider info; still try bare tooltip
-			if type(self.spellID) == "number" then
-				ns:ShowBuffTooltip(self, { spellID = self.spellID }, {
+			-- Non-meta user spell with no provider info; still try bare tooltip. self.spellID is
+			-- a tracker KEY here, not necessarily a spellID, so this goes through the parser
+			-- rather than assuming the key IS a spellID.
+			local fallbackSpellID = ns:SpellKeySpellID(self.spellID)
+			if fallbackSpellID then
+				ns:ShowBuffTooltip(self, { spellID = fallbackSpellID }, {
 					showSpellID = true,
 				})
+				-- Phase 57.3 (LOAD-03): say why a greyed tile is not loaded. Hover-time only.
+				local reason = ns:TrackerLoadReason(self.spellID)
+				if reason then
+					GameTooltip:AddLine(reason, 1, 0.3, 0.3)
+					GameTooltip:Show()
+				end
 			end
 			return
 		end
@@ -335,6 +360,13 @@ local function CreateIconFrame(parent)
 			showDuration = duration ~= nil,
 			extraLines = extraLines,
 		})
+		-- Phase 57.3 (LOAD-03): say why a greyed tile is not loaded (not known, or Load is Never),
+		-- so a tracker that went grey after the update explains itself. Hover-time only.
+		local reason = ns:TrackerLoadReason(self.spellID)
+		if reason then
+			GameTooltip:AddLine(reason, 1, 0.3, 0.3)
+			GameTooltip:Show()
+		end
 	end)
 
 	f:SetScript("OnLeave", function()
@@ -355,33 +387,60 @@ local function CreateIconFrame(parent)
 							ns:StartAllPreviewTimers()
 						end
 					end
+					-- REM-01: a Suggested tile belongs to the tab showing it, so it is offered
+					-- only to containers of that tab's category -- never across categories.
 					for _, def in ipairs(ns.CONTAINERS) do
-						rootDescription:CreateButton("Add to " .. def.title, function()
-							addSuggestedToSection(def.key)
-						end)
+						if ns:GetContainerCategory(def) == ns.tbtActiveCategory then
+							rootDescription:CreateButton("Add to " .. def.title, function()
+								addSuggestedToSection(def.key)
+							end)
+						end
 					end
 					-- D-08: No "Remove" option for suggested items
 				end)
 				return
 			end
 			MenuUtil.CreateContextMenu(self, function(_owner, rootDescription)
-				for _, def in ipairs(ns.CONTAINERS) do
-					if def.key ~= sectionName then
-						rootDescription:CreateButton("Move to " .. def.title, function()
-							ns:SetBuffSection(self.spellID, def.key)
-							ns:RefreshTBTSections()
-						end)
+				-- Tiles are pooled, so the menu acts on the key it was opened for, not whatever
+				-- self.spellID holds by the time a button is clicked (54-03). Every button below
+				-- uses trackerKey, never self.spellID (WR-03): ns:RefreshTBTSections can re-acquire
+				-- this frame for another tracker while the menu is open, and Remove would then
+				-- delete the wrong one.
+				local trackerKey = self.spellID
+				local entry = ns.db and ns.db.trackedBuffs and ns.db.trackedBuffs[trackerKey]
+				-- REM-01: a tracker never moves across categories. Only containers of the
+				-- tracker's own category are listed, the menu twin of the drag rule (hidden
+				-- sections of another tab are never hit-tested). No entry, no Move to.
+				local trackerCategory = entry and ns:GetTrackerCategory(entry)
+				if trackerCategory then
+					for _, def in ipairs(ns.CONTAINERS) do
+						if def.key ~= sectionName and ns:GetContainerCategory(def) == trackerCategory then
+							rootDescription:CreateButton("Move to " .. def.title, function()
+								ns:SetBuffSection(trackerKey, def.key)
+								ns:RefreshTBTSections()
+							end)
+						end
 					end
 				end
 				if sectionName ~= "hidden" then
 					rootDescription:CreateButton("Hide", function()
-						ns:SetBuffSection(self.spellID, "hidden")
+						ns:SetBuffSection(trackerKey, "hidden")
 						ns:RefreshTBTSections()
+					end)
+				end
+				-- userBuff, userCd and userReminder only (EDIT-01, Phase 57.2): Lust, trinket, pot,
+				-- racial buffs, racial cooldowns (metaSkillCd, by user decision) and bag items get no
+				-- Edit entry.
+				-- Reached through the ns field, not a file-local -- CreateIconFrame is declared
+				-- above CreateAddDialog, so a file-local ns.tbtAddDialog would still be nil here.
+				if ns:IsEditableTracker(entry) then
+					rootDescription:CreateButton("Edit", function()
+						ns.tbtAddDialog.OpenForEdit(trackerKey)
 					end)
 				end
 				rootDescription:CreateDivider()
 				rootDescription:CreateButton("Remove", function()
-					ns:RemoveTrackedBuff(self.spellID)
+					ns:RemoveTrackedBuff(trackerKey)
 					ns:RefreshTBTSections()
 				end)
 			end)
@@ -502,7 +561,9 @@ local function OnDragUpdate()
 		end
 	end
 
-	SetDeleteZoneHighlight(overDelete)
+	-- Phase 57.4 review WR-03: a Suggested tile never deletes (EndDrag cancels it), so the delete
+	-- zone does not light up for one.
+	SetDeleteZoneHighlight(overDelete and not tbtDragState.isFromSuggested)
 
 	if overDelete then
 		marker:Hide()
@@ -589,14 +650,16 @@ BeginDrag = function(iconFrame)
 	tbtDragState.originalSection = iconFrame.sectionName
 	tbtDragState.isFromSuggested = (iconFrame.sectionName == "suggested")
 	if tbtDragState.isFromSuggested then
-		tbtDragState.suggestedKey = iconFrame.spellID -- string key e.g. "lust"
+		tbtDragState.suggestedKey = iconFrame.spellID -- string key e.g. metaSkill:lust
 	end
 
 	-- Show ghost at cursor; resolve class-aware icon for suggested items
 	local ghost = GetOrCreateGhostFrame()
-	-- Resolve class-aware / meta-aware icon via unified dispatch (D-15 Phase 23)
+	-- Resolve class-aware / meta-aware icon via unified dispatch (D-15 Phase 23). iconFrame.spellID
+	-- is a tracker KEY, not necessarily a spellID, so the bare-icon fallback goes through the
+	-- parser instead of assuming the key IS a spellID.
 	local ghostInfo = ns:GetDisplayInfoForKey(iconFrame.spellID)
-	local ghostIconID = (ghostInfo and ghostInfo.icon) or ns:GetSpellIcon(iconFrame.spellID) or 134400
+	local ghostIconID = (ghostInfo and ghostInfo.icon) or ns:GetSpellIcon(ns:SpellKeySpellID(iconFrame.spellID))
 	ghost.Icon:SetTexture(ghostIconID)
 	ghost:Show()
 
@@ -686,12 +749,18 @@ EndDrag = function(commit)
 	if commit then
 		local result = SectionHitTest()
 		if result == "delete" then
-			local spellID = tbtDragState.spellID
-			wipe(tbtDragState)
-			ns:RemoveTrackedBuff(spellID)
-			ns:RefreshTBTSections()
-			PlaySound(SOUNDKIT.UI_CURSOR_DROP_OBJECT)
-			return
+			-- Phase 57.4 review WR-03: a Suggested tile is a catalogue entry, not a tracker. A
+			-- class-buff or racial cooldown tile stays offered once tracked and carries the placed
+			-- tracker's key, so deleting by that key removed the tracker the user placed. A drag
+			-- that started in Suggested cancels here like a drop back on Suggested.
+			if not tbtDragState.isFromSuggested then
+				local spellID = tbtDragState.spellID
+				wipe(tbtDragState)
+				ns:RemoveTrackedBuff(spellID)
+				ns:RefreshTBTSections()
+				PlaySound(SOUNDKIT.UI_CURSOR_DROP_OBJECT)
+				return
+			end
 		elseif result and result ~= "suggested" then
 			local targetSection = result
 			if tbtDragState.isFromSuggested then
@@ -745,7 +814,7 @@ EndDrag = function(commit)
 				return
 			end
 		end
-		-- nil or "suggested" → cancel silently (D-04, D-05)
+		-- nil, "suggested", or a Suggested tile on "delete" → cancel silently (D-04, D-05, WR-03)
 	end
 
 	wipe(tbtDragState)
@@ -845,6 +914,23 @@ function ns:UpdateScrollChildHeight()
 	ns.tbtScrollChild:SetHeight(total)
 end
 
+-- One tile per Suggested key, shared by the racial cooldown tiles (Cooldowns tab) and the class-buff
+-- tiles (Reminders tab, Phase 57.4). The key is stored opaquely in item.spellID, which every shared
+-- handler (drag, tooltip, right-click) reads. Pooled frames must lose a previous tile's grey and
+-- count, so both are cleared here.
+local function PlaceSuggestedKeyTile(section, key, slot)
+	local item = section.itemPool:Acquire()
+	local info = ns:GetDisplayInfoForKey(key)
+	item.spellID = key
+	item.Icon:SetTexture((info and info.icon) or 134400)
+	item.Icon:SetDesaturated(false)
+	item.chargeCount:Hide()
+	item.sectionName = "suggested"
+	item.layoutIndex = slot
+	item:Show()
+	return item
+end
+
 function ns:RefreshTBTSections()
 	if not ns.tbtSections then
 		return
@@ -896,7 +982,7 @@ function ns:RefreshTBTSections()
 			-- stay put under either tab, which is what the user asked for.
 			if def.key == "suggested" and ns.tbtActiveCategory == "spells" then
 				-- The Cooldowns tab gets the racial COOLDOWN tiles, and nothing else: every other
-				-- catalogue entry is a buff meta-tracker. Keys are ordinary "cd:<spellID>"
+				-- catalogue entry is a buff meta-tracker. Keys are ordinary metaSkillCd:<spellID>
 				-- strings, so adding one creates a normal cooldown tracker -- the only thing
 				-- special about them is that the spell and its duration are filled in for a
 				-- character who would otherwise have to look both up.
@@ -908,17 +994,10 @@ function ns:RefreshTBTSections()
 				local suggestedSlot = SUGGESTED_RESERVED_SLOTS
 				for i, cooldownKey in ipairs(ns:RacialCooldownKeys()) do
 					suggestedSlot = suggestedSlot + 1
-					local item = section.itemPool:Acquire()
-					local info = ns:GetDisplayInfoForKey(cooldownKey)
-					item.spellID = cooldownKey
-					item.Icon:SetTexture((info and info.icon) or 134400)
 					-- Pooled frames keep a previous tile's desaturation; these are always
-					-- supported, so it is cleared rather than left.
-					item.Icon:SetDesaturated(false)
-					item.sectionName = "suggested"
+					-- supported, so PlaceSuggestedKeyTile clears it rather than leaving it.
+					local item = PlaceSuggestedKeyTile(section, cooldownKey, suggestedSlot)
 					item.suggestedIndex = i
-					item.layoutIndex = suggestedSlot
-					item:Show()
 				end
 
 				-- Phase 46 (ITEM-03): append the bag-derived item catalogue after the racial
@@ -932,13 +1011,14 @@ function ns:RefreshTBTSections()
 				-- scan + BAG_UPDATE dirty flag, Plan 02) -- no C_Container/C_Item call belongs
 				-- on this render path.
 				--
-				-- Dragging an item tile into a container creates a real "item:" tracker entry
-				-- (ITEM-04, Phase 47) -- AddSuggestedTracker now resolves ns:ItemKeyItemID(key)
-				-- as a third valid key shape alongside a cd:<spellID> key and a
-				-- ns.SUGGESTED_KEYS member. Once tracked, the item: itemID entry below is what
-				-- makes it drop out of this loop (ITEM-02) -- no separate removal code needed.
+				-- Dragging an item tile into a container creates a real metaItem:<itemID>
+				-- tracker entry (ITEM-04, Phase 47) -- AddSuggestedTracker now resolves
+				-- ns:ItemKeyItemID(key) as a third valid key shape alongside a
+				-- metaSkillCd:<spellID> key and a ns.SUGGESTED_KEYS member. Once tracked, the
+				-- metaItem:<itemID> entry below is what makes it drop out of this loop
+				-- (ITEM-02) -- no separate removal code needed.
 				for _, itemID in ipairs(ns:ItemCatalogue()) do
-					local itemKey = ns.ITEM_KEY_PREFIX .. itemID
+					local itemKey = ns:TrackerKey(ns.KIND.META_ITEM, itemID)
 					if not ns.db.trackedBuffs[itemKey] then
 						suggestedSlot = suggestedSlot + 1
 						local item = section.itemPool:Acquire()
@@ -970,7 +1050,16 @@ function ns:RefreshTBTSections()
 					end
 				end
 			elseif def.key == "suggested" and ns.tbtActiveCategory ~= "buffs" then
-				-- Nothing to add beyond the reserved squares.
+				-- Only the Reminders tab reaches this branch (the Cooldowns tab takes the one
+				-- above). Phase 57.4 (MREM-02): the class buffs this character knows, on Forever
+				-- only (the flavour gate lives in ns:MetaReminderSuggestionKeys, Providers.lua).
+				-- A tile stays after its reminder exists, so dragging it again moves that
+				-- reminder (AddSuggestedTracker). The + and settings squares keep slots 1-2.
+				local suggestedSlot = SUGGESTED_RESERVED_SLOTS
+				for _, reminderKey in ipairs(ns:MetaReminderSuggestionKeys()) do
+					suggestedSlot = suggestedSlot + 1
+					PlaceSuggestedKeyTile(section, reminderKey, suggestedSlot)
+				end
 			elseif def.key == "suggested" then
 				-- Populate from SUGGESTED_KEYS catalog (D-12 Phase 23).
 				-- Add/gear squares occupy layoutIndex 1..SUGGESTED_RESERVED_SLOTS; catalog starts after.
@@ -990,7 +1079,7 @@ function ns:RefreshTBTSections()
 						local item = section.itemPool:Acquire()
 						local info = ns:GetDisplayInfoForKey(suggestedKey)
 						local iconID = (info and info.icon) or 134400
-						item.spellID = suggestedKey -- string key "lust" / "trinket" / "pot"
+						item.spellID = suggestedKey -- string key metaSkill:lust / metaItem:trinket / metaItem:pot
 						item.Icon:SetTexture(iconID)
 						-- RACE-01 requires the tile to appear on both clients, so an unimplemented
 						-- racial is greyed rather than hidden; written on every tile because item
@@ -1006,14 +1095,14 @@ function ns:RefreshTBTSections()
 				-- RACE-10/RACE-08 (D-4): a per-race racial buff tile, appended after the static
 				-- SUGGESTED_KEYS catalogue above and continuing its suggestedSlot counter. A
 				-- racial tile is per-character and per-race, one key per spellID -- dynamic
-				-- exactly like the item: catalogue below, not a static ordered list, so it
+				-- exactly like the metaItem: catalogue below, not a static ordered list, so it
 				-- cannot live in ns.SUGGESTED_KEYS.
 				for _, def in ipairs(ns:RacialSuggestions()) do
 					-- Cooldown-only racials (Will of the Forsaken, Will to Survive, War Stomp,
 					-- Cultivation) have no buff to preview here -- they surface only as the
-					-- Cooldowns-tab "cd:<spellID>" tile ns:RacialCooldownKeys already emits.
+					-- Cooldowns-tab metaSkillCd:<spellID> tile ns:RacialCooldownKeys already emits.
 					if def.duration or def.indefinite then
-						local racialKey = ns.RACIAL_KEY_PREFIX .. def.spellID
+						local racialKey = ns:TrackerKey(ns.KIND.META_SKILL, def.spellID)
 						-- Drop-out-once-tracked, no separate removal code -- the identical
 						-- mechanism the item: loop below uses.
 						if not ns.db.trackedBuffs[racialKey] then
@@ -1046,16 +1135,10 @@ function ns:RefreshTBTSections()
 					-- test is free -- a section belongs to one category and so does everything
 					-- filed in it -- and it costs one derived comparison per entry.
 					--
-					-- D-4: the loop variable is named spellID but holds the tracker KEY (a
-					-- "racial:<spellID>" string is just as valid here as a plain numeric key) --
-					-- exactly what the race gate below wants. An account-wide database plus a
-					-- per-character race means an orc can be holding a troll's racial; gating
-					-- here, not only in Suggested, is what keeps it out of this container too.
-					if
-						entry.section == def.key
-						and ns:GetTrackerCategory(entry) == ns.tbtActiveCategory
-						and ns:IsRacialKeyVisible(spellID)
-					then
+					-- The loop variable is named spellID but holds the tracker KEY. Phase 57.3
+					-- (LOAD-03): the TBT tab lists EVERY tracker, loaded or not -- one that is not
+					-- loaded is drawn greyed below, and stays draggable, editable and deletable.
+					if entry.section == def.key and ns:GetTrackerCategory(entry) == ns.tbtActiveCategory then
 						table.insert(sorted, { spellID = spellID, order = entry.layoutOrder or 0 })
 					end
 				end
@@ -1068,9 +1151,15 @@ function ns:RefreshTBTSections()
 					-- Resolve icon via unified dispatch (D-15 Phase 23). Falls back to GetSpellIcon for
 					-- plain numeric user spells (provider returns nil → direct spell icon lookup).
 					local displayInfo = ns:GetDisplayInfoForKey(info.spellID)
-					local iconID = (displayInfo and displayInfo.icon) or ns:GetSpellIcon(info.spellID) or 134400
+					local iconID = (displayInfo and displayInfo.icon)
+						or ns:GetSpellIcon(ns:SpellKeySpellID(info.spellID))
 					item.Icon:SetTexture(iconID)
-					item.Icon:SetDesaturated(false)
+					-- Phase 57.3 (LOAD-03): a tracker that is not loaded is desaturated, exactly as
+					-- Blizzard's CDM settings show an unlearned spell
+					-- (CooldownViewerSettings.lua:174, Icon:SetDesaturated(not isKnown)), no alpha
+					-- change. Written on every pooled tile every pass, so a recycled tile never
+					-- inherits the grey.
+					item.Icon:SetDesaturated(not ns:IsTrackerLoaded(info.spellID))
 					-- An item tracker keeps its count here, not only in Suggested. Reported on
 					-- retail 2026-09-24: the number showed on the Suggested tile and then vanished
 					-- the moment the item was dragged into a container or into Not Displayed,
@@ -1151,22 +1240,1167 @@ local function ParseDuration(text)
 	return value * multiplier
 end
 
-local function CreateAddDialog()
-	-- Simple dialog parented to UIParent at DIALOG strata so it renders
-	-- above everything including CDM settings window.
-	local dialog = CreateFrame("Frame", "TBTAddBuffDialog", UIParent, "BackdropTemplate")
+-- The inverse of ParseDuration, used by edit-mode prefill (54-03) to show a saved duration back
+-- to the player. Never produces exponent notation (no %g, no tostring of a number): a bare number
+-- is seconds, as the field always meant, and every result this produces parses back through
+-- ParseDuration.
+--
+-- Length rule: every value the duration box itself can produce formats to at most 6 characters,
+-- the box's SetMaxLetters(6) (worst cases "99999m", "999999", "5999.4" from "99.99m", "59.994"
+-- from ".9999m"); the %.4f form may round (".12345" shows as "0.1235"), which is harmless because
+-- the duration field's read returns the saved number untouched while the box text is unchanged;
+-- only a legacy or hand-edited saved value can format longer than 6, and for that case the
+-- duration field's prefill raises that box's max letters to fit. Chosen as the simplest option
+-- (over comparing numbers in read): EditBox:SetText is clamped to the max letters, so without the
+-- raise a long saved value would be shown truncated.
+local function FormatDuration(seconds)
+	if type(seconds) ~= "number" or seconds <= 0 then
+		return ""
+	end
+
+	if seconds == math.floor(seconds) then
+		if seconds >= 60 and seconds % 60 == 0 then
+			return ("%.0fm"):format(seconds / 60)
+		end
+		return ("%.0f"):format(seconds)
+	end
+
+	local text = ("%.4f"):format(seconds)
+	text = (text:gsub("0+$", ""))
+	text = (text:gsub("%.$", ""))
+	return text
+end
+
+-- CONTEXT's art choice for the secret-aura badge. Referenced on classic branches, which does
+-- not prove it ships on Forever, so the badge falls back to text when C_Texture.GetAtlasInfo
+-- does not know it.
+local SECRECY_BADGE_ATLAS = "transmog-icon-warning-small"
+
+-- ADD-06: the CDM mask + overlay atlases and the 50px icon offsets (-9, 8 / 9, -8) of Blizzard's
+-- CooldownViewerEssentialItemTemplate (wow-ui-source CooldownViewer.xml). Display.lua's own icons
+-- use smaller offsets for their smaller sizes; these match the essential template alone.
+local PORTRAIT_SIZE = 50
+local CDM_ICON_MASK_ATLAS = "UI-HUD-CoolDownManager-Mask"
+local CDM_ICON_OVERLAY_ATLAS = "UI-HUD-CoolDownManager-IconOverlay"
+
+-- Shared render for an ID preview: the portrait (spellPreview, below) and Plan 03's aura ID row
+-- both call this from their own update. The caller's state table must already hold:
+--   icon          texture to set (ARTWORK, already masked by the caller)
+--   name          FontString to set
+--   hover         the mouse region ns:ShowBuffTooltip anchors to and IsOwned checks against
+--   tooltipProc   the { spellID, label } table the caller's OnEnter hands to ShowBuffTooltip
+--   tooltipOpts   the tooltip options table the caller's OnEnter hands to ShowBuffTooltip
+--   generation    number, built at 0 and never reset by the caller -- bumped here on every
+--                 resolution (including a late resolution of an ID that was still unknown), so a
+--                 sibling field can key its own cache on it (WR-01) instead of the ID alone
+-- and this function owns, in the caller's state table:
+--   shownID, resolved   the ID last rendered and whether it resolved
+--   spellID             the resolved ID, or nil while empty/unresolved (what tooltipProc mirrors)
+function ns:RefreshIDPreview(state, id)
+	if id == state.shownID and state.resolved then
+		return
+	end
+
+	if id <= 0 then
+		state.shownID = id
+		state.resolved = true
+		state.spellID = nil
+		state.tooltipProc.spellID = nil
+		-- A dimmed placeholder, not a hidden texture, so the 50px slot never collapses to a
+		-- bare border while the box is empty.
+		state.icon:SetTexture(134400)
+		state.icon:SetDesaturated(true)
+		state.icon:SetAlpha(0.4)
+		state.name:SetText("")
+		-- The row is now empty, so a tooltip the mouse had open on it goes too.
+		if GameTooltip:IsOwned(state.hover) then
+			GameTooltip:Hide()
+		end
+		return
+	end
+
+	local spellName, iconID = ns:SpellPreview(id)
+	-- Retry path: an ID the client had not cached when it was typed is re-queried on every later
+	-- dialog change (a Duration keystroke, for example) until it resolves, instead of sticking on
+	-- "Unknown spell" forever. This costs one pcall'd lookup per change, and only while the row is
+	-- still unknown.
+	if id == state.shownID and spellName == nil then
+		return
+	end
+
+	state.shownID = id
+	state.resolved = spellName ~= nil
+	state.icon:SetDesaturated(false)
+	state.icon:SetAlpha(1)
+
+	if spellName then
+		state.generation = state.generation + 1
+		state.icon:SetTexture(iconID)
+		state.name:SetText(spellName)
+		state.name:SetTextColor(1, 1, 1)
+	else
+		state.icon:SetTexture(134400)
+		state.name:SetText("Unknown spell")
+		state.name:SetTextColor(0.6, 0.6, 0.6)
+	end
+
+	state.spellID = id
+	-- The box is a 10-digit numeric field, and ShowBuffTooltip's GetSpellInfo call is unguarded:
+	-- past the 32-bit spell ID range it gets a nil target instead.
+	state.tooltipProc.spellID = id <= 2147483647 and id or nil
+
+	-- IN-04: a tooltip already open on this row (the mouse resting on it while the ID is typed) is
+	-- redrawn for the new spell. Only reached when the row changed.
+	if GameTooltip:IsOwned(state.hover) then
+		ns:ShowBuffTooltip(state.hover, state.tooltipProc, state.tooltipOpts)
+	end
+end
+
+-- Shared builder for the "secret?" badge: the portrait's corner badge (secrecyBadge, below) and
+-- Plan 03's aura ID row both call this. `state` must be the CALLER's own already-declared table
+-- (declared before this call, per the closure-binding rule) -- the OnEnter closure below reads
+-- state.level from it. Placement (SetPoint, SetFrameLevel) is the caller's job, not this one's.
+function ns:BuildSecrecyBadge(parent, state)
+	local badge = CreateFrame("Frame", nil, parent)
+	badge:EnableMouse(true)
+
+	-- Art decided once, here at build, rather than re-checked on every update.
+	if C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(SECRECY_BADGE_ATLAS) then
+		badge:SetSize(16, 16)
+		local tex = badge:CreateTexture(nil, "OVERLAY")
+		tex:SetAllPoints()
+		tex:SetAtlas(SECRECY_BADGE_ATLAS)
+	else
+		badge:SetSize(56, 16)
+		local text = badge:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		text:SetAllPoints()
+		text:SetText("(secret?)")
+	end
+
+	badge:SetScript("OnEnter", function()
+		GameTooltip_SetDefaultAnchor(GameTooltip, badge)
+		GameTooltip:SetText(ns:SecrecyLine(state.level) or "", 1, 0.82, 0)
+		local explanation = ns:SecrecyExplanation(state.level)
+		if explanation then
+			GameTooltip:AddLine(explanation, 1, 1, 1, true)
+		end
+		local scopeNote = ns:SecrecyScopeNote()
+		if scopeNote then
+			GameTooltip:AddLine(scopeNote, 0.5, 0.5, 0.5, true)
+		end
+		GameTooltip:Show()
+	end)
+	badge:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+	end)
+
+	return badge
+end
+
+-- The spell-ID list boxes (the cast-rule box and the alternatives box, below) cap at this many
+-- distinct spell IDs.
+local MAX_CAST_RULE_IDS = 8
+
+-- Parses a spell-ID list box's comma-separated text (the cast rule or the alternatives). Returns
+-- nil for blank input (no rule stored), a FRESH array of positive integer spell IDs for valid
+-- input (read stores this array directly, so the saved entry never aliases the dialog's own
+-- state), or `false, message` for malformed input.
+-- Whitespace is ignored; duplicate IDs are dropped silently and do not count against the cap.
+-- Phase 57 review IN-07: empty tokens are ignored too, so "123," or "123, " -- the moment the user
+-- types the separator for the next ID -- is not flagged as malformed, and text holding only
+-- separators stores no rule, like blank input.
+function ns:ParseSpellIDList(text)
+	if type(text) ~= "string" then
+		return nil
+	end
+	local compact = text:gsub("%s", "")
+	if compact == "" then
+		return nil
+	end
+
+	local list = {}
+	local seen = {}
+	for token in (compact .. ","):gmatch("([^,]*),") do
+		if token ~= "" then
+			if not token:match("^%d+$") then
+				return false, "Use spell IDs separated by commas"
+			end
+			local id = tonumber(token)
+			if id < 1 or id > 2147483647 then
+				return false, "Spell ID is out of range"
+			end
+			if not seen[id] then
+				seen[id] = true
+				list[#list + 1] = id
+				if #list > MAX_CAST_RULE_IDS then
+					return false, "At most " .. MAX_CAST_RULE_IDS .. " spell IDs"
+				end
+			end
+		end
+	end
+
+	if #list == 0 then
+		return nil
+	end
+	return list
+end
+
+-- The Load rule's choices (Phase 57.3, LOAD-01), in menu order. When known is the default and is
+-- stored as nil; Always and Never are stored as their ns.LOAD strings. Declared above
+-- TRACKER_FIELDS, the file-local that reads it.
+local LOAD_CHOICES = {
+	{ text = "When known", value = ns.LOAD.KNOWN },
+	{ text = "Always", value = ns.LOAD.ALWAYS },
+	{ text = "Never", value = ns.LOAD.NEVER },
+}
+
+-- Phase 58: the WowStyle1DropdownTemplate + SetupMenu + CreateRadio pattern shared by both radio
+-- dropdowns (the Load field below and CreateContainerDialog's category). One radio per choice, in
+-- order. The generator is built once per dropdown, at build time, never per frame; each caller
+-- keeps its own isSelected/setSelected, built once outside the generator.
+local function SetupRadioMenu(dropdown, choices, isSelected, setSelected)
+	dropdown:SetupMenu(function(_, rootDescription)
+		for i = 1, #choices do
+			local choice = choices[i]
+			rootDescription:CreateRadio(choice.text, isSelected, setSelected, choice.value)
+		end
+	end)
+end
+
+-- Phase 57.5 (RALT-01): the spell-ID list row, shared by the buff/cooldown cast rule (endOnCast)
+-- and the reminder alternatives list. File-locals above TRACKER_FIELDS, their only reader.
+local function BuildSpellListField(row, y, onChange, dialog)
+	-- An EARLIER sibling, captured at build like every other cross-field read here.
+	local spell = dialog.GetFieldState("spellID")
+
+	-- The "(comma separated)" label is the widest in the dialog (user decision 2026-09-29):
+	-- bounded to the row's width and kept to one line, so it can never wrap down over the
+	-- box -- the dialog was widened to 260 to give it that line.
+	local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	label:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y)
+	label:SetWidth(216)
+	label:SetJustifyH("LEFT")
+	label:SetWordWrap(false)
+
+	local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+	box:SetSize(180, 22)
+	box:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y - 18)
+	box:SetMaxLetters(96)
+	box:SetAutoFocus(false)
+	box:SetScript("OnTextChanged", onChange)
+
+	-- Up to MAX_CAST_RULE_IDS small icons previewing each parsed ID, populated by update.
+	local icons = {}
+	for i = 1, MAX_CAST_RULE_IDS do
+		local icon = row:CreateTexture(nil, "ARTWORK")
+		icon:SetSize(16, 16)
+		icon:SetPoint("TOPLEFT", row, "TOPLEFT", 32 + (i - 1) * 20, y - 44)
+		icon:Hide()
+		icons[i] = icon
+	end
+
+	return { editBox = box, label = label, spell = spell, icons = icons }, y - 64
+end
+
+-- Fills the box from a saved list. A joined COPY of the saved array, never the array itself --
+-- typing in the box must never mutate the saved entry.
+local function SetSpellListText(state, list)
+	state.editBox:SetText(type(list) == "table" and table.concat(list, ", ") or "")
+	state.shownText = nil
+end
+
+local function UpdateSpellListIcons(state)
+	local text = state.editBox:GetText()
+	-- Compare before writing; the row is re-queried while any ID is still unknown, the
+	-- same retry shape as ns:RefreshIDPreview's.
+	if text == state.shownText and not state.pendingUnknown then
+		return
+	end
+	state.shownText = text
+	state.pendingUnknown = false
+
+	local list = ns:ParseSpellIDList(text)
+	for i = 1, MAX_CAST_RULE_IDS do
+		local id = type(list) == "table" and list[i]
+		local icon = state.icons[i]
+		if id then
+			local name, iconID = ns:SpellPreview(id)
+			if name then
+				icon:SetTexture(iconID)
+				icon:SetVertexColor(1, 1, 1)
+			else
+				icon:SetTexture(134400)
+				icon:SetVertexColor(1, 0.3, 0.3)
+				state.pendingUnknown = true
+			end
+			icon:Show()
+		else
+			icon:Hide()
+		end
+	end
+end
+
+local function ReadSpellList(state)
+	-- Blank stores nothing; a read nil clears a previously saved rule on edit.
+	local list = ns:ParseSpellIDList(state.editBox:GetText())
+	return type(list) == "table" and list or nil
+end
+
+local function ValidateSpellList(state)
+	local list, message = ns:ParseSpellIDList(state.editBox:GetText())
+	if list == false then
+		return false, message
+	end
+	if type(list) == "table" then
+		local ownID = state.spell.editBox:GetNumber()
+		for i = 1, #list do
+			if list[i] == ownID then
+				return false, "Remove this tracker's own spell ID"
+			end
+		end
+	end
+	return true
+end
+
+-- THE FIELD DEFINITION CONTRACT (EDIT-03; 54-CONTEXT "One dialog, two modes"). TRACKER_FIELDS is
+-- one ordered array literal that drives the Add dialog end to end: a new field is one entry here;
+-- neither the add nor the edit path names a field. Each element is a table with:
+--   id             string, unique -- how siblings find it: dialog.GetFieldState(id). GetFieldState
+--                  is declared BEFORE the build loop, so a field's build may anchor to a sibling
+--                  built EARLIER in this array; a later sibling is not built yet and returns nil.
+--   entryKey       the saved-entry field this field owns, or nil for a display-only field that is
+--                  never read or stored. spellID and duration are passed to the engine
+--                  positionally; every other entryKey travels in fields/fieldKeys.
+--   tab            "general" | "advanced" | nil for both (Phase 57.1). Read by RefreshState to
+--                  compute field.shown alongside visible() -- see the tab-hidden sentence below.
+--   available()    optional. The BUILD-TIME capability gate, evaluated ONCE at build; false means
+--                  never built, no row, no space.
+--   visible(state, ctx)  optional. The RUNTIME show/hide hook, evaluated on every open and after
+--                  every state change; absent means always visible. This is the ONLY hook that
+--                  can make a field irrelevant (field.relevant = false): a field hidden by its
+--                  own visible() takes no space, is not validated, is skipped by Tab, and is not
+--                  read. NOT READ MEANS NOT WRITTEN (WR-02) applies to THIS case only: an edit
+--                  saved while such a field is hidden keeps that field's saved value untouched --
+--                  only a field that was relevant and read can change or clear its entry key. Add
+--                  has no saved value to keep, so an irrelevant field simply stores nothing there.
+-- Tab-hidden fields are still validated and read; defaults are stored as nil.
+--   build(row, y, onChange, dialog) -> state, nextY  creates this field's widgets on row, wires
+--                  every value change to onChange, and returns a per-field state table plus the
+--                  cursor for the NEXT row, gap included.
+--   reset(state, ctx)          add-mode defaults.
+--   prefill(state, entry, ctx) edit-mode values from the saved entry; prefill copies a table value
+--                  rather than aliasing it, so editing the dialog cannot mutate the saved entry.
+--   update(state, ctx, dialog) optional, runs on every change before visibility and validation;
+--                  update must compare before writing to a sibling widget, or the dialog recurses
+--                  without end.
+--   read(state, ctx) -> value  nil means store nothing; read returns a fresh table for a
+--                  table-valued field, never the state's own table.
+--   validate(state, ctx) -> ok, message  ok=false disables confirm; the first failing RELEVANT
+--                  field (field.relevant, both tabs) with a message wins; a message from a
+--                  `tab = "advanced"` field is shown prefixed "Advanced: ".
+--
+-- ctx is one reusable table on the dialog: { mode = "add" | "edit", kind = ns.KIND.USER_BUFF |
+-- ns.KIND.USER_CD | ns.KIND.USER_REMINDER, editingKey = key | nil }. The saved entry is not kept
+-- on ctx: prefill receives it as an argument, and nothing else needs it.
+--
+-- Layout (the walker owns vertical placement): Layout() starts its cursor at -38, under the title
+-- (its own comment inside CreateAddDialog still calls this "the original Spell ID label offset";
+-- that body is kept byte-identical, and the first row there is the portrait now), anchors each
+-- built field's row TOPLEFT to the dialog at the running offset (or hides it when not shown),
+-- then anchors the error label TOP at the final offset and resizes the dialog to fit -- so the
+-- error label always sits after the last visible row.
+--
+-- A display-only field (the portrait and the secret-aura badge) has no entryKey, keeps no
+-- editBox key in its own state table (or it would join the Tab/Enter ring), and may return
+-- nextY = y unchanged to take no vertical space of its own. It reaches a sibling's state either
+-- through dialog.GetFieldState at BUILD time (an EARLIER sibling only -- a later one is not
+-- built yet and returns nil), or at UPDATE time (ANY sibling: every field is built before the
+-- first update runs, and update receives the dialog as its third argument). The portrait
+-- (spellPreview) uses the update-time form, because it is FIRST in TRACKER_FIELDS and spellID
+-- is not built yet when it builds.
+--
+-- Order is load-bearing. The portrait (spellPreview) is FIRST, so it draws under the title, and
+-- it reads the Spell ID box at UPDATE time rather than build time -- see the display-only
+-- paragraph above. During an open, the SetText in spellID's reset/prefill fires a RefreshState
+-- while LATER fields still hold the previous open's state (secrecyBadge and duration can then
+-- run against stale state on that pass), and the portrait and duration are only correct because
+-- the walker's closing RefreshState(true) runs after every field's reset/prefill. secrecyBadge
+-- and duration capture spellPreview's and spellID's states at BUILD time and read spellPreview's
+-- generation in their own update, so both must come after both.
+-- Keep spellPreview, spellID, secrecyBadge, duration in that order, and never make a
+-- field's update depend on a LATER field having been reset, except the portrait's documented
+-- update-time read of the Spell ID box.
+--
+-- Advanced tab (Phase 57.1, per kind since 57.2). No master checkbox and no saved mode flag:
+-- `auraID`, `keepOnAuraLoss`, `endOnCast` and `alternatives` (in that order) are tagged
+-- `tab = "advanced"` and simply prefilled with their defaults -- the aura ID box follows the Spell
+-- ID box (`state.followsSpell`) until the user types in it, cancellation on aura loss starts
+-- checked, the cast rule and the alternatives list start empty. Saving a field still holding its
+-- default stores nil (aura ID equal to the spell ID, cancellation checked, an empty rule are ALL
+-- stored as nil), so the runtime
+-- keys on the saved VALUE, never on a flag. Per kind, through each field's own visible() hook:
+-- - a buff sees auraID, keepOnAuraLoss and the cast rule, "Ends when you cast (comma separated):";
+-- - a reminder (a buff tracker in its own category, user decision 2026-09-29) sees auraID,
+--   keepOnAuraLoss and `alternatives`, "Also satisfied by (comma separated):", in place of the
+--   cast rule (RALT-01, Phase 57.5: the one deliberate divergence from "reminders are buffs");
+-- - a cooldown sees only the cast rule, labelled "Resets when you cast (comma separated):".
+-- The cast rule and the alternatives list are the same spell-ID list row (BuildSpellListField and
+-- its siblings, above), stored as nil when empty. The runtime readers are BuffEngine.lua's
+-- `ns:DetailedAuraID`, `ns:CancelsOnAuraLoss` and `ns:ApplyEndOnCast`, Core.lua's
+-- `ns:RebuildDetailedRuleIndex`, and for `alternatives` Core.lua's
+-- `ns:RebuildDetailedRuleIndex` and `ns:RebuildReminderWatch` (57.5-02). General never
+-- becomes invalid or disabled because of a value on Advanced (57.1-CONTEXT).
+-- `load` (Phase 57.3, LOAD-01) comes LAST on Advanced, after the spell-ID list, for every kind -- it
+-- has no visible() hook, so a cooldown, a buff and a reminder all show it. When known is stored
+-- as nil; Always / Never as their ns.LOAD strings. The runtime reader is Core.lua's
+-- `ns:TrackerLoad`. A built-in tracker's load is fixed and it never opens this dialog.
+--
+-- Multi-choice settings (REM-04, user direction): the chosen control for any future multi-choice
+-- field is a DropdownButton from WowStyle1DropdownTemplate set up with SetupMenu and CreateRadio,
+-- one `rootDescription:CreateRadio(text, IsSelected, SetSelected, value)` per choice, with
+-- IsSelected / SetSelected built once per build (not inside the generator) and `GenerateMenu()`
+-- called after a change made outside the menu so the button text follows. All of it exists on
+-- both retail and the Forever beta. The removed visibility field used it; the live examples are
+-- now the `load` field below (in this dialog) and CreateContainerDialog's category choice, which
+-- share SetupRadioMenu (above) since Phase 58.
+--
+-- Hazard: TRACKER_FIELDS is a file-local read by CreateAddDialog; it and every helper its
+-- functions call (ParseDuration, DURATION_HINT, FormatDuration, ns:RefreshIDPreview,
+-- ns:BuildSecrecyBadge, ns:ParseSpellIDList, the PORTRAIT_SIZE /
+-- CDM_ICON_MASK_ATLAS / CDM_ICON_OVERLAY_ATLAS / MAX_CAST_RULE_IDS constants) must be declared
+-- ABOVE CreateAddDialog. A helper declared lower in the file (e.g. AddExclusiveCheck) is nil to
+-- these functions -- do not call it from a field def.
+local TRACKER_FIELDS = {
+	{
+		id = "spellPreview",
+		build = function(row, y, onChange, dialog)
+			local hover = CreateFrame("Frame", nil, row)
+			hover:SetSize(PORTRAIT_SIZE, PORTRAIT_SIZE)
+			hover:SetPoint("TOP", row, "TOPLEFT", 120, y - 10)
+			hover:EnableMouse(true)
+
+			local icon = hover:CreateTexture(nil, "ARTWORK")
+			icon:SetAllPoints()
+
+			-- IN-01: each CDM atlas is applied only when the client knows it, the same guard the
+			-- secrecy badge uses. Without the mask the icon stays square; without the overlay it
+			-- has no border. Neither is a Lua error.
+			local canCheckAtlas = C_Texture and C_Texture.GetAtlasInfo
+			if canCheckAtlas and C_Texture.GetAtlasInfo(CDM_ICON_MASK_ATLAS) then
+				local mask = hover:CreateMaskTexture()
+				mask:SetAtlas(CDM_ICON_MASK_ATLAS)
+				mask:SetAllPoints()
+				icon:AddMaskTexture(mask)
+			end
+
+			if canCheckAtlas and C_Texture.GetAtlasInfo(CDM_ICON_OVERLAY_ATLAS) then
+				local overlay = hover:CreateTexture(nil, "OVERLAY")
+				overlay:SetAtlas(CDM_ICON_OVERLAY_ATLAS)
+				overlay:SetPoint("TOPLEFT", -9, 8)
+				overlay:SetPoint("BOTTOMRIGHT", 9, -8)
+			end
+
+			local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+			name:SetPoint("TOP", hover, "BOTTOM", 0, -6)
+			name:SetWidth(208)
+			name:SetJustifyH("CENTER")
+			name:SetWordWrap(false)
+
+			-- Built once here, not per hover: ShowBuffTooltip reads whatever these hold at
+			-- OnEnter time, and update keeps tooltipProc.spellID in step with the box.
+			local tooltipProc = { spellID = nil, label = "Unknown spell" }
+			local tooltipOpts = { showSpellID = true }
+			-- IN-01: the secrecy line on this tooltip describes THIS ID's own aura, which is
+			-- not always the buff's; one static note says so (none without the secrecy API).
+			local scopeNote = ns:SecrecyScopeNote()
+			if scopeNote then
+				tooltipOpts.extraLines = { scopeNote }
+			end
+
+			-- Declared before either SetScript below: the OnEnter closure reads this same
+			-- table. A table literal built only at the return would leave the closure bound
+			-- to the nil global state, and every hover would raise.
+			local state = {
+				hover = hover,
+				icon = icon,
+				name = name,
+				tooltipProc = tooltipProc,
+				tooltipOpts = tooltipOpts,
+				-- Bumped every time RefreshIDPreview resolves a spell (including a late
+				-- resolution of an ID that was still unknown). Never reset: secrecyBadge and
+				-- duration compare it with the value they last saw, so a late resolution
+				-- re-runs their lookups.
+				generation = 0,
+			}
+
+			hover:SetScript("OnEnter", function()
+				if state.spellID then
+					ns:ShowBuffTooltip(hover, state.tooltipProc, state.tooltipOpts)
+				end
+			end)
+			hover:SetScript("OnLeave", function()
+				GameTooltip:Hide()
+			end)
+
+			-- 10px top pad clears the title, then the 50px portrait, a 6px gap, and the name
+			-- line below it.
+			return state, y - 90
+		end,
+		reset = function(state)
+			-- No widget work: the closing RefreshState(true) of every open renders it.
+			state.shownID = nil
+			state.resolved = nil
+			state.spellID = nil
+		end,
+		prefill = function(state)
+			state.shownID = nil
+			state.resolved = nil
+		end,
+		update = function(state, ctx, dialog)
+			-- The one and only place this entry reaches the Spell ID box: at UPDATE time,
+			-- since spellPreview is FIRST in TRACKER_FIELDS and spellID is not built yet.
+			local source = dialog.GetFieldState("spellID")
+			if not source then
+				return
+			end
+			ns:RefreshIDPreview(state, source.editBox:GetNumber())
+		end,
+		validate = function()
+			return true
+		end,
+	},
+	{
+		id = "spellID",
+		entryKey = "spellID",
+		tab = "general",
+		build = function(row, y, onChange, dialog)
+			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			label:SetText("Spell ID:")
+			label:SetPoint("TOPLEFT", row, "TOPLEFT", 16, y)
+
+			y = y - 18
+			local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+			box:SetSize(180, 22)
+			box:SetPoint("TOPLEFT", row, "TOPLEFT", 16, y)
+			box:SetNumeric(true)
+			box:SetMaxLetters(10)
+			box:SetAutoFocus(false)
+			box:SetScript("OnTextChanged", onChange)
+
+			return { editBox = box }, y - 32
+		end,
+		reset = function(state)
+			state.editBox:SetText("")
+		end,
+		prefill = function(state, entry)
+			state.editBox:SetText(tostring(entry.spellID or ""))
+		end,
+		read = function(state)
+			return state.editBox:GetNumber()
+		end,
+		validate = function(state, ctx)
+			local spellID = state.editBox:GetNumber()
+			if not spellID or spellID <= 0 then
+				return false
+			end
+			-- Review WR-02: the 10-digit box allows values past the 32-bit spell ID range. Checked
+			-- here, on General, so the message names the field the user actually typed in.
+			if spellID > 2147483647 then
+				return false, "Spell ID is too large"
+			end
+			local conflictKey = ns:FindTrackerConflict(ctx.kind, spellID, ctx.editingKey)
+			if conflictKey then
+				return false, "Already tracked as a " .. ns:TrackerKindWord(ctx.kind)
+			end
+			return true
+		end,
+	},
+	{
+		id = "secrecyBadge",
+		tab = "general",
+		build = function(row, y, onChange, dialog)
+			local preview = dialog.GetFieldState("spellPreview")
+			local source = dialog.GetFieldState("spellID")
+
+			-- Declared before ns:BuildSecrecyBadge below: its OnEnter closure reads
+			-- state.level from this same table, so it must already exist when the helper
+			-- wires the closures. A table literal built only at the return would leave the
+			-- closure bound to the nil global state, and every hover would raise.
+			local state = { source = source, preview = preview }
+			state.badge = ns:BuildSecrecyBadge(row, state)
+			-- The atlas badge sits over the portrait's top-right corner; the text fallback
+			-- extends right from there, still inside the 240px dialog.
+			state.badge:SetPoint("BOTTOMLEFT", preview.hover, "TOPRIGHT", -10, -10)
+			-- The badge's row and the portrait's row are siblings at the same frame level,
+			-- so without raising it the portrait could draw over the badge and swallow its
+			-- hover.
+			state.badge:SetFrameLevel(preview.hover:GetFrameLevel() + 5)
+
+			-- No vertical space of its own: the badge sits on the portrait row's corner.
+			return state, y
+		end,
+		reset = function(state)
+			state.checkedID = nil
+			state.level = nil
+		end,
+		prefill = function(state)
+			state.checkedID = nil
+		end,
+		update = function(state)
+			-- Keyed on the ID AND the preview's resolution count (spellPreview updates first,
+			-- so its count is current here): an ID the client resolves late is asked again,
+			-- instead of keeping the answer it gave while the spell was still unknown.
+			local id = state.source.editBox:GetNumber()
+			local gen = state.preview.generation
+			if id == state.checkedID and gen == state.checkedGen then
+				return
+			end
+			state.checkedID = id
+			state.checkedGen = gen
+			state.level = id > 0 and ns:SpellAuraSecrecy(id) or nil
+		end,
+		-- Shown on BOTH tabs by user decision: this entry never branches on the tracker kind.
+		-- A client without the secrecy API yields a nil level, so the badge simply never shows.
+		visible = function(state)
+			return ns:SecrecyWarns(state.level)
+		end,
+		validate = function()
+			return true
+		end,
+	},
+	{
+		id = "duration",
+		entryKey = "duration",
+		tab = "general",
+		build = function(row, y, onChange, dialog)
+			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			label:SetText("Duration (30, 45s, 2m):")
+			label:SetPoint("TOPLEFT", row, "TOPLEFT", 16, y)
+
+			y = y - 18
+			local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+			box:SetSize(180, 22)
+			box:SetPoint("TOPLEFT", row, "TOPLEFT", 16, y)
+			box:SetMaxLetters(6)
+			box:SetAutoFocus(false)
+			box:SetScript("OnTextChanged", onChange)
+
+			-- Same gap as the spell ID row above. Captured once, like spellPreview and
+			-- secrecyBadge above: update reads state.source.editBox:GetNumber() live on every
+			-- call, so ADD-05's suggestion always sees the box's current number, and reads the
+			-- preview's resolution count so a late-resolving ID is suggested for too.
+			local source = dialog.GetFieldState("spellID")
+			local preview = dialog.GetFieldState("spellPreview")
+			return { editBox = box, source = source, preview = preview }, y - 32
+		end,
+		reset = function(state)
+			state.editBox:SetMaxLetters(6)
+			state.editBox:SetText("")
+			state.originalText = nil
+			state.originalValue = nil
+			state.suggestedForID = nil
+			state.suggestionText = nil
+		end,
+		prefill = function(state, entry)
+			state.originalValue = entry.duration
+			state.originalText = FormatDuration(entry.duration)
+			-- A saved value longer than 6 characters is shown whole, never truncated; the next
+			-- reset restores 6.
+			state.editBox:SetMaxLetters(math.max(6, #state.originalText))
+			state.editBox:SetText(state.originalText)
+			-- The prefilled saved value is the user's; with no suggestion text recorded, update
+			-- can never mistake it for a suggestion and overwrite it.
+			state.suggestedForID = nil
+			state.suggestionText = nil
+		end,
+		-- ADD-05: suggest a duration while the box is still empty or holds exactly the
+		-- previous suggestion. A cooldown tracker gets the game's cooldown; a buff or reminder
+		-- tracker (ns.BUFF_LIKE_KINDS) gets the live aura's duration when the buff is on the
+		-- player and readable, and nothing otherwise (the game has no static buff-duration API).
+		-- A reminder saved with no duration (an earlier v10 build) prefills empty, and validate
+		-- refuses an empty box, so it must be given a duration before it saves.
+		update = function(state, ctx)
+			local isCd = ctx.kind == ns.KIND.USER_CD
+			if not isCd and not ns.BUFF_LIKE_KINDS[ctx.kind] then
+				return
+			end
+
+			-- Compare before writing anything: this also runs on the nested RefreshState that
+			-- our own SetText below fires, and on every Duration keystroke, so an unchanged ID
+			-- must return here before doing any work. The preview's resolution count is part of
+			-- the key: an ID the client resolves late is asked again once, and the nested pass
+			-- from our own SetText sees both unchanged.
+			local id = state.source.editBox:GetNumber()
+			local gen = state.preview and state.preview.generation
+			if id == state.suggestedForID and gen == state.suggestedGen then
+				return
+			end
+			state.suggestedForID = id
+			state.suggestedGen = gen
+
+			-- The user typed something, or an edit prefilled it, and it is not the suggestion
+			-- this field itself last wrote -- never touch it.
+			local text = state.editBox:GetText()
+			if text ~= "" and text ~= state.suggestionText then
+				return
+			end
+
+			local seconds
+			if id > 0 then
+				if isCd then
+					seconds = ns:SuggestedCooldown(id)
+				else
+					seconds = ns:SuggestedBuffDuration(id)
+				end
+			end
+			local newText = seconds and FormatDuration(seconds) or ""
+			-- The box holds 6 letters; a longer suggestion would be saved as a different,
+			-- truncated number, so it is dropped instead of written.
+			if #newText > 6 then
+				newText = ""
+			end
+
+			-- Recorded before SetText: a new ID with no cooldown clears a held suggestion back
+			-- to empty, leaving manual entry.
+			state.suggestionText = newText ~= "" and newText or nil
+			if newText ~= text then
+				state.editBox:SetText(newText)
+			end
+		end,
+		read = function(state)
+			local text = state.editBox:GetText()
+			if state.originalText ~= nil and text == state.originalText then
+				return state.originalValue
+			end
+			return ParseDuration(text)
+		end,
+		validate = function(state)
+			local text = state.editBox:GetText()
+			if text == "" then
+				return false
+			end
+			if not ParseDuration(text) then
+				return false, DURATION_HINT
+			end
+			return true
+		end,
+	},
+	{
+		id = "coverAllRanks",
+		entryKey = "coverAllRanks",
+		tab = "general",
+		available = function()
+			return ns.CLIENT_HAS_SPELL_RANKS
+		end,
+		-- Cover all ranks (ADD-03): created only when the client-capability flag defined once in
+		-- Core.lua is true -- absent on retail, not hidden or disabled. This is that flag's only
+		-- reader. No leading gap here: the duration row's returned cursor already includes it.
+		build = function(row, y, onChange, dialog)
+			local check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+			check:SetSize(24, 24)
+			check:SetPoint("TOPLEFT", row, "TOPLEFT", 16, y)
+			check:SetChecked(true)
+			check:SetScript("OnClick", onChange)
+
+			local label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			label:SetPoint("LEFT", check, "RIGHT", 4, 0)
+			label:SetText("Cover all ranks")
+
+			return { check = check }, y - 26
+		end,
+		reset = function(state)
+			state.check:SetChecked(true)
+		end,
+		prefill = function(state, entry)
+			state.check:SetChecked(entry.coverAllRanks == true)
+		end,
+		read = function(state)
+			return state.check:GetChecked() and true or nil
+		end,
+		validate = function()
+			return true
+		end,
+	},
+	{
+		id = "auraID",
+		entryKey = "auraID",
+		tab = "advanced",
+		-- A cooldown's aura ID drove only the removed visibility option, and schema v10 dropped
+		-- the saved key (REM-04). Buffs and reminders keep it: prefilled, following the Spell ID
+		-- until typed in, stored nil when equal.
+		visible = function(_, ctx)
+			return ctx.kind ~= ns.KIND.USER_CD
+		end,
+		build = function(row, y, onChange, dialog)
+			-- An EARLIER sibling, captured at build like every other cross-field read here.
+			local spell = dialog.GetFieldState("spellID")
+
+			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			label:SetText("Aura ID:")
+			label:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y)
+
+			local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+			box:SetSize(180, 22)
+			box:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y - 18)
+			box:SetNumeric(true)
+			box:SetMaxLetters(10)
+			box:SetAutoFocus(false)
+
+			local hover = CreateFrame("Frame", nil, row)
+			hover:SetSize(130, 20)
+			hover:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y - 44)
+			hover:EnableMouse(true)
+
+			local icon = hover:CreateTexture(nil, "ARTWORK")
+			icon:SetSize(18, 18)
+			icon:SetPoint("LEFT", hover, "LEFT", 0, 0)
+
+			local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			name:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+			name:SetWidth(108)
+			name:SetJustifyH("LEFT")
+			name:SetWordWrap(false)
+
+			-- Built once here, not per hover: ShowBuffTooltip reads whatever these hold at
+			-- OnEnter time, and update keeps tooltipProc.spellID in step with the box. One
+			-- instance per row, mirroring the portrait's own tooltipProc/tooltipOpts above.
+			local tooltipProc = { spellID = nil, label = "Unknown spell" }
+			local tooltipOpts = { showSpellID = true }
+			-- IN-01: the secrecy line on this tooltip describes THIS ID's own aura, which may
+			-- differ from the spell ID's -- one static note says so.
+			local scopeNote = ns:SecrecyScopeNote()
+			if scopeNote then
+				tooltipOpts.extraLines = { scopeNote }
+			end
+
+			-- Declared before any SetScript below and before ns:BuildSecrecyBadge: every closure
+			-- reads this same table. A table literal built only at the return would leave them
+			-- bound to the nil global state, and every hover would raise.
+			local state = {
+				editBox = box,
+				spell = spell,
+				hover = hover,
+				icon = icon,
+				name = name,
+				tooltipProc = tooltipProc,
+				tooltipOpts = tooltipOpts,
+				generation = 0,
+				-- Phase 57.1: true while the box has not yet been edited by the user, so update
+				-- keeps writing the Spell ID box's text into it. A programmatic SetText (the
+				-- follow itself, or reset/prefill) passes userInput false, so following is
+				-- unaffected by our own writes -- only a real keystroke turns it off.
+				followsSpell = true,
+			}
+
+			-- Phase 57.1: prefilled and kept in step with the Spell ID box until the user types
+			-- here (D-02 is retired: the box is never blank by default any more).
+			box:SetScript("OnTextChanged", function(_, userInput)
+				-- Review IN-02: the follow write in update runs inside RefreshState's own loop,
+				-- which already updates the later fields and validates -- no nested refresh.
+				if state.syncing then
+					return
+				end
+				if userInput then
+					state.followsSpell = false
+				end
+				onChange()
+			end)
+
+			hover:SetScript("OnEnter", function()
+				if state.spellID then
+					ns:ShowBuffTooltip(hover, state.tooltipProc, state.tooltipOpts)
+				end
+			end)
+			hover:SetScript("OnLeave", function()
+				GameTooltip:Hide()
+			end)
+
+			-- The badge describes the AURA ID's own secrecy (D-02), independent of the
+			-- portrait's badge, which describes the spell ID's.
+			state.badge = ns:BuildSecrecyBadge(row, state)
+			state.badge:SetPoint("LEFT", hover, "RIGHT", 6, 0)
+			state.badge:Hide()
+
+			return state, y - 72
+		end,
+		reset = function(state)
+			-- Blank here, not the spell ID: the first update (which always runs before the
+			-- dialog is shown) fills it in via the follow below, so a freshly opened Add dialog
+			-- still ends up showing the spell's own ID.
+			state.followsSpell = true
+			state.editBox:SetText("")
+			state.shownID = nil
+			state.resolved = nil
+			state.spellID = nil
+			state.level = nil
+			state.checkedID = nil
+			state.checkedGen = nil
+			state.badge:Hide()
+		end,
+		prefill = function(state, entry)
+			-- No saved aura ID means the field follows the spell (the prefilled default);
+			-- a saved aura ID, even one equal to the spell ID, means the user is done following.
+			state.followsSpell = entry.auraID == nil
+			state.editBox:SetText(entry.auraID and tostring(entry.auraID) or "")
+			state.shownID = nil
+			state.resolved = nil
+			state.checkedID = nil
+		end,
+		update = function(state)
+			-- Phase 57.1: while following, keep this box's text in step with the Spell ID box.
+			-- Compare before writing, and write under state.syncing: SetText fires this field's
+			-- own OnTextChanged synchronously, which returns early while syncing is set instead
+			-- of starting a nested RefreshState from inside this loop.
+			if state.followsSpell then
+				local spellText = state.spell.editBox:GetText()
+				if state.editBox:GetText() ~= spellText then
+					state.syncing = true
+					state.editBox:SetText(spellText)
+					state.syncing = false
+				end
+			end
+
+			local typed = state.editBox:GetNumber()
+			local id = typed > 0 and typed or state.spell.editBox:GetNumber()
+			ns:RefreshIDPreview(state, id)
+
+			-- The badge describes the secrecy of whatever ID this box holds, including while it
+			-- follows the spell (Phase 57.1 fills the box with the spell ID then). The portrait's
+			-- own badge sits on General, so on Advanced this one is the only secrecy cue in view.
+			-- Only a blank box (badgeID 0) leaves the level nil and the badge hidden.
+			local badgeID = typed > 0 and typed or 0
+			-- Compare-before-write, keyed like secrecyBadge: an ID the client resolves late is
+			-- asked again once.
+			if badgeID == state.checkedID and state.generation == state.checkedGen then
+				return
+			end
+			state.checkedID = badgeID
+			state.checkedGen = state.generation
+			state.level = badgeID > 0 and ns:SpellAuraSecrecy(badgeID) or nil
+			state.badge:SetShown(ns:SecrecyWarns(state.level) and true or false)
+		end,
+		read = function(state)
+			-- Blank or equal to the spell ID stores nothing (the default); a read nil clears a
+			-- previously saved aura ID on edit.
+			local typed = state.editBox:GetNumber()
+			if typed > 0 and typed ~= state.spell.editBox:GetNumber() then
+				return typed
+			end
+			return nil
+		end,
+		validate = function(state)
+			-- The aura read APIs take 32-bit IDs. Review WR-02: skipped while following, since
+			-- the text is then the Spell ID's own, and that field reports its own range error.
+			if not state.followsSpell and state.editBox:GetNumber() > 2147483647 then
+				return false, "Aura ID is too large"
+			end
+			return true
+		end,
+	},
+	{
+		id = "keepOnAuraLoss",
+		entryKey = "keepOnAuraLoss",
+		tab = "advanced",
+		build = function(row, y, onChange, dialog)
+			local check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+			check:SetSize(24, 24)
+			check:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y)
+			check:SetChecked(true)
+			check:SetScript("OnClick", onChange)
+
+			local label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			label:SetPoint("LEFT", check, "RIGHT", 4, 0)
+			label:SetText("End when the aura is lost")
+
+			return { check = check }, y - 26
+		end,
+		reset = function(state)
+			-- Default ON (the prefilled Advanced default; also the lesson from the removed
+			-- racial cancelOnAuraLoss opt-in).
+			state.check:SetChecked(true)
+		end,
+		prefill = function(state, entry)
+			-- A missing key means cancellation is ON.
+			state.check:SetChecked(not entry.keepOnAuraLoss)
+		end,
+		read = function(state)
+			-- Stored only when opted out; a missing key means cancellation stays on (the default).
+			return (not state.check:GetChecked()) and true or nil
+		end,
+		validate = function()
+			return true
+		end,
+		visible = function(state, ctx)
+			-- A cooldown has no aura behind it and never enters ns.activeTimers, while a buff and
+			-- a reminder both do: buff-like only, not just gated by its tab.
+			return ns.BUFF_LIKE_KINDS[ctx.kind] == true
+		end,
+	},
+	{
+		-- RALT-01 (Phase 57.5): hidden for a reminder, whose list is its alternatives (the next
+		-- field). A buff and a cooldown keep this cast rule exactly as before.
+		id = "endOnCast",
+		entryKey = "endOnCast",
+		tab = "advanced",
+		build = BuildSpellListField,
+		reset = function(state, ctx)
+			state.label:SetText(
+				ctx.kind == ns.KIND.USER_CD and "Resets when you cast (comma separated):"
+					or "Ends when you cast (comma separated):"
+			)
+			SetSpellListText(state, nil)
+		end,
+		prefill = function(state, entry, ctx)
+			state.label:SetText(
+				ctx.kind == ns.KIND.USER_CD and "Resets when you cast (comma separated):"
+					or "Ends when you cast (comma separated):"
+			)
+			SetSpellListText(state, entry.endOnCast)
+		end,
+		update = UpdateSpellListIcons,
+		read = ReadSpellList,
+		validate = ValidateSpellList,
+		visible = function(state, ctx)
+			return not ns.REMINDER_KINDS[ctx.kind]
+		end,
+	},
+	{
+		-- RALT-01 (Phase 57.5): a reminder's "Also satisfied by" list, in place of the cast rule --
+		-- the one deliberate divergence from "reminders are buffs" (user decision 2026-09-29). A
+		-- reminder is satisfied by its own buff or any listed buff, present or running from a cast.
+		-- Same spell-ID list row as the cast rule; stored as nil when empty.
+		id = "alternatives",
+		entryKey = "alternatives",
+		tab = "advanced",
+		build = BuildSpellListField,
+		reset = function(state)
+			state.label:SetText("Also satisfied by (comma separated):")
+			SetSpellListText(state, nil)
+		end,
+		prefill = function(state, entry)
+			state.label:SetText("Also satisfied by (comma separated):")
+			SetSpellListText(state, entry.alternatives)
+		end,
+		update = UpdateSpellListIcons,
+		read = ReadSpellList,
+		validate = ValidateSpellList,
+		visible = function(state, ctx)
+			return ns.REMINDER_KINDS[ctx.kind] == true
+		end,
+	},
+	{
+		-- Phase 57.3 (LOAD-01): whether this tracker runs at all. Never called "visibility" --
+		-- containers already have one. No visible() hook: every user kind gets it.
+		id = "load",
+		entryKey = "load",
+		tab = "advanced",
+		build = function(row, y, onChange)
+			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			label:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y)
+			label:SetText("Load:")
+
+			local dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
+			dropdown:SetSize(180, 22)
+			dropdown:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y - 18)
+
+			local state = { dropdown = dropdown, selected = ns.LOAD.KNOWN }
+			-- Built once here, not inside the menu generator, which SetupMenu/GenerateMenu may
+			-- call more than once per open.
+			local function IsSelected(value)
+				return state.selected == value
+			end
+			local function SetSelected(value)
+				state.selected = value
+				onChange()
+			end
+			SetupRadioMenu(dropdown, LOAD_CHOICES, IsSelected, SetSelected)
+
+			return state, y - 46
+		end,
+		reset = function(state)
+			state.selected = ns.LOAD.KNOWN
+			-- A change made outside the menu needs GenerateMenu so the button text follows
+			-- (Blizzard_Menu/DropdownButton.lua).
+			state.dropdown:GenerateMenu()
+		end,
+		prefill = function(state, entry)
+			local saved = entry.load
+			if saved == ns.LOAD.ALWAYS or saved == ns.LOAD.NEVER then
+				state.selected = saved
+			else
+				state.selected = ns.LOAD.KNOWN
+			end
+			state.dropdown:GenerateMenu()
+		end,
+		read = function(state)
+			-- When known is the default and is stored as nil; an edit back to it clears the key.
+			if state.selected == ns.LOAD.KNOWN then
+				return nil
+			end
+			return state.selected
+		end,
+		validate = function()
+			return true
+		end,
+	},
+}
+
+-- What the + square adds, by the tab showing it: its tooltip and the add dialog's title.
+-- File-local and declared above CreateAddDialog so both readers see it (a local declared below
+-- its caller is nil at runtime). Read on hover and on dialog open only, never per frame.
+local ADD_TITLE_BY_CATEGORY = {
+	spells = "Add Cooldown Tracker",
+	buffs = "Add Buff Tracker",
+	reminders = "Add Reminder",
+}
+
+-- The edit dialog's title by the saved entry's kind (only ns:IsEditableTracker kinds open it).
+-- Beside ADD_TITLE_BY_CATEGORY for the same reason: above CreateAddDialog, read on open only.
+local EDIT_TITLE_BY_KIND = {
+	[ns.KIND.USER_CD] = "Edit Cooldown Tracker",
+	[ns.KIND.USER_BUFF] = "Edit Buff Tracker",
+	[ns.KIND.USER_REMINDER] = "Edit Reminder",
+}
+
+-- The add/edit and New Container dialogs share one look: Blizzard's panel art, ButtonFrameTemplate
+-- -- the same template CooldownViewerSettings inherits on both retail and the Forever beta -- with
+-- the portrait hidden and no attic (nothing sits on top of the content well). Its Inset is the
+-- content well (top edge 24px under the title bar, plus a 10px gap) and its bottom 26px are the
+-- button bar (plus the same gap). Buttons sit flush with the no-portrait Inset's edges (x=9, 6px
+-- short of the right) and 4px up, MagicButton_OnLoad's offsets. The add/edit dialog's
+-- General/Advanced tabs are LargeSideTabButtonTemplate icon tabs hanging off the right edge,
+-- placed exactly like the CDM settings window's (first tab TOPLEFT to the frame's TOPRIGHT at
+-- 0,-28, each next one TOP to the previous BOTTOM at y -3). Icons are 30px, TBT's own CDM side-tab
+-- icon size.
+local DIALOG_BUTTON_LEFT_X = 9
+local DIALOG_BUTTON_RIGHT_X = -6
+local DIALOG_BUTTON_Y = 4
+local DIALOG_CONTENT_TOP = -34
+local DIALOG_CONTENT_BOTTOM = 36
+local DIALOG_SIDE_TAB_X = 0
+local DIALOG_SIDE_TAB_Y = -28
+local DIALOG_SIDE_TAB_GAP = -3
+local DIALOG_SIDE_TAB_ICON_SIZE = 30
+-- 184px of content plus the content top and bottom.
+local CONTAINER_DIALOG_HEIGHT = 254
+
+-- Builds one dialog frame. The built-in close button hides the dialog exactly like Cancel does --
+-- set directly rather than left on UIPanelCloseButton_OnClick, whose HideUIPanel is meant for
+-- frames the UIParent panel manager owns. Runs once per dialog at creation, never per frame.
+function ns:CreatePanelDialog(name)
+	local dialog = CreateFrame("Frame", name, UIParent, "ButtonFrameTemplate")
+	-- Neither dialog puts anything in the attic (the add/edit dialog's tabs hang off the right
+	-- edge), so the content well starts right under the title bar. Must run before HidePortrait,
+	-- which re-applies the Inset's no-portrait x offset over whatever TOPLEFT point it finds.
+	ButtonFrameTemplate_HideAttic(dialog)
+	ButtonFrameTemplate_HidePortrait(dialog)
+	dialog.CloseButton:SetScript("OnClick", function()
+		dialog:Hide()
+	end)
 	dialog:SetPoint("CENTER", UIParent, "CENTER", 0, 50)
+	-- DIALOG strata so it renders above everything, including the CDM settings window.
 	dialog:SetFrameStrata("DIALOG")
 	dialog:SetFrameLevel(200)
-	dialog:SetBackdrop({
-		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-		tile = true,
-		tileSize = 32,
-		edgeSize = 16,
-		insets = { left = 4, right = 4, top = 4, bottom = 4 },
-	})
-	dialog:SetBackdropColor(0, 0, 0, 1)
 	dialog:Hide()
 	dialog:EnableMouse(true)
 	dialog:SetMovable(true)
@@ -1174,46 +2408,100 @@ local function CreateAddDialog()
 	dialog:SetScript("OnDragStart", dialog.StartMoving)
 	dialog:SetScript("OnDragStop", dialog.StopMovingOrSizing)
 
-	table.insert(UISpecialFrames, "TBTAddBuffDialog")
+	table.insert(UISpecialFrames, name)
 
-	-- Title. Set from the active tab in dialog.ResetFields rather than fixed, because the tab is
+	return dialog
+end
+
+-- Side tab icons. General is a file texture, not an atlas. Advanced prefers the GM settings
+-- gear atlas; its existence on the Forever beta is unverified, so C_Texture.GetAtlasInfo gates it
+-- and a file icon stands in when the atlas is missing.
+local SIDE_TAB_GENERAL_ICON = "Interface\\Icons\\INV_Misc_Book_09"
+local SIDE_TAB_ADVANCED_ATLAS = "GM-icon-settings"
+local SIDE_TAB_ADVANCED_FALLBACK = "Interface\\Icons\\Trade_Engineering"
+
+-- Replaces SidePanelTabButtonMixin:SetChecked on the dialog's side tabs: the mixin version calls
+-- Icon:SetAtlas(activeAtlas/inactiveAtlas), which would wipe a file texture. Only the selected
+-- highlight changes with the state; the icon is set once at creation.
+local function SetDialogSideTabChecked(tab, checked)
+	tab.SelectedTexture:SetShown(checked and true or false)
+end
+
+-- Builds one dialog side tab. The template's own OnMouseDown/OnMouseUp keep the icon nudge
+-- and click sound; the hook below only reports a left click released over the tab. upInside is
+-- nil-tolerant in case a client does not pass it. The tooltip comes from the mixin's OnEnter,
+-- which reads tooltipText. Runs once per tab at dialog creation, never per frame.
+function ns:CreateDialogSideTab(dialog, tooltipText, iconSize, onSelect)
+	local tab = CreateFrame("Frame", nil, dialog, "LargeSideTabButtonTemplate")
+	tab.tooltipText = tooltipText
+	tab.SetChecked = SetDialogSideTabChecked
+	tab.Icon:SetSize(iconSize, iconSize)
+	tab:SetChecked(false)
+	tab:HookScript("OnMouseUp", function(_, button, upInside)
+		if button == "LeftButton" and upInside ~= false then
+			onSelect()
+		end
+	end)
+	return tab
+end
+
+-- Sets the Advanced side tab's icon, falling back to a file icon where the atlas is missing.
+-- SetAtlas without useAtlasSize, then SetSize again, so both icons draw at the same size.
+function ns:SetAdvancedSideTabIcon(tab, iconSize)
+	local hasAtlas = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(SIDE_TAB_ADVANCED_ATLAS)
+	if hasAtlas then
+		tab.Icon:SetAtlas(SIDE_TAB_ADVANCED_ATLAS, false)
+	else
+		tab.Icon:SetTexture(SIDE_TAB_ADVANCED_FALLBACK)
+	end
+	tab.Icon:SetSize(iconSize, iconSize)
+end
+
+-- The add/edit dialog's width, shared by the dialog and every field row. 260 rather than the
+-- original 240 so the spell-ID list rows' "(comma separated)" labels (the cast rule and the
+-- alternatives) fit on one line (see BuildSpellListField).
+local ADD_DIALOG_WIDTH = 260
+
+local function CreateAddDialog()
+	local dialog = ns:CreatePanelDialog("TBTAddBuffDialog")
+
+	-- Title. Set from the active tab in dialog.OpenForAdd rather than fixed, because the tab is
 	-- now the only thing that decides what is being added -- see the Type note below.
-	local title = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetText("Add Tracker")
-	title:SetPoint("TOP", dialog, "TOP", 0, -12)
+	dialog:SetTitle("Add Tracker")
 
-	-- Layout cursor: every control below is anchored TOPLEFT to the dialog itself at this
-	-- running offset, rather than chained to the previous control, so the single SetSize
-	-- call after the last control can read the final height straight off it. Starts at the
-	-- original Spell ID label offset.
-	local y = -38
+	-- ctx is the one reusable table describing what this open of the dialog means -- see the
+	-- field definition contract above TRACKER_FIELDS. Wiped and refilled on every OpenForAdd (and
+	-- 54-03's OpenForEdit), never reassigned.
+	local ctx = {}
+	dialog.ctx = ctx
 
-	-- Spell ID
-	local spellIdLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	spellIdLabel:SetText("Spell ID:")
-	spellIdLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, y)
+	-- Every field built below is tracked here rather than by name, so the dialog names no
+	-- individual field: fieldStates is the ordered walk list, fieldById answers
+	-- dialog.GetFieldState, focusRing is the Tab/Enter ring, values is the reused table the
+	-- confirm handler fills from every visible field's read before handing it to the engine, and
+	-- readKeys is the reused array of exactly the entry keys that were read -- the only keys an
+	-- edit may write (WR-02: a hidden field keeps its saved value).
+	local fieldStates = {}
+	local fieldById = {}
+	local focusRing = {}
+	local values = {}
+	local readKeys = {}
 
-	y = y - 18
-	local spellIdBox = CreateFrame("EditBox", nil, dialog, "InputBoxTemplate")
-	spellIdBox:SetSize(180, 22)
-	spellIdBox:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, y)
-	spellIdBox:SetNumeric(true)
-	spellIdBox:SetMaxLetters(10)
-	spellIdBox:SetAutoFocus(false)
+	-- Declared before the build loop so a field's build may anchor to an earlier sibling built
+	-- earlier in TRACKER_FIELDS (a later sibling is not built yet and returns nil).
+	dialog.GetFieldState = function(id)
+		local field = fieldById[id]
+		return field and field.state
+	end
 
-	-- Duration. The label carries the accepted formats rather than just the unit, because the
-	-- field now takes a suffix and an unsuffixed number still means seconds.
-	y = y - 32
-	local durationLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	durationLabel:SetText("Duration (30, 45s, 2m):")
-	durationLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, y)
+	-- Forward-declared: the per-field onChange closure below calls it, but it is only assigned
+	-- after Layout exists.
+	local RefreshState
 
-	y = y - 18
-	local durationBox = CreateFrame("EditBox", nil, dialog, "InputBoxTemplate")
-	durationBox:SetSize(180, 22)
-	durationBox:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, y)
-	durationBox:SetMaxLetters(6)
-	durationBox:SetAutoFocus(false)
+	-- Phase 57.1: which tab is selected right now. Read by RefreshState below to decide each
+	-- field's field.shown; written only by SelectTab, created with the side tabs after
+	-- FocusFirstShown near the end of this function.
+	local currentTab = "general"
 
 	-- Type (ADD-01) and Container (ADD-02) are both GONE as controls, by user decision
 	-- 2026-09-22, and both answers are now implied rather than asked for.
@@ -1226,139 +2514,355 @@ local function CreateAddDialog()
 	-- Container is always "Not Displayed". That was already the default and the locked v0.2.0
 	-- rule that an unchosen container must never fall through to a visible one; choosing at
 	-- creation only duplicated the drag the player makes next anyway.
-	-- Cover all ranks (ADD-03): created only when the client-capability flag defined once in
-	-- Core.lua is true -- absent on retail, not hidden or disabled, so the CreateFrame call
-	-- itself sits inside this `if` and rankCheck stays nil there. This is that flag's only
-	-- reader; every later reference to rankCheck below is nil-guarded. The gap before it is
-	-- inside the `if` too, so a client without the widget does not carry its blank space.
-	local rankCheck
-	if ns.CLIENT_HAS_SPELL_RANKS then
-		y = y - 32
-		rankCheck = CreateFrame("CheckButton", nil, dialog, "UICheckButtonTemplate")
-		rankCheck:SetSize(24, 24)
-		rankCheck:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, y)
-		rankCheck:SetChecked(true)
-
-		local rankLabel = rankCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		rankLabel:SetPoint("LEFT", rankCheck, "RIGHT", 4, 0)
-		rankLabel:SetText("Cover all ranks")
-
-		y = y - 26
+	for _, def in ipairs(TRACKER_FIELDS) do
+		if not def.available or def.available() then
+			local row = CreateFrame("Frame", nil, dialog)
+			row:SetSize(ADD_DIALOG_WIDTH, 1)
+			local state, nextY = def.build(row, 0, function()
+				RefreshState()
+			end, dialog)
+			local field = { def = def, state = state, row = row, height = -nextY }
+			row:SetHeight(field.height)
+			fieldStates[#fieldStates + 1] = field
+			fieldById[def.id] = field
+			if state.editBox then
+				focusRing[#focusRing + 1] = { box = state.editBox, field = field }
+			end
+		end
 	end
 
 	-- Error label. Given a width and centred so the duration hint wraps to a second line instead
-	-- of running out past the dialog's edge; the extra line is reserved in the y step below.
+	-- of running out past the dialog's edge. Layout anchors it below the last visible row.
 	local errorLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontRed")
-	errorLabel:SetPoint("TOP", dialog, "TOP", 0, y)
 	errorLabel:SetWidth(208)
 	errorLabel:SetJustifyH("CENTER")
 	errorLabel:SetText("")
+	dialog.errorLabel = errorLabel
 
-	y = y - 32
-	-- Single height computation, driven by whatever was actually created above -- no second
-	-- flavour branch on the literal height.
-	dialog:SetSize(240, math.abs(y) + 46)
+	-- Whether Layout reserved room for the error label. The label takes space only while it has
+	-- a message, so an empty label leaves no gap above the buttons; RefreshState re-lays out
+	-- only when this flips.
+	local errorShown = false
 
-	-- Add button
-	local addBtn = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
-	addBtn:SetSize(80, 22)
-	addBtn:SetText("Add")
-	addBtn:SetPoint("BOTTOMLEFT", dialog, "BOTTOMLEFT", 16, 12)
-	-- Live validation, so Add is only clickable on input that will actually work. Both fields are
-	-- checked because either one empty is just as unusable as either one malformed; the message
-	-- names only the duration, since the spell ID field is numeric-only and cannot be malformed,
-	-- only blank.
-	local function RefreshAddState()
-		local durationText = durationBox:GetText()
-		local seconds = ParseDuration(durationText)
-		local spellID = spellIdBox:GetNumber()
-
-		if durationText ~= "" and not seconds then
-			errorLabel:SetText(DURATION_HINT)
-		else
-			errorLabel:SetText("")
-		end
-
-		addBtn:SetEnabled(seconds ~= nil and spellID ~= nil and spellID > 0)
-	end
-
-	dialog.RefreshAddState = RefreshAddState
-	spellIdBox:SetScript("OnTextChanged", RefreshAddState)
-	durationBox:SetScript("OnTextChanged", RefreshAddState)
-
-	addBtn:SetScript("OnClick", function()
-		local spellID = spellIdBox:GetNumber()
-		if not spellID or spellID <= 0 then
-			errorLabel:SetText("Invalid Spell ID")
-			return
-		end
-		-- Re-parsed rather than cached from RefreshAddState: the button being enabled is a UI
-		-- state, and this is the one that decides what gets stored.
-		local duration = ParseDuration(durationBox:GetText())
-		if not duration then
-			errorLabel:SetText(DURATION_HINT)
-			return
-		end
-		ns:AddTrackedBuff(spellID, duration, nil, {
-			-- Read at click time, not at open time: the tab cannot change while a modal dialog
-			-- is up, but reading it here means there is no second copy of the answer to keep in
-			-- sync with the title.
-			trackerType = ns.tbtActiveCategory == "spells" and "cooldown" or "buff",
-			section = "hidden",
-			coverAllRanks = rankCheck and rankCheck:GetChecked() or nil,
-		})
-		ns:RefreshTBTSections()
-		ns:StartAllPreviewTimers()
-		dialog:Hide()
-	end)
+	-- Confirm button. Text is "Add" here and set to "Save" by 54-03's OpenForEdit.
+	local confirmBtn = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+	confirmBtn:SetSize(80, 22)
+	confirmBtn:SetText("Add")
+	confirmBtn:SetPoint("BOTTOMLEFT", dialog, "BOTTOMLEFT", DIALOG_BUTTON_LEFT_X, DIALOG_BUTTON_Y)
 
 	-- Cancel button
 	local cancelBtn = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
 	cancelBtn:SetSize(80, 22)
 	cancelBtn:SetText("Cancel")
-	cancelBtn:SetPoint("BOTTOMRIGHT", dialog, "BOTTOMRIGHT", -16, 12)
+	cancelBtn:SetPoint("BOTTOMRIGHT", dialog, "BOTTOMRIGHT", DIALOG_BUTTON_RIGHT_X, DIALOG_BUTTON_Y)
 	cancelBtn:SetScript("OnClick", function()
 		dialog:Hide()
 	end)
 
-	-- Tab between fields
-	spellIdBox:SetScript("OnTabPressed", function()
-		durationBox:SetFocus()
+	-- The walker that owns vertical placement: anchors every SHOWN row in order starting at the
+	-- dialog's content top, hides every other row, then anchors the
+	-- error label below the last visible row and resizes the dialog to fit. Called on every open
+	-- and whenever a field's visibility changes.
+	local function Layout()
+		local y = DIALOG_CONTENT_TOP
+		for _, field in ipairs(fieldStates) do
+			if field.shown then
+				field.row:ClearAllPoints()
+				field.row:SetPoint("TOPLEFT", dialog, "TOPLEFT", 0, y)
+				field.row:Show()
+				y = y - field.height
+			else
+				field.row:Hide()
+			end
+		end
+
+		errorLabel:ClearAllPoints()
+		errorLabel:SetPoint("TOP", dialog, "TOP", 0, y)
+		if errorShown then
+			y = y - 32
+		end
+
+		-- Single height computation, driven by whatever is actually visible -- no second
+		-- flavour branch on the literal height. The error label always sits after the last
+		-- visible row (W2: retail's label used to overlap the Duration box), and takes room
+		-- only while it shows a message.
+		dialog:SetSize(ADD_DIALOG_WIDTH, math.abs(y) + DIALOG_CONTENT_BOTTOM)
+	end
+
+	-- Sets the error label and re-lays out only when it goes from empty to non-empty or back,
+	-- so the dialog grows to fit a message and closes the gap again once it clears.
+	local function ShowError(text)
+		errorLabel:SetText(text)
+		local hasError = text ~= ""
+		if hasError ~= errorShown then
+			errorShown = hasError
+			Layout()
+		end
+	end
+
+	-- The walk shared by live validation and the confirm click: a RELEVANT field is validated
+	-- whether or not its tab is the one currently shown (Phase 57.1 -- both tabs' fields are part
+	-- of the tracker now, unlike the old detailed-hidden rule), so a bad value on the hidden tab
+	-- still disables confirm. A field hidden by its OWN visible() (e.g. keepOnAuraLoss on a
+	-- cooldown) is not relevant and is never validated. The first failing relevant field with a
+	-- message wins; when that field's tab is "advanced", the message is prefixed "Advanced: " so a
+	-- user looking at General knows where to look -- the concatenation runs only here, on a
+	-- failing validation, never per frame.
+	local function ValidateAll()
+		local allOk = true
+		local message = ""
+		for _, field in ipairs(fieldStates) do
+			if field.relevant then
+				local def, state = field.def, field.state
+				local ok, msg = def.validate(state, ctx)
+				if not ok then
+					allOk = false
+					if message == "" and msg then
+						message = (def.tab == "advanced") and ("Advanced: " .. msg) or msg
+					end
+				end
+			end
+		end
+		return allOk, message
+	end
+
+	-- Runs on every field change: updates live-derived fields, re-evaluates every field's
+	-- visibility (re-laying out only when something actually changed, or when forced on open),
+	-- then re-validates and enables/disables confirm. A field never adds a leading gap for
+	-- itself -- build already returned the cursor for the next row, gap included.
+	RefreshState = function(forceLayout)
+		for _, field in ipairs(fieldStates) do
+			local def, state = field.def, field.state
+			if def.update then
+				def.update(state, ctx, dialog)
+			end
+		end
+
+		-- Phase 57.1: relevant is the field's own visible() answer, independent of the tab; shown
+		-- additionally requires the field's tab (if any) to be the one currently selected. Layout
+		-- and the Tab/Enter ring walk field.shown only, so the dialog's height and focus order
+		-- follow the current tab; ValidateAll and confirm walk field.relevant, so a value on the
+		-- other tab is still checked and saved.
+		local dirty = forceLayout and true or false
+		for _, field in ipairs(fieldStates) do
+			local def, state = field.def, field.state
+			local relevant = not def.visible or (def.visible(state, ctx) and true or false)
+			local shown = relevant and (not def.tab or def.tab == currentTab)
+			field.relevant = relevant
+			if shown ~= field.shown then
+				field.shown = shown
+				dirty = true
+			end
+		end
+		if dirty then
+			Layout()
+		end
+
+		local allOk, message = ValidateAll()
+		ShowError(message)
+		confirmBtn:SetEnabled(allOk)
+	end
+	dialog.RefreshState = RefreshState
+
+	-- Tab/Enter ring over every field that owns an EditBox, wrapping and skipping a hidden
+	-- field's box; gives up after one full lap rather than looping forever if every box in the
+	-- ring is hidden.
+	for i, entry in ipairs(focusRing) do
+		entry.box:SetScript("OnTabPressed", function()
+			local nextIndex = i
+			for _ = 1, #focusRing do
+				nextIndex = (nextIndex % #focusRing) + 1
+				local candidate = focusRing[nextIndex]
+				if candidate.field.shown then
+					candidate.box:SetFocus()
+					return
+				end
+			end
+		end)
+		entry.box:SetScript("OnEnterPressed", function()
+			confirmBtn:Click()
+		end)
+	end
+
+	-- Phase 57.1: the one focus rule OpenForAdd, OpenForEdit and a tab click all share -- focuses
+	-- the first SHOWN box in the ring, or nothing if every box in the ring is hidden.
+	local function FocusFirstShown()
+		for _, entry in ipairs(focusRing) do
+			if entry.field.shown then
+				entry.box:SetFocus()
+				return
+			end
+		end
+	end
+
+	-- Phase 57.1: the General/Advanced tabs, icon side tabs hanging off the dialog's right edge
+	-- (see the dialog constants above ns:CreatePanelDialog). Declared after FocusFirstShown, since
+	-- SelectTab calls it.
+	local iconSize = DIALOG_SIDE_TAB_ICON_SIZE
+	local generalSideTab, advancedSideTab
+
+	-- The one tab switch a tab click and an open share. Runs on a tab click or an open, never per
+	-- frame.
+	local function SelectTab(which)
+		currentTab = which
+		generalSideTab:SetChecked(which == "general")
+		advancedSideTab:SetChecked(which == "advanced")
+		RefreshState(true)
+		if dialog:IsShown() then
+			FocusFirstShown()
+		end
+	end
+
+	-- What OpenForAdd and OpenForEdit call to land on General.
+	local function SelectGeneral()
+		SelectTab("general")
+	end
+
+	generalSideTab = ns:CreateDialogSideTab(dialog, "General", iconSize, SelectGeneral)
+	generalSideTab.Icon:SetTexture(SIDE_TAB_GENERAL_ICON)
+	generalSideTab:SetPoint("TOPLEFT", dialog, "TOPRIGHT", DIALOG_SIDE_TAB_X, DIALOG_SIDE_TAB_Y)
+	advancedSideTab = ns:CreateDialogSideTab(dialog, "Advanced", iconSize, function()
+		SelectTab("advanced")
 	end)
-	durationBox:SetScript("OnTabPressed", function()
-		spellIdBox:SetFocus()
-	end)
-	-- Enter confirms
-	durationBox:SetScript("OnEnterPressed", function()
-		addBtn:Click()
+	ns:SetAdvancedSideTabIcon(advancedSideTab, iconSize)
+	advancedSideTab:SetPoint("TOP", generalSideTab, "BOTTOM", 0, DIALOG_SIDE_TAB_GAP)
+
+	confirmBtn:SetScript("OnClick", function()
+		-- Re-validated rather than trusting the last RefreshState pass: the button being
+		-- enabled is a UI state, and this is the one that decides what gets stored.
+		local allOk, message = ValidateAll()
+		if not allOk then
+			if message ~= "" then
+				ShowError(message)
+			end
+			return
+		end
+
+		-- Phase 57.1: a RELEVANT field is read regardless of which tab is selected -- a field
+		-- hidden only by its tab is still part of the tracker and must be saved. Only a field
+		-- hidden by its OWN visible() (e.g. keepOnAuraLoss on a cooldown, the Cooldowns-tab
+		-- opt-out) is absent from both values and readKeys, so ns:UpdateTrackedBuff leaves its
+		-- saved value alone instead of writing nil over it (WR-02).
+		wipe(values)
+		wipe(readKeys)
+		for _, field in ipairs(fieldStates) do
+			local entryKey = field.def.entryKey
+			if field.relevant and entryKey then
+				values[entryKey] = field.def.read(field.state, ctx)
+				readKeys[#readKeys + 1] = entryKey
+			end
+		end
+
+		if ctx.mode == "add" then
+			local ok, reason = ns:AddTrackedBuff(values.spellID, values.duration, nil, {
+				trackerType = ctx.kind,
+				section = "hidden",
+				fields = values,
+			})
+			if not ok then
+				ShowError(reason or "")
+				return
+			end
+			ns:RefreshTBTSections()
+			ns:StartAllPreviewTimers()
+			dialog:Hide()
+		elseif ctx.mode == "edit" then
+			-- Same post-commit calls as add; no field is named here either. On refusal (a
+			-- same-slot duplicate, or the tracker vanishing under the open dialog) the engine
+			-- writes nothing, so the reason is shown and the dialog stays open unchanged
+			-- (54-CONTEXT "Duplicate rejection ... tracker is left unchanged").
+			local ok, reason = ns:UpdateTrackedBuff(ctx.editingKey, values.spellID, values.duration, values, readKeys)
+			if not ok then
+				ShowError(reason or "")
+				return
+			end
+			ns:RefreshTBTSections()
+			ns:StartAllPreviewTimers()
+			dialog:Hide()
+		end
 	end)
 
-	dialog.spellIdBox = spellIdBox
-	dialog.durationBox = durationBox
-	dialog.errorLabel = errorLabel
+	dialog.OpenForAdd = function()
+		wipe(ctx)
+		ctx.mode = "add"
+		-- Read at open time, not at click time: the tab cannot change while a modal dialog is
+		-- up, since ns:SelectTBTCategory calls ns:DismissTBTDialogs.
+		local category = ns.tbtActiveCategory
+		if category == "spells" then
+			ctx.kind = ns.KIND.USER_CD
+		elseif category == "reminders" then
+			ctx.kind = ns.KIND.USER_REMINDER
+		else
+			ctx.kind = ns.KIND.USER_BUFF
+		end
 
-	-- One reset path: the addSquare click handler calls this instead of clearing fields
-	-- itself, so a future control is reset in one place instead of two.
-	dialog.ResetFields = function()
-		spellIdBox:SetText("")
-		durationBox:SetText("")
-		errorLabel:SetText("")
 		-- The title is the whole of the type UI now, so it is the one thing that must be right
 		-- every time the dialog opens.
-		title:SetText(ns.tbtActiveCategory == "spells" and "Add Cooldown Tracker" or "Add Buff Tracker")
-		if rankCheck then
-			rankCheck:SetChecked(true)
+		dialog:SetTitle(ADD_TITLE_BY_CATEGORY[category] or ADD_TITLE_BY_CATEGORY.buffs)
+		confirmBtn:SetText("Add")
+
+		for _, field in ipairs(fieldStates) do
+			field.def.reset(field.state, ctx)
 		end
-		-- Last, so it sees the cleared fields: an empty dialog opens with Add disabled.
-		RefreshAddState()
+
+		-- Phase 57.1: opening always selects General (57.1-CONTEXT). SelectGeneral runs
+		-- SelectTab above, which forces the layout and re-validates, so rows and
+		-- dialog size already match the fields' visibility before Show; an empty dialog opens
+		-- with Add disabled.
+		SelectGeneral()
+		dialog:Show()
+		FocusFirstShown()
 	end
+
+	-- 54-03 (EDIT-01/02/03): the same frame as OpenForAdd, opened in edit mode for one existing
+	-- tracker. ns:IsEditableTracker is re-checked here even though the context-menu "Edit" button
+	-- is already gated on it -- a tracker removed between the right-click and the click on "Edit"
+	-- must never open the dialog. kind comes from the saved entry's own trackerType, never from
+	-- the active tab or the key shape.
+	dialog.OpenForEdit = function(key)
+		local entry = ns.db and ns.db.trackedBuffs and ns.db.trackedBuffs[key]
+		if not ns:IsEditableTracker(entry) then
+			return
+		end
+
+		wipe(ctx)
+		ctx.mode = "edit"
+		ctx.kind = entry.trackerType
+		ctx.editingKey = key
+
+		dialog:SetTitle(EDIT_TITLE_BY_KIND[ctx.kind] or EDIT_TITLE_BY_KIND[ns.KIND.USER_BUFF])
+		confirmBtn:SetText("Save")
+
+		for _, field in ipairs(fieldStates) do
+			-- Reset first so a field whose prefill does not touch every sub-widget still starts
+			-- clean, then prefill from the saved entry -- neither name a field individually.
+			local def, state = field.def, field.state
+			def.reset(state, ctx)
+			def.prefill(state, entry, ctx)
+		end
+
+		-- Phase 57.1: opening always selects General (57.1-CONTEXT), same as OpenForAdd.
+		-- SelectGeneral forces the layout, so a prefilled value that changes a field's visibility (e.g.
+		-- Cover all ranks' availability) is reflected immediately and the dialog is sized to the
+		-- visible rows before Show.
+		SelectGeneral()
+		dialog:Show()
+		FocusFirstShown()
+	end
+
+	-- Whichever way the dialog closes -- Cancel, Escape (UISpecialFrames), ns:DismissTBTDialogs on
+	-- a tab switch or the CDM closing, or a successful commit hiding it above -- no stale
+	-- editingKey can reach the next open in either mode.
+	dialog:SetScript("OnHide", function()
+		wipe(ctx)
+	end)
 
 	return dialog
 end
 
--- CONT-04: the New Container dialog's four checkboxes differ only in what they anchor under,
--- their Y offset, their label text and their initial checked state, so one builder makes all
--- four. Returns the checkbox and its label in that order, because a caller may need the label
+-- CONT-04: the New Container dialog's Icons/Bars checkboxes differ only in what they anchor
+-- under, their Y offset, their label text and their initial checked state, so one builder makes
+-- both. Returns the checkbox and its label in that order, because a caller may need the label
 -- too -- ApplyCategory greys the Bars one.
 local function AddExclusiveCheck(parent, anchorTo, yOffset, text, checked)
 	local check = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
@@ -1373,71 +2877,47 @@ local function AddExclusiveCheck(parent, anchorTo, yOffset, text, checked)
 	return check, label
 end
 
--- CONT-04: both checkbox pairs in the New Container dialog enforce the same rule -- a click
--- checks the box itself and unchecks its partner, so a pair can never both be off and clicking
--- an already-checked box re-checks it rather than clearing it.
---
--- onSelect, when given, runs after the pair settles: false for the first box, true for the
--- second. That polarity is not arbitrary -- it is ApplyCategory(isSpells), which Buffs already
--- called with false and Cooldowns with true, so the callback is passed by name with no wrapper
--- closure in between.
-local function WireExclusivePair(first, second, onSelect)
+-- CONT-04: the New Container dialog's one remaining checkbox pair (Icons/Bars) -- a click checks
+-- the box itself and unchecks its partner, so the pair can never both be off and clicking an
+-- already-checked box re-checks it rather than clearing it. The category, once a second pair,
+-- is a radio dropdown since Phase 57.2 (three choices).
+local function WireExclusivePair(first, second)
 	first:SetScript("OnClick", function(self)
 		self:SetChecked(true)
 		second:SetChecked(false)
-		if onSelect then
-			onSelect(false)
-		end
 	end)
 	second:SetScript("OnClick", function(self)
 		self:SetChecked(true)
 		first:SetChecked(false)
-		if onSelect then
-			onSelect(true)
-		end
 	end)
 end
+
+-- The New Container dialog's category choices, in menu order. File-local and declared above
+-- CreateContainerDialog for the same reason as TRACKER_FIELDS: a local below its reader is nil.
+local CONTAINER_CATEGORY_CHOICES = {
+	{ value = "buffs", text = "Buffs" },
+	{ value = "spells", text = "Cooldowns" },
+	{ value = "reminders", text = "Reminders" },
+}
 
 -- Phase 35.1 (CFG-01/CFG-02): addon-wide config page. Same parent, same two SetPoint calls
 -- and the same frame level as ns.tbtPanel, so it occupies the identical rect — the page swap
 -- below is a show/hide of two sibling frames, not a new frame hierarchy. No backdrop (the
 -- tracker panel has none either) and it is not added to CDM's array of tab pages (CDMTab.xml's
 -- taint rule at the top of this file).
--- CONT-04: modelled on CreateAddDialog above -- same BackdropTemplate/DIALOG-strata/movable/
--- UISpecialFrames idiom. Assigned to ns.tbtContainerDialog in ns:InitCDMTab.
+-- CONT-04: modelled on CreateAddDialog above -- same ns:CreatePanelDialog frame (ButtonFrameTemplate,
+-- DIALOG strata, movable, UISpecialFrames), minus the side tabs. Assigned to ns.tbtContainerDialog
+-- in ns:InitCDMTab.
 local function CreateContainerDialog()
-	local dialog = CreateFrame("Frame", "TBTNewContainerDialog", UIParent, "BackdropTemplate")
-	dialog:SetSize(220, 268)
-	dialog:SetPoint("CENTER", UIParent, "CENTER", 0, 50)
-	dialog:SetFrameStrata("DIALOG")
-	dialog:SetFrameLevel(200)
-	dialog:SetBackdrop({
-		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-		tile = true,
-		tileSize = 32,
-		edgeSize = 16,
-		insets = { left = 4, right = 4, top = 4, bottom = 4 },
-	})
-	dialog:SetBackdropColor(0, 0, 0, 1)
-	dialog:Hide()
-	dialog:EnableMouse(true)
-	dialog:SetMovable(true)
-	dialog:RegisterForDrag("LeftButton")
-	dialog:SetScript("OnDragStart", dialog.StartMoving)
-	dialog:SetScript("OnDragStop", dialog.StopMovingOrSizing)
+	local dialog = ns:CreatePanelDialog("TBTNewContainerDialog")
+	dialog:SetSize(220, CONTAINER_DIALOG_HEIGHT)
 
-	table.insert(UISpecialFrames, "TBTNewContainerDialog")
-
-	-- Title
-	local title = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetText("New Container")
-	title:SetPoint("TOP", dialog, "TOP", 0, -12)
+	dialog:SetTitle("New Container")
 
 	-- Name
 	local nameLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	nameLabel:SetText("Name:")
-	nameLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, -38)
+	nameLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, DIALOG_CONTENT_TOP)
 
 	local nameBox = CreateFrame("EditBox", nil, dialog, "InputBoxTemplate")
 	nameBox:SetSize(180, 22)
@@ -1445,27 +2925,28 @@ local function CreateContainerDialog()
 	nameBox:SetMaxLetters(32)
 	nameBox:SetAutoFocus(false)
 
-	-- Category and kind are both pairs of mutually exclusive checkboxes, not dropdowns --
-	-- UICheckButtonTemplate is the idiom this addon already uses on both flavours, and a modern
-	-- dropdown template would be a Midnight-only asset. Each OnClick sets itself checked and its
-	-- partner unchecked, and re-checks itself if clicked while already checked, so a pair can
-	-- never both be off.
+	-- Category is a radio dropdown (WowStyle1DropdownTemplate + SetupMenu + CreateRadio), the
+	-- recorded pattern for any multi-choice setting (see the TRACKER_FIELDS contract comment).
+	-- Phase 57.1 established that the template, SetupMenu and CreateRadio all exist on both
+	-- retail and the Forever beta, so this is no Midnight-only asset. Kind (Icons/Bars) stays a
+	-- pair of exclusive checkboxes.
 	--
-	-- Category comes FIRST because it constrains kind: a spells container is icon-only, since
-	-- "cooldowns are icons, never bars" is locked and RenderBarContainer skips cooldown trackers
-	-- outright. Picking Spells therefore forces Icons and disables the Bars checkbox rather than
-	-- letting the player choose a combination ns:CreateUserContainer would refuse.
+	-- Category comes FIRST because it constrains kind: a cooldown or reminder container is
+	-- icon-only ("cooldowns are icons, never bars" is locked, RenderBarContainer skips cooldown
+	-- trackers, and ns:CreateUserContainer refuses a bar reminders container). Any category but
+	-- Buffs therefore forces Icons and disables the Bars checkbox rather than letting the player
+	-- choose a combination ns:CreateUserContainer would refuse.
 	local categoryLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	categoryLabel:SetText("Tracks:")
 	categoryLabel:SetPoint("TOPLEFT", nameBox, "BOTTOMLEFT", 0, -10)
 
-	local buffsCheck = AddExclusiveCheck(dialog, categoryLabel, -4, "Buffs", true)
-
-	local spellsCheck = AddExclusiveCheck(dialog, buffsCheck, -2, "Cooldowns", false)
+	local dropdown = CreateFrame("DropdownButton", nil, dialog, "WowStyle1DropdownTemplate")
+	dropdown:SetSize(180, 22)
+	dropdown:SetPoint("TOPLEFT", categoryLabel, "BOTTOMLEFT", 0, -4)
 
 	local kindLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	kindLabel:SetText("Display as:")
-	kindLabel:SetPoint("TOPLEFT", spellsCheck, "BOTTOMLEFT", 0, -8)
+	kindLabel:SetPoint("TOPLEFT", dropdown, "BOTTOMLEFT", 0, -8)
 
 	local iconsCheck = AddExclusiveCheck(dialog, kindLabel, -4, "Icons", true)
 
@@ -1473,10 +2954,10 @@ local function CreateContainerDialog()
 
 	WireExclusivePair(iconsCheck, barsCheck)
 
-	-- Spells forces Icons; Buffs hands the choice back. Disabling rather than hiding keeps the
-	-- dialog one fixed size and shows the player WHY the option is unavailable.
-	local function ApplyCategory(isSpells)
-		if isSpells then
+	-- Anything but Buffs forces Icons; Buffs hands the choice back. Disabling rather than hiding
+	-- keeps the dialog one fixed size and shows the player WHY the option is unavailable.
+	local function ApplyCategory(selected)
+		if selected ~= "buffs" then
 			iconsCheck:SetChecked(true)
 			barsCheck:SetChecked(false)
 			barsCheck:Disable()
@@ -1487,7 +2968,18 @@ local function CreateContainerDialog()
 		end
 	end
 
-	WireExclusivePair(buffsCheck, spellsCheck, ApplyCategory)
+	-- The selected category, read by Create. IsSelected/SetSelected are built once here, not
+	-- inside the menu generator, which SetupMenu/GenerateMenu may call more than once per open.
+	local selectedCategory = "buffs"
+	local function IsSelected(value)
+		return selectedCategory == value
+	end
+	local function SetSelected(value)
+		selectedCategory = value
+		ApplyCategory(value)
+	end
+
+	SetupRadioMenu(dropdown, CONTAINER_CATEGORY_CHOICES, IsSelected, SetSelected)
 
 	-- Error label
 	local errorLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontRed")
@@ -1498,13 +2990,12 @@ local function CreateContainerDialog()
 	local createBtn = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
 	createBtn:SetSize(80, 22)
 	createBtn:SetText("Create")
-	createBtn:SetPoint("BOTTOMLEFT", dialog, "BOTTOMLEFT", 16, 12)
+	createBtn:SetPoint("BOTTOMLEFT", dialog, "BOTTOMLEFT", DIALOG_BUTTON_LEFT_X, DIALOG_BUTTON_Y)
 	createBtn:SetScript("OnClick", function()
 		local kind = barsCheck:GetChecked() and "bar" or "icon"
-		local category = spellsCheck:GetChecked() and "spells" or "buffs"
 		-- Plan 01's ns:CreateUserContainer substitutes "Container <id>" for an empty name --
 		-- that fallback is not duplicated here.
-		local def = ns:CreateUserContainer(nameBox:GetText(), kind, category)
+		local def = ns:CreateUserContainer(nameBox:GetText(), kind, selectedCategory)
 		if not def then
 			errorLabel:SetText("Could not create container.")
 			return
@@ -1516,7 +3007,7 @@ local function CreateContainerDialog()
 	local cancelBtn = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
 	cancelBtn:SetSize(80, 22)
 	cancelBtn:SetText("Cancel")
-	cancelBtn:SetPoint("BOTTOMRIGHT", dialog, "BOTTOMRIGHT", -16, 12)
+	cancelBtn:SetPoint("BOTTOMRIGHT", dialog, "BOTTOMRIGHT", DIALOG_BUTTON_RIGHT_X, DIALOG_BUTTON_Y)
 	cancelBtn:SetScript("OnClick", function()
 		dialog:Hide()
 	end)
@@ -1528,25 +3019,27 @@ local function CreateContainerDialog()
 
 	dialog.nameBox = nameBox
 	dialog.errorLabel = errorLabel
-	-- Reset to the default pair every time the dialog opens, so a previous Spells choice does
-	-- not leave Bars disabled on the next Buffs container.
 	-- Lets the settings panel open this dialog already pointed at a category, so "New Cooldown
 	-- Container" does not make the player pick Cooldowns again. Goes through the same
-	-- ApplyCategory the checkboxes use, so the Icons-forced/Bars-disabled asymmetry cannot
-	-- diverge between the two entry points.
+	-- ApplyCategory the dropdown uses, so the Icons-forced/Bars-disabled asymmetry cannot
+	-- diverge between the two entry points. An unknown category falls back to Buffs.
+	-- GenerateMenu refreshes the button's shown text: SetupMenu's own comment
+	-- (Blizzard_Menu/DropdownButton.lua) says a change made outside a menu open needs it.
 	dialog.SelectCategory = function(category)
-		local isSpells = category == "spells"
-		buffsCheck:SetChecked(not isSpells)
-		spellsCheck:SetChecked(isSpells)
-		ApplyCategory(isSpells)
+		if category ~= "spells" and category ~= "reminders" then
+			category = "buffs"
+		end
+		selectedCategory = category
+		ApplyCategory(category)
+		dropdown:GenerateMenu()
 	end
 
+	-- Reset to Buffs and Icons every time the dialog opens, so a previous Cooldowns or
+	-- Reminders choice does not leave Bars disabled on the next Buffs container.
 	dialog.ResetChoices = function()
-		buffsCheck:SetChecked(true)
-		spellsCheck:SetChecked(false)
 		iconsCheck:SetChecked(true)
 		barsCheck:SetChecked(false)
-		ApplyCategory(false)
+		dialog.SelectCategory("buffs")
 	end
 
 	return dialog
@@ -1654,7 +3147,7 @@ function ns:BuildAllSections()
 	-- Tooltip
 	addSquare:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText("Add Buff")
+		GameTooltip:SetText(ADD_TITLE_BY_CATEGORY[ns.tbtActiveCategory] or ADD_TITLE_BY_CATEGORY.buffs)
 		GameTooltip:AddLine("Click to track a new spell", 0.8, 0.8, 0.8)
 		GameTooltip:Show()
 	end)
@@ -1665,10 +3158,7 @@ function ns:BuildAllSections()
 	-- Click opens dialog
 	addSquare:SetScript("OnMouseUp", function(_, button, upInside)
 		if button == "LeftButton" and upInside then
-			local dlg = ns.tbtAddDialog
-			dlg.ResetFields()
-			dlg:Show()
-			dlg.spellIdBox:SetFocus()
+			ns.tbtAddDialog.OpenForAdd()
 		end
 	end)
 	addSquare:Show()
@@ -1773,21 +3263,23 @@ local function AnchorTabBelowCDMTabs()
 	if not anchorTo then
 		return -- XML anchor stays in effect
 	end
-	-- Spells first, then Buffs under it: the order the user asked for, and the order the XML
-	-- placeholder anchors already declare, restated here because this runs against the live
-	-- rects once the window has been shown.
+	-- Cooldowns first, then Buffs under it, then Reminders under that: the order the user asked
+	-- for, and the order the XML placeholder anchors already declare, restated here because this
+	-- runs against the live rects once the window has been shown.
 	TBTSpellsTab:ClearAllPoints()
 	TBTSpellsTab:SetPoint("TOP", anchorTo, "BOTTOM", 0, TAB_GAP)
 	TBTSettingsTab:ClearAllPoints()
 	TBTSettingsTab:SetPoint("TOP", TBTSpellsTab, "BOTTOM", 0, TAB_GAP)
+	TBTRemindersTab:ClearAllPoints()
+	TBTRemindersTab:SetPoint("TOP", TBTSettingsTab, "BOTTOM", 0, TAB_GAP)
 end
 
 ---------------------------------------------------------------------
 -- Tab init
 ---------------------------------------------------------------------
 
--- Both TBT tabs are set up identically apart from their label and the category they select.
--- Written once here rather than twice inline, so the two cannot drift.
+-- All three TBT tabs are set up identically apart from their label and the category they
+-- select. Written once here rather than inline per tab, so they cannot drift.
 local function SetUpTBTTab(tab, label, category)
 	-- Set icon via SetTexture (not SetAtlas — our icon is a file, not an atlas)
 	tab.Icon:SetTexture(ICON_PATH)
@@ -1831,6 +3323,7 @@ function ns:InitCDMTab()
 	-- buy nothing but a matching word.
 	SetUpTBTTab(TBTSpellsTab, "TBT Cooldowns", "spells")
 	SetUpTBTTab(TBTSettingsTab, "TBT Buffs", "buffs")
+	SetUpTBTTab(TBTRemindersTab, "TBT Reminders", "reminders")
 
 	-- Create TBT content panel — plain frame matching CDM's content area
 	-- CDM's CooldownScroll has NO backdrop — it's a plain ScrollFrame
@@ -1974,6 +3467,7 @@ function ns:InitCDMTab()
 	AnchorTabBelowCDMTabs()
 	TBTSpellsTab:Show()
 	TBTSettingsTab:Show()
+	TBTRemindersTab:Show()
 end
 
 -- Switch the CDM tab between the two tracker categories. The section frames are not rebuilt --
@@ -1984,8 +3478,13 @@ end
 -- Both float at DIALOG strata over the whole UI rather than inside the CDM window, so neither is
 -- taken down by the CDM closing or by a tab change -- an Add dialog would sit there still titled
 -- for the tab the player has left, and file its tracker into that tab when clicked. Hiding is the
--- whole of "cancel" here: nothing is committed until Add is clicked, and ResetFields clears the
--- boxes on the next open.
+-- whole of "cancel" here: nothing is committed until Add/Save is clicked, and OpenForAdd /
+-- OpenForEdit reset or prefill every field on the next open.
+--
+-- ns.tbtAddDialog is one frame in two modes (54-03): OpenForAdd and OpenForEdit are the same
+-- singleton, so this one Hide dismisses whichever mode is open, and "cancel" in edit mode commits
+-- nothing either -- the dialog's OnHide wipes its ctx, so no stale editingKey survives to the
+-- next open.
 function ns:DismissTBTDialogs()
 	if ns.tbtAddDialog then
 		ns.tbtAddDialog:Hide()
@@ -1996,7 +3495,7 @@ function ns:DismissTBTDialogs()
 end
 
 function ns:SelectTBTCategory(category)
-	if category ~= "spells" and category ~= "buffs" then
+	if category ~= "spells" and category ~= "buffs" and category ~= "reminders" then
 		return
 	end
 
@@ -2007,6 +3506,7 @@ function ns:SelectTBTCategory(category)
 	ns.tbtActiveCategory = category
 	TBTSpellsTab:SetChecked(category == "spells")
 	TBTSettingsTab:SetChecked(category == "buffs")
+	TBTRemindersTab:SetChecked(category == "reminders")
 
 	ns:ShowTBTPanel()
 	ns.RelayoutTBTSections()
@@ -2046,6 +3546,7 @@ function ns:ShowTBTPanel()
 	-- unchecked too (12.1's Group Buffs tab was staying lit behind our panel).
 	TBTSpellsTab:SetChecked(ns.tbtActiveCategory == "spells")
 	TBTSettingsTab:SetChecked(ns.tbtActiveCategory == "buffs")
+	TBTRemindersTab:SetChecked(ns.tbtActiveCategory == "reminders")
 	for _, tabButton in ipairs(GetCDMTabs()) do
 		if tabButton.SetChecked then
 			tabButton:SetChecked(false)
@@ -2072,6 +3573,7 @@ function ns:HideTBTPanel()
 	end
 	TBTSpellsTab:SetChecked(false)
 	TBTSettingsTab:SetChecked(false)
+	TBTRemindersTab:SetChecked(false)
 end
 
 ---------------------------------------------------------------------

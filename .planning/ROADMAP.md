@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [x] **v0.5.0 Elaborate tracking** — Phases 53-60 (shipped 2026-09-29) — [archive](milestones/v0.5.0-ROADMAP.md)
 - [x] **v0.4.1 Generic Item Tracking and Forever Racials** — Phases 46-52 (shipped 2026-09-26) — [archive](milestones/v0.4.1-ROADMAP.md)
 - [x] **v0.4.0 Cooldown Tracking and Full CDM View** — Phases 31-45 (shipped 2026-09-23) — [archive](milestones/v0.4.0-ROADMAP.md)
 - [x] **v0.3.0 WoW Forever compatibility** — Phases 25-30 (shipped 2026-09-19) — [archive](milestones/v0.3.0-ROADMAP.md)
@@ -11,6 +12,62 @@
 - [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
+
+<details>
+<summary>✅ v0.5.0 Elaborate tracking (Phases 53-60) — SHIPPED 2026-09-29</summary>
+
+Full detail archived at [`milestones/v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md); requirements
+at [`milestones/v0.5.0-REQUIREMENTS.md`](milestones/v0.5.0-REQUIREMENTS.md).
+
+**Feature phases.** The naming scheme comes first, because editing and detailed tracking both add
+per-kind behaviour on top of it. The edit dialog's shared field definition lands before the input
+features add fields to it, and detailed tracking comes last among the features so its options are
+editable from the moment they exist. Detailed tracking is split in two for cleaner verification:
+the mode and aura rules first, then visibility and cross-spell rules on top of them.
+
+- [x] **Phase 53: Naming Scheme & Saved-Data Migration** — every tracker kind carries one canonical
+  name in code and in saved data; an existing v0.4.1 database migrates on first load with nothing
+  lost, proven by a real logout/login
+- [x] **Phase 54: Edit Trackers** — any user buff or user cooldown tracker can be edited after
+  creation, spell ID included; the add and edit dialogs are built from one shared field definition
+- [x] **Phase 55: ID Preview, Suggested Cooldown & Secrecy** — both dialogs preview the ID being
+  entered and auto-fill a cooldown from the game; tooltips show the aura secrecy level, and a
+  "secret?" badge warns when aura-driven behaviour will not work in combat
+- [x] **Phase 56: Detailed Tracking — Mode & Aura Rules** — a simple/detailed switch, a separate aura
+  ID, an opt-out of aura-loss cancellation, and an unreadable aura never treated as absent
+- [x] **Phase 57: Detailed Tracking — Visibility & Cross-Spell Rules** — show always, only while the
+  aura is present, or only while it is absent; a list of spells whose cast ends the tracker, working
+  in combat
+- [x] **Phase 57.1: Tracker Dialog Redesign (INSERTED)** — Simple and Detailed as Blizzard text tabs,
+  the Detailed tab prefilled with defaults, visibility as a radio dropdown, and no saved mode flag
+- [x] **Phase 57.2: Buff Reminders Category (INSERTED)** — reminders become a third TBT tab with
+  their own container: a buff reminder shows only while its aura is missing; the
+  visibility option is removed from buffs and cooldowns
+- [x] **Phase 57.3: Tracker Load Rule (INSERTED, branch `topic/visibility`)** — every tracker loads
+  When known / Always / Never; a tracker that isn't loaded is never processed or drawn and shows
+  greyed in the TBT tab; the racial race filter becomes "When known"
+- [x] **Phase 57.4: Class Buff Meta Reminders (INSERTED, Forever)** — built-in reminders for the
+  class buffs (Arcane Intellect, Fortitude, Mark of the Wild, the Blessings, ...), offered as
+  Suggested tiles on the Reminders tab, loaded When known, ranks from the spellbook
+- [x] **Phase 57.5: Reminder Alternatives (INSERTED)** — a reminder's cast rule becomes "Also
+  satisfied by": any listed buff keeps it hidden; the paladin blessings satisfy each other;
+  Righteous Fury added, Sanctuary dropped
+
+**Closing sequence, following v0.4.1.** Cleanup after all feature work, so nothing ships without a
+cleanup pass, then two whole-milestone review passes: Forever first, retail the literal last phase.
+
+- [x] **Phase 58: Cleanup** — unify duplication this milestone introduced, hot-path audit, dead code,
+  stylua, release scripts reviewed; no requirements, process only
+- [x] **Phase 59: Forever Full Review** — every feature this milestone built exercised end-to-end on
+  the WoW Forever beta; testing pass, no plans
+- [x] **Phase 60: Retail Full Review** — everything this milestone ships exercised end-to-end on
+  Midnight retail, including M+; testing pass, no plans; the last phase of the milestone
+
+**Closed:** 33/33 requirements (4 adjusted by later user decisions — ADD-07, DTRK-01, DTRK-03,
+REM-02). **Plans:** 42 across 11 plan-driven phases; Phases 59 and 60 ran as in-game testing passes.
+**Verified on:** WoW Forever beta and Midnight retail including M+, both 2026-09-29, user-approved.
+
+</details>
 
 <details>
 <summary>✅ v0.4.1 Generic Item Tracking and Forever Racials (Phases 46-52) — SHIPPED 2026-09-26</summary>
@@ -188,10 +245,10 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 
 ## Phase Details
 
-*Every phase through v0.4.1 (Phases 1-52) is archived under `.planning/milestones/`. The most recent
-is [`v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md), which carries the full detail for Phases
-46-52 including each phase status block, success criteria and the notes recorded as it ran;
-[`v0.4.0-ROADMAP.md`](milestones/v0.4.0-ROADMAP.md) covers Phases 31-45.*
+*Every phase through v0.5.0 (Phases 1-60) is archived under `.planning/milestones/`. The most recent
+is [`v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md), which carries the full detail for Phases
+53-60 including the five inserted phases 57.1-57.5, each phase's success criteria and the notes
+recorded as it ran; [`v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md) covers Phases 46-52.*
 
 ## Progress
 
@@ -220,6 +277,19 @@ is [`v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md), which carries the full d
 | 50. Cleanup & Release Prep | v0.4.1 | 3/3 | Complete — verification `passed` 5/5, code review `clean`; SC3's in-game proof carried to 51/52 by design | 2026-09-25 |
 | 51. Forever Full Review | v0.4.1 | — | Complete — PASSED; racials + cancellations, dispel indicator, consumables; no Lua errors | 2026-09-26 |
 | 52. Retail Full Review | v0.4.1 | — | Complete — PASSED; pandemic confirmed in M+, dispel indicator, consumables; no Lua errors | 2026-09-26 |
+| 53. Naming Scheme & Saved-Data Migration | v0.5.0 | 5/5 | Complete — schema v8; review fixed (3 WR + 5 IN); UAT closed | 2026-09-29 |
+| 54. Edit Trackers | v0.5.0 | 4/4 | Complete — review fixed (1 CR + 3 WR + 2 IN); UAT closed | 2026-09-29 |
+| 55. ID Preview, Suggested Cooldown & Secrecy | v0.5.0 | 3/3 | Complete — review fixed (2 WR + 5 IN); UAT closed | 2026-09-29 |
+| 56. Detailed Tracking — Mode & Aura Rules | v0.5.0 | 4/4 | Complete — review fixed (4 WR + 3 IN); UAT closed | 2026-09-29 |
+| 57. Detailed Tracking — Visibility & Cross-Spell Rules | v0.5.0 | 5/5 | Complete — visibility option later removed by 57.2; UAT closed | 2026-09-29 |
+| 57.1. Tracker Dialog Redesign (INSERTED) | v0.5.0 | 3/3 | Complete — schema v9; tabs renamed General/Advanced; UAT closed | 2026-09-29 |
+| 57.2. Buff Reminders Category (INSERTED) | v0.5.0 | 5/5 | Complete — schema v10; gap plan 05 by user decision; UAT closed | 2026-09-29 |
+| 57.3. Tracker Load Rule (INSERTED) | v0.5.0 | 3/3 | Complete — side-tab dialog; UAT closed, 4 items accepted not tested by name | 2026-09-29 |
+| 57.4. Class Buff Meta Reminders (INSERTED) | v0.5.0 | 3/3 | Complete — Mage/Paladin/Warlock tested; 2 items skipped | 2026-09-29 |
+| 57.5. Reminder Alternatives (INSERTED) | v0.5.0 | 3/3 | Complete — schema v11; UAT closed, 4 items accepted not tested by name | 2026-09-29 |
+| 58. Cleanup | v0.5.0 | 4/4 | Complete — smoke UAT passed on both clients | 2026-09-29 |
+| 59. Forever Full Review | v0.5.0 | — | Complete — PASSED, user sign-off; run sheet `59-FOREVER-REVIEW.md` | 2026-09-29 |
+| 60. Retail Full Review | v0.5.0 | — | Complete — PASSED incl. M+, no Lua errors; run sheet `60-RETAIL-REVIEW.md` | 2026-09-29 |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*
@@ -445,6 +515,88 @@ obsolete."* Blizzard's Cooldown Manager is actively changing under this beta, an
 racial support the whole racial feature — this fix, **999.8**, and `RACE-06` (retail racials) —
 could be moot. Weigh that before investing in any of the three.
 
+**999.11 — Profile support: global or per-character.** Intake 2026-09-26, user request. Not tied to
+any specific milestone; noted for the next milestone discussion.
+
+- One **account-wide toggle** picks between a single **global** profile (today's behaviour) and
+  **per-character** profiles.
+- A character profile holds **the tracked skills, their positions and their per-tracker configs**.
+- **Everything else stays account-wide**: Merge Mode, containers and their settings, and anything
+  not listed above.
+
+For whoever picks it up: TBT has no per-character scoping at all today — the TOC declares only
+`## SavedVariables: TerribleBuffTrackerDB`. The character key needs care on Forever, which has no
+realms and whose `UnitName` behaves differently (`.planning/research/FOREVER-COMMUNITY-FAQ.md` §4-5).
+(Forever's SavedVariables were broken platform-wide per §3, but the user reported on 2026-09-28
+that they have persisted for a while now, so persistence is testable on both clients.) Open questions: what a new character starts with (empty, or a copy of global),
+and whether switching the toggle copies the current setup into the new profile.
+
+**999.12 — Edit existing user-defined trackers.** Intake 2026-09-26, user request.
+
+Any **user-defined** tracker should let the user edit every input they set when creating it —
+duration, cooldown, and the spell/item ID itself (changing it to a different one). As more options
+are added (see 999.14), they become editable too; the edit dialog should be driven by the same field
+list as the add dialog rather than kept in sync by hand. Built-in meta-trackers (Lust, Trinket, Pot,
+racials) are out of scope unless decided otherwise. Open question: changing the ID changes the
+tracker's key, so running timers, positions and cooldown state keyed by the old ID must migrate or
+reset.
+
+**999.13 — A stronger naming scheme for tracker kinds.** Intake 2026-09-26, user request.
+
+Name the tracker kinds consistently, along the lines of: user buff tracker, user cooldown tracker,
+meta skill tracker (TBT's built-in ones such as Lust), meta item tracker, and user item tracker (if
+users can ever create custom item trackers). The user's example was kebab-case
+(`user-buff-tracker`, ...) but the casing is open. Today the kinds are spread across provider
+mixins in `Providers.lua` (`UserSpellProviderMixin`, `TrinketProviderMixin`, `PotProviderMixin`,
+`LustProviderMixin`, `RacialProviderMixin`, `ItemProviderMixin`) whose names don't follow one
+pattern. Worth doing **before** 999.12 and 999.14, which both add behaviour per kind. Any rename that
+reaches saved keys needs a SavedVariables migration.
+
+**999.14 — More elaborate custom buff and item trackers.** Intake 2026-09-26, user request.
+
+Let users define more of a tracker's behaviour. Examples given:
+
+- **Per-tracker choice of whether aura cancellation ends the timer.**
+- **Cross-spell rules**, such as "aura A is cleared when skill B is used".
+
+Constraints to carry in: aura reads are secret in combat for a tainted caller, so any
+aura-driven rule only fires out of combat (the same limit that forced `clearOnCombat` on
+Shadowmeld). History: racials briefly had a `cancelOnAuraLoss` opt-in, removed 2026-09-25 because
+making it opt-in meant every racial that could end early showed up as a bug report
+(`Providers.lua:829-834`). For user trackers the default should likely be ON with an opt-OUT —
+decide that explicitly. Cast-driven rules like "B clears A" only need `UNIT_SPELLCAST_SUCCEEDED`,
+which is always safe, so those are the cheaper half.
+
+**Warn at config time (user idea, 2026-09-28).** `C_Secrets.GetSpellAuraSecrecy(spellID)` returns a
+static `Enum.SecrecyLevel` — `NeverSecret` (0), `AlwaysSecret` (1) or `ContextuallySecret` (2) — the
+spell's BASE secrecy, independent of whether the player is in combat right now. Blizzard uses exactly
+this test (`Blizzard_AuraContainerUtil.lua:23`) to exempt Sated/Exhaustion. So the add/edit dialogs
+can say, per aura ID the user enters, whether an aura rule will keep working in combat and M+
+(`NeverSecret`) or only out of combat (anything else). The same check applies to 999.15's
+aura-loss alerts. Not to be confused with `ShouldSpellAuraBeSecret`, which answers for the CURRENT
+restriction state and was found over-conservative in play-testing (`MergeMode.lua:519-528`).
+Unverified in game: how many ordinary player buffs come back `NeverSecret` — probably very few.
+
+**999.15 — Alerts, visual and sound, like the CDM's.** Intake 2026-09-26, user request.
+
+Per-tracker alerts with visual and sound options, modelled on the Cooldown Manager's own alerts,
+with configurable conditions for when they fire — e.g. alert when an aura is **lost**, or even
+**show the tracker only** when the aura is lost. Check the CDM's alert implementation in
+`Blizzard_CooldownViewer` before designing, so the settings and look match. Same limit as 999.14:
+aura-loss conditions can only be seen out of combat; timer-driven conditions (expired, N seconds
+left, cooldown ready) come from TBT's own `GetTime()` math and work everywhere.
+
+**999.16 — Extend detailed tracking when the spell is also in the CDM.** Intake 2026-09-28, user
+request, split out of the v0.5.0 detailed-tracking scope. For v0.5.0 a tracker whose spell is also
+tracked by Blizzard's Cooldown Manager gets **no special treatment**. Later, detailed tracking could
+use the CDM's own state where it is available, as Merge Mode already does for pandemic and dispel
+borders — for example the CDM showing an aura in combat, where TBT's own aura read is secret. Would
+lift the out-of-combat-only limit on aura-driven rules for exactly those spells.
+
 *The four original backlog phases — 999.1 (Edit Mode mouse-down), 999.2 (README and store copy),
 999.3 (single-TOC migration) and 999.4 (`@project-version@` in dev installs) — were promoted into
 v0.4.0 on 2026-09-20 and shipped as Phases 34, 45, 31-32 and 33 respectively.*
+
+*999.12 (edit trackers), 999.13 (naming scheme) and 999.14 (elaborate trackers) were promoted into
+v0.5.0 on 2026-09-28 and shipped as Phases 54, 53 and 56-57 (reshaped by 57.1-57.5). Their entries
+above are kept as the design record, as 999.6 and 999.7 are for v0.4.1.*

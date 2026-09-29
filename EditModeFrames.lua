@@ -15,8 +15,8 @@ local function ApplyContainerPosition(def)
 	-- The table guard lives HERE, not only in ApplyEditModePositions, because this function has
 	-- two entry points: that loop, and ns.CreateContainerFrames. Init calls CreateContainerFrames
 	-- for every def BEFORE ApplyEditModePositions runs, so on any database without an
-	-- editModePositions table -- a fresh install, or every single login on the Forever beta, which
-	-- never reads saved variables back -- the first container indexed a nil table and threw,
+	-- editModePositions table -- a fresh install, or a database written before positions existed
+	-- (SavedVariables persist on both clients) -- the first container indexed a nil table and threw,
 	-- aborting InitEditModeFrames partway and leaving no containers at all.
 	if ns.db.editModePositions == nil then
 		ns.db.editModePositions = {}
@@ -452,9 +452,10 @@ function ns:ShowSettingsPopup(containerKey)
 	-- ("0=Right/Down, 1=Left/Up"). Labelling it Right/Left on a vertical container named an axis
 	-- that container does not flow along.
 	--
-	-- Centered is offered on BUFF containers only. A Cooldowns container exists to give a
-	-- cooldown one stable slot, which is the opposite of a run that moves as things come and go,
-	-- so the option is absent there rather than present and discouraged.
+	-- Centered is offered on BUFF and REMINDER containers (anything but spells). A Cooldowns
+	-- container exists to give a cooldown one stable slot, which is the opposite of a run that
+	-- moves as things come and go, so the option is absent there rather than present and
+	-- discouraged.
 	local directionOptsHorizontal = { { text = "Right", value = 0 }, { text = "Left", value = 1 } }
 	local directionOptsVertical = { { text = "Down", value = 0 }, { text = "Up", value = 1 } }
 	local directionOptsHorizontalBuffs = {
@@ -471,7 +472,7 @@ function ns:ShowSettingsPopup(containerKey)
 		local cs = ns.db.containerSettings[activeContainerKey]
 		local def = ns.CONTAINER_BY_KEY[activeContainerKey]
 		local vertical = cs and cs.orientation == 1
-		if def and ns:GetContainerCategory(def) == "buffs" then
+		if def and ns:GetContainerCategory(def) ~= "spells" then
 			return vertical and directionOptsVerticalBuffs or directionOptsHorizontalBuffs
 		end
 		return vertical and directionOptsVertical or directionOptsHorizontal

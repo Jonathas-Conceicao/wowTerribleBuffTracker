@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.4.1
-milestone_name: "Generic Item Tracking and Forever Racials"
-status: in_progress
-last_updated: "2026-09-25"
-last_activity: 2026-09-26 — Phases 51 (Forever) and 52 (retail) both PASSED. All racials and their cancellations, the dispel indicator on both clients, consumables on both clients, and the pandemic highlight confirmed on retail IN M+. No Lua errors on either flavour. Every phase of v0.4.1 is now complete and reviewed. Remaining before release, in order: the user pastes their own CHANGELOG entry from 50-CHANGELOG-DRAFT.md (deciding two open recommendations), then squash-merge the milestone branch to `main`, then run release.bat FROM main.
+milestone: v0.5.0
+milestone_name: "Elaborate tracking"
+status: archived
+last_updated: "2026-09-29"
+last_activity: 2026-09-29 — v0.5.0 archived; awaiting the user's CHANGELOG entry, squash-merge to main and release.
 progress:
-  total_phases: 7
-  completed_phases: 8
-  total_plans: 18
-  completed_plans: 18
+  total_phases: 13
+  completed_phases: 13
+  total_plans: 42
+  completed_plans: 42
   percent: 100
 ---
 
@@ -17,189 +17,138 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-20)
+See: .planning/PROJECT.md (updated 2026-09-29)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** v0.4.1 — Generic Item Tracking and Forever Racials. Phase numbering continues from v0.4.0's Phase 45 and never restarts, so this milestone starts at Phase 46.
-
-## v0.4.0 Release — done
-
-Both steps completed. `f0c8e35` is on `main` and the `v0.4.0` tag exists. The warning block that
-sat here described them as outstanding; it was written at archive time on 2026-09-23 and was
-already stale when read on 2026-09-24, so it was replaced rather than left to mislead.
-
-`.planning/REQUIREMENTS.md` is archived per milestone and written fresh by `/gsd-new-milestone`.
+**Current focus:** releasing v0.5.0 Elaborate tracking. No milestone is active; the next one starts at Phase 61.
 
 ## Current Position
-Milestone: **v0.4.1 — Generic Item Tracking and Forever Racials** (started 2026-09-24)
-Phase: **49 COMPLETE (2026-09-25).** All five plans executed and merged, all ten races collected in
-game, all 21 racials tracked, and the G1-G10 gate run by the user. **G4 — the migration — PASSED on
-a real logout/login**: pre-phase `racial`/`racial2` entries were gone and their replacements
-survived under `racial:<spellID>`. **G8 (Skyborne upward duration correction) is WAIVED for this
-release by user decision** — the 15-minute condition was never reproducible, so both Skyborne second
-racials ship on their minimum duration. RACE-07, RACE-08 and RACE-10 are closed; RACE-09 was closed
-by D-7 rather than implemented (the generic tile its message lived on no longer exists).
-Earlier: **46, 47, 48 and 48.1 ALL COMPLETE** — every gate run and passed, on retail AND Forever 1.60.1.
-All ten ITEM requirements, all five PAND and all four DISP are closed. **Every feature this milestone
-scoped is now built and verified on both flavours.**
 
-**Nine fixes landed after the gate pass, all from in-game reports.** Plainsrunning's stack count;
-Shadowmeld's in-combat behaviour (no buff tile, no lingering tile, and — separately — its 2-minute
-in-combat cooldown); Walk on Air and then every racial buff gaining unconditional aura cancellation;
-tracked item counts reconciling at login; and Eureka! spending a stack on every ability rather than
-only harmful ones. Two of these were caused by a comment asserting something that was never checked
-— see Blockers below.
+**v0.5.0 archived; awaiting CHANGELOG + release.**
 
-**Phase 50 (Cleanup & Release Prep) is CLOSED — executed 2026-09-25, verification `passed` 5/5, code
-review `clean`.** 3 plans, 2 waves. What landed:
-- **SC3** — `ApplyDispelBorder` (`Display.lua`) now dirty-checks on a non-secret `cooldownID`
-  identity instead of re-issuing `SetAtlas` every render pass while the atlas is secret. Landed in
-  wave 1 deliberately: **its behavioural proof is carried to Phases 51/52**, which are in-game review
-  passes already scheduled. That is a design decision, not an outstanding gap.
-- **SC1/SC2** — the three milestone-introduced racial def-by-spellID walks unified behind
-  `ns:RacialDefInList` (on `ns`, not a file-local — the upvalue trap this project has hit five
-  times), and `ns:IsRacialKeyVisible`'s per-render-pass `string.match` allocation closed by memoising
-  the PARSED KEY only. Memoising the visibility ANSWER would be a bug: it depends on `UnitRace`,
-  which can be unreadable early in a session.
-- **Deliberately NOT unified, with reasoning recorded in the plan SUMMARYs** so it is not
-  rediscovered as an oversight: the three `Core.lua` key parsers (`cd:` predates the milestone and is
-  protected by "No refactors during cleanup phases") and the pandemic icon/bar FX split (four
-  genuine divergences, confirmed against the code).
-- **SC5, as narrowed** — a v0.4.1 entry is drafted at
-  `.planning/phases/50-cleanup-release-prep/50-CHANGELOG-DRAFT.md` for the **user** to paste and
-  edit. `CHANGELOG.md` and `README.md` are byte-identical to the phase's base, verified by diff.
-  The draft carries two open recommendations for the user to decide: include a Known Issues bullet
-  for the G8 Skyborne waiver (drafted text supplied), and whether to list the untested Eureka!
-  priest branch at all.
+- Milestone: v0.5.0 Elaborate tracking — all 13 phases (53-60, incl. 57.1-57.5) complete, 42 plans,
+  33/33 requirements; Forever and retail (incl. M+) full reviews approved by the user 2026-09-29.
+- Archives: `.planning/milestones/v0.5.0-ROADMAP.md`, `.planning/milestones/v0.5.0-REQUIREMENTS.md`.
+  Phase directories stay in `.planning/phases/` until the next kickoff moves them, as v0.4.1's were.
+- Release, in order: (1) the user writes the `v0.5.0` entry in `CHANGELOG.md` (no agent edits it
+  unless asked); (2) squash-merge `milestone/v0.5.0-elaborate-tracking` to `main`; (3) run
+  `scripts/release.bat` from `main`, which creates the tag. No tag was created at archive time.
+- Branch: `milestone/v0.5.0-elaborate-tracking`. Next milestone starts at Phase 61.
 
-**F-3 — the aura-icon swap for the three divergent racials — is OUT**, in ROADMAP backlog **999.8**
-with its full scope intact. It was folded into Phase 50 on Claude's initiative and reversed out by
-user decision the same day, to close the milestone faster. Do not re-fold it.
+## v0.5.0 Phase Log
 
-**Phases 51 (Forever) and 52 (retail) both PASSED, 2026-09-26.** Run sheets:
-`.planning/testing/51-FOREVER-REVIEW.md` and `52-RETAIL-REVIEW.md`. Confirmed in game: all racials
-and their cancellations, the dispel indicator on both clients, consumables on both clients, and the
-pandemic highlight on retail **in M+** — the strongest environment available for it, and the first
-time it has been exercised under real load rather than in isolation. No Lua errors on either
-flavour.
+*Kept for the record until the next kickoff archives it as `milestones/v0.5.0-STATE-phase-log.md`,
+as v0.4.1's was. Superseded by the Current Position above; the pending-UAT notes below were all
+closed on 2026-09-29.*
 
-**Every phase of v0.4.1 is complete.** 46, 47, 48, 48.1, 49, 50, 51, 52.
+Phase: 53 EXECUTED (5/5 plans, review fixes applied, deployed) — in-game UAT pending in
+`53-HUMAN-UAT.md` (8 items, deferred to the end of the run).
+Phase: 54 EXECUTED (4/4 plans, review fixed, deployed) — in-game UAT pending in `54-HUMAN-UAT.md`
+(11 items, incl. one DECISION on racial cooldown kind).
+Phase: 55 EXECUTED (3/3 plans, review fixed, deployed) — in-game UAT pending in `55-HUMAN-UAT.md`
+(14 items, incl. whether retail has `GetSpellBaseCooldown` for non-charge suggestions).
+Phase: 56 EXECUTED (4/4 plans, review fixed incl. WR-04 cover-all-ranks + aura ID, deployed) —
+in-game UAT pending in `56-HUMAN-UAT.md` (13 items). Includes the ADD-06 portrait.
+Phase: 57 EXECUTED (5/5 plans, review fixed, deployed) — in-game UAT pending in `57-HUMAN-UAT.md`
+(16 items). Review fix WR-03 refines the in-combat rule to the user's own wording: visibility
+follows the aura whenever it can be read, and freezes only while it can't. Only the aura-driven
+START waits for combat to end.
+Plan: 53-01..05, 54-01..04, 55-01..03, 56-01..04 and 57-01..05 done
+Phase: 57.1 EXECUTED (3/3 plans, review fixed, deployed) — the dialog redesign: General/Advanced
+TabSystemTemplate tabs, Advanced prefilled, visibility radio dropdown, no `detailed` flag (schema v9).
+In-game UAT pending in `57.1-HUMAN-UAT.md` (8 items). REQUIREMENTS.md ADD-07 still says
+"Simple/Detailed"; the user renamed them General/Advanced, so update the text at milestone close.
+User passed in game 2026-09-29: 57.1 tabs and v9 migration, 57 "absent" reminder.
+Phase: 57.2 EXECUTED (4/4 plans, review fixed, deployed, verification human_needed) — Buff
+Reminders as a third category (REM-01..04): TBT Reminders tab, Buff Reminders base container,
+`userReminder` kind behind `ns:IsReminderEntry`/`ns.REMINDER_KINDS` (ready for metaReminders), the
+Phase 57 absent runtime reused as-is plus combat/unreadable/restriction hide, visibility option
+removed (DTRK-03 superseded), schema v10. In-game UAT pending in `57.2-HUMAN-UAT.md` (20 items, the
+v10 check needs a real logout/login on both clients). Phase 58 candidates from its review: WR-05
+(`visibility*` names now mean reminders; Phase 58 renames them) and IN-05 (the "In Combat" option
+on a reminders container: KEPT, since reminders show mid-combat when a known duration runs out).
+User passed in game 2026-09-29: reminders work and the v10 migration worked.
+Quick follow-up 2026-09-29: Buff Reminders seed moved to BOTTOMLEFT (850, 580), hand-picked by the
+user; buff trackers now get a duration suggestion from the live aura when it is up and readable
+(empty otherwise, no tooltip parsing, by user decision).
+**Secrecy text trimmed 2026-09-29 at the user's direction:** the "Aura secrecy: <level>" line stays;
+the explanations are short and name no content types (no M+/raid). The user may still hand-tune it.
+**Built (57.2-05, 2026-09-29, review fixed, deployed, UAT pending):** reminders are buff trackers in
+their own category (duration, aura-loss and cast rules back; v10 keeps them), their state is held
+while the aura cannot be read, and their timer syncs to a readable expiry, so a reminder fires
+mid-combat when its buff ends. Review fix 05-WR-01 added a 0.5s cast grace to BUFFS too (shared
+path, per the "reminders are buffs" rule). 57.2-HUMAN-UAT.md has 26 items.
+Phase: 57.3 EXECUTED (3/3 plans, deployed) -- in-game UAT pending in `57.3-HUMAN-UAT.md` (22 items),
+on branch `topic/visibility` (cut from the milestone branch at 913c7a3; the user may drop it). One
+load rule, "Load: When known / Always / Never" (LOAD-01..04): an editable Advanced setting on user
+trackers (`entry.load`, nil = When known), fixed for built-ins (racials When known; Lust, trinket,
+pot, bag items Always); an unloaded tracker is in no index, never drawn, greyed in the TBT tab. The
+race gate is gone: racials are just spells, loaded when known. No schema step (still v10).
+Phase: 57.4 EXECUTED (3/3 plans, deployed) -- in-game UAT pending in `57.4-HUMAN-UAT.md` (24 items, 23
+pending, Priest/Druid/Warrior/Hunter rows skipped by user scope). Class buffs as built-in
+`metaReminder` trackers (MREM-01..03): a 14-row Forever table in Providers.lua, offered as Suggested
+tiles on the Reminders tab for known rows, own cast namespace, fixed When known load, every known
+rank counts; Blood Pact loads on Summon Imp (688, unverified) and reads the imp's rank from the pet
+spellbook. No schema step (still v10).
+Phase: 57.5 EXECUTED (3/3 plans, deployed) -- in-game UAT pending in `57.5-HUMAN-UAT.md` (16
+items). Reminder alternatives (RALT-01..03): 'Also satisfied by' replaces 'Ends when you cast' for
+reminders only; the blessings satisfy each other; Righteous Fury added, Sanctuary dropped; schema
+v11.
+Phase: 58 EXECUTED (4/4 plans, deployed) -- in-game smoke UAT pending in `58-HUMAN-UAT.md` (11
+items). Cleanup: reminder runtime renamed (visibility* to reminder*), the milestone's duplicated
+family/base-override/cast-owner/ID-list/radio code unified, dead branch removed, hot paths
+audited, docs corrected; new: Merge Mode on for a fresh database (user request).
+**Autonomous run 56-57 finished 2026-09-28.** Phases 53-57 are all executed and deployed, and all
+await in-game UAT (64 items across five HUMAN-UAT files). Remaining: Phase 58 Cleanup (named
+targets: the base/override lookup duplicated three times in Core.lua, and wiring
+aura-read-gate.js into release, declined 2026-09-29 by user decision), 59 Forever review, 60 Retail review.
+**Autonomous run 53-55 finished 2026-09-28**; the user reviewed 55 in game ("looking nice") and asked
+for the ADD-06 portrait. **Run 56-57 in progress.** Phases 53-56 are executed and deployed but NOT
+closed: each waits on its HUMAN-UAT file. Next after 57: run the UAT (`/gsd-verify-work 53`..57).
+`scripts/aura-read-gate.js` (30-case selftest) is the standing DTRK-06 proof; Phase 57's aura-state
+cache must pass it. Wiring it into release was left to the cleanup phase (declined 2026-09-29 by user decision).
 
-**One qualification worth carrying, because it is the difference between two kinds of pass.**
-Phase 52's **R1 stale-colour sub-check** — a pooled widget reused for a different entry keeping the
-previous entry's border colour — was never run as a deliberate A/B. What it got was an M+ run, where
-debuffs churn and containers re-sort continuously, which stresses the same property harder than a
-two-debuff setup would; combined with the Phase 50 code review tracing all four `ApplyDispelBorder`
-call sites, it is accepted as passing. Recorded as "exercised under load", not "deliberately
-falsified", so nobody later reads it as a targeted test that it was not.
+**Carry into Phases 56-57 (from 54 review WR-02, fixed):** the dialog saves ONLY fields that were
+visible and read at Save time ("not read means not written"), so a detailed-tracking field hidden in
+simple mode keeps its saved value. Design the simple/detailed switch with that rule in mind.
+Status: Autonomous run, Phases 53-55 (started 2026-09-28); context for all three taken up front
+Branch: `milestone/v0.5.0-elaborate-tracking`, branched from `topic/dev`
+Last activity: 2026-09-29 — ALL PHASES 53-60 COMPLETE. Phases 59 (Forever) and 60 (retail, incl.
+M+) full reviews human-reviewed and approved by the user; every HUMAN-UAT file closed (items not
+tested by name recorded as "accepted"). Next: milestone close-out (/gsd-complete-milestone:
+audit, squash-merge to main, then release.bat; CHANGELOG entry only when the user asks).
 
-**Remaining before release, in this order — none of it is code:**
-1. **The user pastes their own CHANGELOG entry** from
-   `.planning/phases/50-cleanup-release-prep/50-CHANGELOG-DRAFT.md`. Two open recommendations are
-   theirs to decide: whether to include a Known Issues bullet for the G8 Skyborne waiver (text
-   drafted), and whether to list the Eureka! priest branch at all, given it is the one part of that
-   change never tested in game. **No agent writes to `CHANGELOG.md`.**
-2. **Squash-merge** `milestone/v0.4.1-item-tracking-forever-racials` to `main` with a clean message.
-3. **`./scripts/release.bat <version>` FROM `main`** — never from the milestone branch.
-   `release.bat` carries a branch guard for exactly this; `TBT_ALLOW_BRANCH=1` overrides it and
-   should not be used here.
-Plan: 46-01..04, 47-01..03, 48-01..03, 49-01..05 all executed; 48.1 built directly on user request,
-no plan cycle
-Status: **all in-game gates PASSED on both flavours, with G8 the single recorded waiver.**
-Branch: `milestone/v0.4.1-item-tracking-forever-racials`, branched from `topic/dev`
-Last activity: 2026-09-24 — Phases 46 and 47 CLOSED on the Forever pass. ITEM-05 confirmed the
-milestone's central design bet: one HP potion fired the cooldown on all three pots sharing it, so a
-per-item GetItemCooldown read does reflect a shared cooldown and the spell-category table correctly
-stayed out of scope. ITEM-06, 07 and 08 all passed the same session. Campfire items stay in the
-catalogue by user decision — they are Consumables, so no requirement bends to allow them.
-Earlier — Phase 48.1 (dispel-type border) CLOSED, fully verified on retail:
-icons and bars, Magic and Bleed, in and out of combat. Two routes — the aura engine draws it for
-an ordinary merged tracked buff (the atlas mirror structurally cannot reach that case, since
-RenderIconContainer hides TBT's pooled icon there), the mirror covers bars, item-backed entries
-and the engine-off fallback. The atlas name is SECRET IN COMBAT and is relayed to SetAtlas unread
-(`SecretArguments = "AllowedWhenTainted"`) rather than discarded; `IsShown()` stays plain, so
-visibility is decided on a readable boolean. Also in this stretch: the CDM-tab item-icon defect
-(ns:ItemDisplayInfo read only the bag catalogue — confirmed fixed in game), the engine route's
-`showWithoutDispelType` divergence from the CDM's show rule, and a stylua-introduced CRCRLF that
-had made MergeMode.lua binary to git
+**v0.4.1 is released** — squash-merged to `main` as `c30084a` and tagged `v0.4.1`. The "remaining
+before release" list that sat here was stale; the v0.4.1 phase log is archived at
+`.planning/milestones/v0.4.1-STATE-phase-log.md` and its phase directories at
+`.planning/milestones/v0.4.1-phases/`.
 
-**Every requirement this milestone scoped is now implemented AND closed by a real in-game gate.**
-ITEM-01..10, PAND-01..05, DISP-01..04, RACE-07, RACE-08 and RACE-10 all have a user verdict behind
-them; RACE-09 was closed by D-7 rather than implemented. The run-order instructions that used to
-fill this section are spent and were removed on 2026-09-25 rather than left to be re-run.
+Scope, confirmed by the user at kickoff: naming scheme (999.13), tracker editing (999.12), and simple
++ detailed tracking (999.14 widened — see PROJECT.md Current Milestone). Research skipped.
 
-**Two waivers are on the record, and they are waivers rather than passes.** Phase 49 **G8** — the
-Skyborne upward duration correction — was never reproducible in game, so both Skyborne second
-racials ship on their minimum duration; and **F-2's priest branch** — a gnome priest's Eureka!
-spending a stack on a heal — ships untested, by user decision on 2026-09-25. Neither is a gap
-nobody noticed; both are the user's explicit call for this release.
-
-F-2's *other* branch did get a gate: a gnome **mage** was confirmed in game the same day, which
-matters because the first attempt at that fix removed `IsSpellHarmful` globally and broke exactly
-that branch for all five classes. Only `PlayerIsPriest()` returning true is unexercised.
-
-**The standing rule that produced those gates still applies to anything Phase 50 changes.** This
-project has no test runner and none is planned — the only runtime is the game client, a static
-sweep proves the code is *shaped* right and nothing more, and no phase checkbox is ticked on a
-sweep alone.
-
-Deployed to all four client folders. No TOC change since the single-TOC migration, so `/reload`
-suffices — a full client restart is only needed when the TOC itself changes, and a real
-logout/login is the only way to exercise a SavedVariables load path (which is what made Phase 49's
-G4 unskippable).
-
-**A blocker was found by code review after that phase verified, and it is worth remembering how.**
-`itemUseSpellToID` — the table that turns an arriving cast into "this item was used" — was only
-ever filled by the catalogue scan, which runs only while the Cooldown Manager is open. A player who
-never opened the CDM would have had every landed use silently fail to decrement. The plan checker
-passed the plans and the verifier traced the use chain forward and found it sound, because the
-defect is only visible if you trace **backwards from the table to ask who writes it**. Fixed in
-`f5dc170`; registration now comes from `ns.db.trackedBuffs` with no bag access.
-
-Carry that into the remaining phases: a correctly-wired chain fed by an empty table reads exactly
-like a working one when traced forwards.
-
-Scope, confirmed by the user at kickoff: generic item tracking (backlog 999.6), Forever racials
-(`RACE-07` only — `RACE-06`, the retail catalogue, stays deferred), and the CDM pandemic highlight
-(backlog 999.7). The v0.4.0 phase log that used to fill this section is archived at
-`.planning/milestones/v0.4.0-STATE-phase-log.md`.
-
-## Phase Plan — v0.4.1 (set at roadmap creation, 2026-09-24)
+## Phase Plan — v0.5.0 (set at roadmap creation, 2026-09-28)
 
 | Phase | Name | Requirements | Depends on |
 |-------|------|--------------|------------|
-| 46 | Item Catalogue & Suggested Tiles | ITEM-01, 03, 08, 10 | — |
-| 47 | Item Tracking & Cooldown Sharing | ITEM-02, 04, 05, 06, 07, 09 | 46 |
-| 48 | Pandemic Highlight in Merge Mode | PAND-01..05 | — |
-| 49 | Forever Racial Catalogue | RACE-07, 08, 09 | — (scheduled here by decision) |
-| 50 | Cleanup & Release Prep | none (process) | 46-49 |
-| 51 | Forever Full Review | none (verification pass, no plans) | 46-50 |
-| 52 | Retail Full Review | none (verification pass, no plans) — **last phase** | 51 |
-
-**Ordering note, settled 2026-09-24 over three revisions the same day.** The user first said only
-"schedule RACE last", then refined it to an exact closing order — Racials, a Forever review pass, and
-a retail review pass as the milestone's literal last phase. The roadmapper placed Cleanup at 49,
-ahead of Racials, reasoning the racial work adds only a data-table entry per race. The user rejected
-that on review: Cleanup now runs at 50, **after** all feature work, so no feature ships without a
-cleanup pass. Both review passes are testing-only — no plans, no phase directory — matching v0.4.0
-Phases 43-44's shape, recorded as run sheets in `.planning/testing/`.
-
-Racials sit late because a game update landing 2026-09-24 may make the feature obsolete; building it
-early risks effort that gets dropped.
-
-See `.planning/ROADMAP.md` for full phase details, goals and success criteria.
+| 53 | Naming Scheme & Saved-Data Migration | NAME-01, NAME-02 | — (v0.4.1 shipped) |
+| 54 | Edit Trackers | EDIT-01, EDIT-02, EDIT-03, EDIT-04 | 53 |
+| 55 | ID Preview, Suggested Cooldown & Secrecy | ADD-04, ADD-05, SECR-01, SECR-02, SECR-03 | 54 |
+| 56 | Detailed Tracking — Mode & Aura Rules | DTRK-01, DTRK-02, DTRK-04, DTRK-06 | 55 |
+| 57 | Detailed Tracking — Visibility & Cross-Spell Rules | DTRK-03, DTRK-05 | 56 |
+| 58 | Cleanup | — (process) | 57 |
+| 59 | Forever Full Review | — (testing pass, no plans) | 58 |
+| 60 | Retail Full Review | — (testing pass, no plans; last phase) | 59 |
 
 ## Last Milestone at a Glance
 
-TBT became a two-flavour addon: one shared Lua/XML source set loading on both Midnight retail
-(Interface 120100) and the WoW Forever beta (Interface 16001), selected by two flavour-suffixed TOCs,
-with no forked source file and zero flavour-detection tokens in any Lua file.
+v0.5.0 Elaborate tracking made every user tracker editable, named every tracker kind by one scheme
+(schema v8-v11), and added Advanced settings, Buff Reminders with alternatives, a When known /
+Always / Never load rule, and Forever class-buff reminders. 33 of 33 requirements closed, 4 adjusted
+by later user decisions. Verified in game on the Forever beta and Midnight retail (incl. M+),
+2026-09-29.
 
-25 of 30 requirements closed. Verified in-game on Forever build `1.60.1.69913` and on Midnight retail,
-both 2026-09-18.
-
-Full record: `.planning/MILESTONES.md` (v0.3.0 entry), `.planning/milestones/v0.3.0-ROADMAP.md`,
-`.planning/milestones/v0.3.0-REQUIREMENTS.md`.
+Full record: `.planning/MILESTONES.md` (v0.5.0 entry), `.planning/milestones/v0.5.0-ROADMAP.md`,
+`.planning/milestones/v0.5.0-REQUIREMENTS.md`.
 
 ## Deferred Items
 
@@ -217,7 +166,7 @@ table below is no longer current, see the note under it.**
 | todo | `2026-09-18-install-bat-does-not-prune-stale-files.md` | pending — pruning is new behaviour outside `INST-01`…`04` |
 | todo | `2026-09-18-pkgmeta-shared-ignore-list-can-drift.md` | pending — shared nine-line ignore block has no drift guard |
 | todo | `2026-09-18-runtime-file-set-enumerated-three-places.md` | pending — `install.bat` `FILES` + both TOCs enumerate independently |
-| todo | `2026-09-18-release-bat-pushes-main-with-no-branch-guard.md` | pending — tags whatever `HEAD` it runs from, always pushes `origin main` |
+| todo | `2026-09-18-release-bat-pushes-main-with-no-branch-guard.md` | done — release.bat has the branch guard (todo is in `todos/done/`) |
 
 ### What changed at v0.4.0 kickoff (2026-09-20)
 
@@ -324,7 +273,7 @@ constraints that outlive the milestone are repeated here:
   design was taken on Forever build `1.60.1.69913` / interface `16001`. Retail M+/raid validation was
   deliberately skipped to save time and is the milestone's second-to-last phase.
 
-- **Settings do not persist between sessions on the Forever beta.** A client-side bug, not TBT's: the
+- **Superseded 2026-09-28 — the user reports SavedVariables have persisted on Forever for a while now.** Original note: settings did not persist between sessions on the Forever beta. A client-side bug, not TBT's: the
   file is written correctly on logout and is byte-identical to its `.bak`, but never read back on login.
   Other addons are affected identically. Nothing to fix or adapt to on the addon side —
   `Blizzard_ClientSavedVariables` exists on both flavours and no new TOC directive governs addon
