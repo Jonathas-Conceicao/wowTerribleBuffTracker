@@ -1,5 +1,8 @@
 *.zip
 
+# human notes
+.mynotes.org
+
 # BigWigs packager scratch directory
 .release/
 

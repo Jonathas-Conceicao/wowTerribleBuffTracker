@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.5.0 — Buff Reminders and Elaborate Tracking
+
+Adding direct support for Buff Reminders, a tracker that shows only
+after a buff (usually a class buff) is lost.
+
+### New Features
+- Reminders - New category of buffs that appear only when you need to
+  refresh them
+- Edit trackers - Right-click any user-created tracker to edit it
+- Reworked the add custom tracker dialog - We now have more
+  configuration options
+  - Spell Preview - Spell icon and full tooltip for what you're adding
+  - Custom clears - You can set up that other skills will fire the
+    tracker you're creating
+  - Secrecy info - Indicator that an Aura/Spell can be secret and
+    custom tracking will be limited
+  - New style - The popup window matches the CDM window now
+  - Separate Aura ID - Track a buff whose aura ID differs from the
+    spell's
+  - "End when the aura is lost" - Allows you to avoid auto-cancellation
+- Class buff reminders (Forever) - Suggested reminders for class buffs:
+  - Mage: Arcane Intellect, Frost Armor
+  - Priest: Power Word: Fortitude
+  - Druid: Mark of the Wild, Thorns
+  - Warrior: Battle Shout
+  - Hunter: Trueshot Aura
+  - Warlock: Blood Pact
+  - Paladin: Blessings and Righteous Fury
+- Load rule - Every tracker can load "When known", "Always" or
+  "Never".
+- Merge mode by default - New installs start with merge mode on.
+
+### Fixes
+- Item trackers on screen now show the item's full tooltip (if enabled
+  in Edit Mode).
+
 ## v0.4.1 — Generic Item Tracking, Pandemic support and Forever Racials
 
 Adding support for tracking items' cooldowns, Pandemic indicator on
