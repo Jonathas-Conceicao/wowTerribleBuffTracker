@@ -34,6 +34,4 @@ two separate review phases. The per-phase HUMAN-UAT files hold the item-by-item 
 
 ## Still open
 
-- 62-HUMAN-UAT #2: the release zip carries `Media/Textures` and not `Media/Source` (DIST-13) —
-  checked when the user cuts the release.
 - 61-HUMAN-UAT #2: skipped until backlog 999.19 and 999.20 exist.

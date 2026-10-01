@@ -1,5 +1,5 @@
 ---
-status: partial
+status: complete
 phase: 62-new-icons
 source: [62-VERIFICATION.md]
 started: 2026-09-30
@@ -18,14 +18,14 @@ result: pass — user-tested 2026-09-30 (faction-themed set)
 
 ### 2. The first real release zip carries Media/Textures and not Media/Source (DIST-13)
 expected: At the v0.5.1 release, the packaged zip contains `TerribleBuffTracker/Media/Textures/*.blp` (10 files: the `_ally` / `_horde` pairs, TAB-10) and no `Media/Source`. Checked statically from `.pkgmeta` only; the packager was not run locally.
-result: [pending]
+result: pass — user-checked 2026-10-01 on the released v0.5.1 zip (only the BLPs under Media/Textures, no Media/Source)
 
 ## Summary
 
 total: 2
-passed: 1
+passed: 2
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 

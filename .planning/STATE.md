@@ -33,7 +33,8 @@ Last activity: 2026-10-01 — milestone close
 
 - Next kickoff: archive the phase log below to `.planning/milestones/v0.5.1-STATE-phase-log.md` and
   move `.planning/phases/61-*`..`65-*` to `.planning/milestones/v0.5.1-phases/`, as done for v0.5.0.
-- Still open: 62-HUMAN-UAT #2 (release zip check, at release); 61-HUMAN-UAT #2 (waits on 999.19/999.20).
+- Released and tagged `v0.5.1` by the user, 2026-10-01; the zip ships only `Media/Textures` BLPs (62-HUMAN-UAT #2 passed).
+- Still open: 61-HUMAN-UAT #2 (waits on 999.19/999.20).
 
 ## v0.5.1 Phase Log
 
