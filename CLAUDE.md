@@ -21,14 +21,18 @@ WoW Midnight addon (version 12.0 and up) for tracking buff/cooldown timers manua
 - `EditModeFrames.lua` — Edit Mode containers, drag handles, position persistence, settings popup
 - `Config.lua` — TBT's own settings panel under Options > AddOns (`/tbt`), shown standalone where the Settings API is missing
 - `Display.lua` — visual timer bars and buff icons
+- `ReminderClick.lua` — click-to-cast overlays for reminder icons: pooled SecureActionButtonTemplate buttons anchored to UIParent, placed and updated out of combat only
 - `CDMTab.xml` — TBT tab button XML definition for CDM settings
 - `CDMTab.lua` — CDM tab integration, sections UI, drag-and-drop, add/delete dialogs
 - `TerribleBuffTracker.toc` — the one TOC for every flavour; its load list is the shipped file set
+- `Media/Textures/` — the shipped BLP tab icons, a faction-themed `_ally`/`_horde` pair each, deployed by install.ps1 and packaged
+- `Media/Source/` — the PNG sources for those textures, never shipped (ignored by `.pkgmeta`)
 - `scripts/install.bat` — thin wrapper that forwards to install.ps1; `./scripts/install.bat` stays the documented entry point
 - `scripts/install.ps1` — derives the file set from the TOC, deploys it to every WoW client folder present on the machine, substitutes a dev version in the deployed TOC only, and prunes files the repo no longer has
 - `scripts/release.bat` — tags and pushes a release (GitHub Actions handles packaging)
 - `scripts/aura-read-gate.js` — static proof that every aura API reference sits inside an allowlisted reader (DTRK-06); `--selftest` runs its fixtures
 - `scripts/migrate-dryrun.js` — dry-runs the ADDON_LOADED defaults and schema migrations against a real SavedVariables file; `--selftest` runs its fixtures
+- `scripts/png2blp.js` — converts the `Media/Source` PNGs into the uncompressed BLPs in `Media/Textures`; regenerating must leave `git status --short Media/` empty
 - `tools/TBTProbe/` — throwaway API probe harness, never shipped (ignored by `.pkgmeta`)
 - `.github/workflows/release.yml` — BigWigs Packager action for CurseForge/Wago/GitHub releases
 - `.pkgmeta` — BigWigs Packager config; one config, one zip covering every interface version the TOC declares

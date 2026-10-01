@@ -235,6 +235,13 @@ function ns:RefreshMergeMirror()
 	-- merge-mode branch at all, it only ever indexes the shown-slot arrays and reads #.
 	if not ns.db or ns.db.mergeMode ~= true then
 		ns:QueueMergeShownSlots()
+		-- The engine aura containers must be told too. They cannot be destroyed, and ones built
+		-- while Merge Mode was on keep their last filter until re-sent: skipping this left a
+		-- merged buff's real aura (reported: Prismatic Barrier) drawn on a TBT cell with Merge
+		-- Mode off, visible whenever that container showed, i.e. in the settings preview. With
+		-- Merge Mode off the refresh sees no entries, wipes every filter and sends each container
+		-- the empty, maxDuration = 0 filter -- the same "match nothing" DisableAuraGroups uses.
+		pcall(ns.RefreshMergeAuraGroups, ns)
 		return
 	end
 
@@ -1354,6 +1361,11 @@ local EMPTY_ENTRIES = {}
 -- without TBT reading either.
 local AURA_HOST_KEYS = { "buffs", "essential", "utility" }
 
+-- An entry's aura container sits this many levels above its host, so it overlays the pooled icons
+-- (children of the same host at the default level). On ns because Display.lua derives its
+-- pandemic FX and raised charge-count levels from it; MergeMode.lua loads before Display.lua.
+ns.MERGE_AURA_CONTAINER_LEVEL = 10
+
 -- cooldownID -> the include set handed to that entry's slots. One table per entry, reused and
 -- wiped rather than rebuilt, since a filter is re-sent on every configuration change. Each set
 -- holds the entry's own spell ID plus its linked aura IDs, which is what makes an entry like
@@ -1380,7 +1392,15 @@ ns.mergeAuraGroupsActive = false
 
 -- The one window in which addon code may touch an engine aura frame. Everything TBT wants the
 -- engine to drive is created here, as a child of the frame, and registered before returning.
-local function InitializeAuraFrame(frame)
+--
+-- withApplications decides whether the engine gets a stack-count FontString. Only a Tracked
+-- Buffs host passes true: the CDM's BuffIcon template has an Applications frame, while its
+-- Essential and Utility item templates have a ChargeCount frame and no Applications at all
+-- (CooldownViewer.xml:54, :123 vs :195). On a cooldown cell the stack count sat on the exact
+-- corner of TBT's own charge count, so the two numbers overlapped once Phase 61 raised the
+-- charge count above this frame (61-REVIEW WR-01). The two initializers below bind the flag,
+-- since AddAuraSlot's initializeFrame takes only the frame.
+local function SetupAuraFrame(frame, withApplications)
 	frame:SetSize(AURA_ICON_SIZE, AURA_ICON_SIZE)
 
 	-- Pinned to its container's origin, once, and never moved again -- the container is the thing
@@ -1430,7 +1450,7 @@ local function InitializeAuraFrame(frame)
 	-- from frame setup as "latch the whole engine path off", and a missing stack number is not
 	-- worth losing merged sweeps over. A client whose aura button mixin predates
 	-- SetApplicationCount keeps the icon and the sweep and simply shows no stacks.
-	if frame.SetApplicationCount then
+	if withApplications and frame.SetApplicationCount then
 		local applications = frame:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 		applications:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
 		pcall(frame.SetApplicationCount, frame, applications)
@@ -1508,6 +1528,14 @@ local function InitializeAuraFrame(frame)
 	end
 end
 
+local function InitializeBuffAuraFrame(frame)
+	SetupAuraFrame(frame, true)
+end
+
+local function InitializeCooldownAuraFrame(frame)
+	SetupAuraFrame(frame, false)
+end
+
 -- Latch the engine path off AND leave nothing of it on screen.
 --
 -- Switching the flag alone was not enough. A failure part-way through setup could leave some
@@ -1538,7 +1566,12 @@ end
 
 -- Creates the container pair for one entry the first time it is seen, and re-filters it on every
 -- later pass. Returns false on any failure, which latches the whole feature off.
-local function SyncEntryContainers(host, entry, enabled)
+--
+-- initializeFrame is fixed when the container is created and cannot be swapped afterwards. That
+-- is safe because a cooldownID never crosses between a buff host and a cooldown host: the CDM
+-- keeps aura and cooldown categories as separate ID sets, so a re-parent below only ever moves
+-- Essential <-> Utility, both of which use InitializeCooldownAuraFrame.
+local function SyncEntryContainers(host, entry, enabled, initializeFrame)
 	local id = entry.cooldownID
 
 	local includeSet = slotFilters[id]
@@ -1615,7 +1648,7 @@ local function SyncEntryContainers(host, entry, enabled)
 			-- unprotected and legal in combat; the engine's aura frame inside is not touched.
 			if container:GetParent() ~= host then
 				pcall(container.SetParent, container, host)
-				pcall(container.SetFrameLevel, container, host:GetFrameLevel() + 10)
+				pcall(container.SetFrameLevel, container, host:GetFrameLevel() + ns.MERGE_AURA_CONTAINER_LEVEL)
 				-- Force the next render to re-place it: the placement stamp still holds the cell
 				-- it had under its previous parent.
 				placedAnchor[id] = nil
@@ -1650,7 +1683,7 @@ local function SyncEntryContainers(host, entry, enabled)
 				filters.includeSpellIDs = includeSet
 				filters.maxDuration = (not live) and 0 or nil
 				created:AddAuraSlot(AURA_SLOT_KEY, spec.filter, {
-					initializeFrame = InitializeAuraFrame,
+					initializeFrame = initializeFrame,
 					candidateFilters = filters,
 				})
 			end)
@@ -1662,7 +1695,7 @@ local function SyncEntryContainers(host, entry, enabled)
 			-- Above the pooled icons, which are children of the same host at the default level.
 			-- On a Tracked Buffs container nothing is drawn underneath and this is harmless; on a
 			-- cooldown container it is what makes the overlay an overlay.
-			pcall(created.SetFrameLevel, created, host:GetFrameLevel() + 10)
+			pcall(created.SetFrameLevel, created, host:GetFrameLevel() + ns.MERGE_AURA_CONTAINER_LEVEL)
 
 			byID[id] = created
 			-- Force the first placement: a container created this pass has never been positioned,
@@ -1702,8 +1735,9 @@ function ns:RefreshMergeAuraGroups()
 		-- A host that does not exist yet is skipped rather than failing the pass: containers are
 		-- built on PLAYER_ENTERING_WORLD and this can run before that on a reload.
 		if host then
+			local initializeFrame = (key == "buffs") and InitializeBuffAuraFrame or InitializeCooldownAuraFrame
 			for i = 1, #entries do
-				if not SyncEntryContainers(host, entries[i], enabled) then
+				if not SyncEntryContainers(host, entries[i], enabled, initializeFrame) then
 					ok = false
 					break
 				end
@@ -2764,7 +2798,7 @@ function ns:PrintMergeDiagnostics()
 
 					-- engineBorder is the ENGINE route's status, and it is the one that matters for
 					-- an ordinary merged tracked buff: that case is drawn by the aura engine, which
-					-- gets its border from InitializeAuraFrame's AddDispelTypeTexture, not from the
+					-- gets its border from SetupAuraFrame's AddDispelTypeTexture, not from the
 					-- dispel/stamped pair beside it. Those two cover bars, item-backed entries, and
 					-- the fallback where the engine path is latched off.
 					print(

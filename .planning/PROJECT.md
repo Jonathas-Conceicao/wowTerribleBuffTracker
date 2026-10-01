@@ -8,23 +8,71 @@ A WoW addon for manually tracking buff and cooldown timers, running on both **Mi
 
 Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
 
-## Current Milestone: none active — v0.5.0 archived 2026-09-29
+## Next Milestone
 
-**v0.5.0 Elaborate tracking is COMPLETE and archived.** 13 phases (53-60, including 57.1-57.5
-inserted mid-milestone), 42 plans, 33/33 requirements closed (4 adjusted by later user decisions),
-verified in game on both the WoW Forever beta and Midnight retail (including M+) on 2026-09-29, with
-both full reviews approved by the user. Archives:
-[`milestones/v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md) and
+Not defined yet — start it with `/gsd-new-milestone`. Phase numbering continues at 67. Open
+candidates are in the ROADMAP Backlog (999.5, 999.8, 999.10, 999.11, 999.15, 999.16, 999.19,
+999.20) and `RACE-06`.
+
+<details>
+<summary>v0.5.1 Clickable Reminders and new icons — SHIPPED 2026-10-01</summary>
+
+6 phases (61-66), 12 plans, 16/16 requirements, verified in game on the WoW Forever beta and
+Midnight retail (including M+) on 2026-10-01 in one testing pass. Squash-merged to `main`; release
+and tag by the user. Archives: [`milestones/v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md) and
+[`milestones/v0.5.1-REQUIREMENTS.md`](milestones/v0.5.1-REQUIREMENTS.md).
+
+</details>
+
+<details>
+<summary>v0.5.1 milestone goal, as set at kickoff</summary>
+
+**Goal:** Clicking a reminder casts its spell out of combat, TBT's tabs carry icons of their own,
+retail gets class-buff reminder suggestions, and two bugs in the code this work touches are fixed
+first.
+
+**Phases start at 61.** Numbering continues from v0.5.0's Phase 60 and never restarts. Branch:
+`milestone/v0.5.1-clickable-reminders-new-icons`, cut from `topic/dev` on 2026-09-30. Research
+skipped: backlog 999.18 is the settled design.
+
+**Target features, in the build order the user set at kickoff (2026-09-30):**
+
+- **Edit Mode taint (backlog 999.9).** Stop calling `EditModeManagerFrame.ClearSelectedSystem` from
+  `ns:SelectContainer`; accept that Blizzard's yellow highlight may linger. First, because clickable
+  reminders add secure frames next to Edit Mode and 999.18 must not make this taint worse.
+- **Merge Mode charge count (backlog 999.17).** A charge spell's count stays visible while its buff
+  is up, as on the CDM's own icon. Reproduced on retail with the Mage's Prismatic Barrier.
+- **New tab icons.** The three CDM tabs (TBT Cooldowns / Buffs / Reminders) use `icon_cooldown`,
+  `icon_buff` and `icon_reminder`; the tracker dialog's General / Advanced side tabs use `icon_info`
+  and `icon_advanced`, replacing `INV_Misc_Book_09` and the `GM-icon-settings` atlas. Art lives in
+  `Media/Source` (PNG, not shipped) and `Media/Textures` (BLP, shipped), converted by
+  `scripts/png2blp.js`; `install.ps1` must deploy `Media/Textures` and `.pkgmeta` must ignore
+  `Media/Source`. The TBT logo (`tbt_icon_64x64`) stays where it is, on the TOC `## IconTexture:`
+  and the settings panel.
+- **Clickable reminders (backlog 999.18).** A separate secure overlay per reminder icon, placed by
+  screen coordinates and never anchored to TBT's display tree, casts the reminder's spell on click.
+  On by default, out of combat only, disabled during Edit Mode. A new Advanced setting on reminders
+  sets the cast spell (defaults to the reminder's own spell); built-in reminders ship with it set.
+- **Retail class-buff reminder suggestions.** The retail counterpart of v0.5.0's Forever class-buff
+  meta reminders. Specified so far: **Mage** — Arcane Intellect (cast 1459), and Arcane Familiar
+  (loads when talent 205022 is known, checks aura 210126, casts 1459). The user supplies the other
+  classes' buffs and IDs when the phase starts. Built after clickable reminders so clicks can be
+  tested before the retail content lands.
+- **Closing sequence:** cleanup, then **one** human testing phase — Forever first, then retail, in a
+  single pass rather than v0.5.0's two separate review phases.
+
+</details>
+
+<details>
+<summary>v0.5.0 Elaborate tracking — SHIPPED 2026-09-29 as v0.5.0</summary>
+
+13 phases (53-60, including 57.1-57.5 inserted mid-milestone), 42 plans, 33/33 requirements closed
+(4 adjusted by later user decisions), verified in game on both the WoW Forever beta and Midnight
+retail (including M+) on 2026-09-29. Squash-merged to `main` as `9aa91d7` and tagged `v0.5.0`.
+Archives: [`milestones/v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md) and
 [`milestones/v0.5.0-REQUIREMENTS.md`](milestones/v0.5.0-REQUIREMENTS.md).
 
-**It is NOT yet released, and the order matters.** In sequence: the user writes their own `v0.5.0`
-entry in `CHANGELOG.md` (no agent writes that file unless asked), then the milestone branch is
-**squash-merged to `main`** (the next step, done by the orchestrating session), then
-`scripts/release.bat` runs **from `main`** — which creates the tag itself. `release.bat` carries a
-branch guard enforcing this; `TBT_ALLOW_BRANCH=1` overrides it and must not be used here. **No tag
-was created at archive time, deliberately.**
-
-Phase numbering never restarts, so the next milestone starts after Phase 60.
+</details>
 
 <details>
 <summary>v0.5.0 milestone goal, as set at kickoff</summary>
@@ -263,19 +311,22 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 - Buff Reminders: a third TBT tab and container; a reminder is a buff tracker shown while its buff is missing, with its state held while unreadable and its timer synced to a readable expiry; "show when absent" buffs migrated by schema v10 — v0.5.0 Phase 57.2 (REM-01..04)
 - One load rule, When known / Always / Never, on every tracker; unloaded trackers are never processed or drawn and show greyed; the racial race gate is gone — v0.5.0 Phase 57.3 (LOAD-01..04)
 - Forever class-buff meta reminders from Suggested, every known rank counting; "Also satisfied by" alternatives for reminders (schema v11), the paladin blessings satisfying each other — v0.5.0 Phases 57.4-57.5 (MREM-01..03, RALT-01..03)
+- Selecting a TBT container in Edit Mode calls no Blizzard Edit Mode method; a merged charge spell shows its buff time and charge count together — v0.5.1 Phase 61 (EDM-08, STEAL-09)
+- TBT's own faction-themed tab and side-tab icons from `Media/Textures` (BLP built from `Media/Source` PNGs by `scripts/png2blp.js`), deployed by install and shipped by the packager — v0.5.1 Phases 62-63 (TAB-08..10, INST-10, DIST-13)
+- Clickable reminders: out of combat, left-clicking a shown reminder casts its cast spell through a secure overlay on UIParent, per-container "Click to Cast", an editable Cast spell ID (empty = no click); reminders show in the last 10% (min 1s) of their buff with its real remaining time — v0.5.1 Phase 63 (CLICK-01..06, REM-05)
+- Retail class-buff reminder suggestions for every class, rows tagged per client, ally buffs cast on the target — v0.5.1 Phase 64 (MREM-04/05)
 
 ### Active
 
-None — no milestone is active. v0.5.0's requirements are archived at
-[`milestones/v0.5.0-REQUIREMENTS.md`](milestones/v0.5.0-REQUIREMENTS.md) and validated above; the next
-milestone writes a fresh `.planning/REQUIREMENTS.md`. Earlier milestones' are archived under
-`.planning/milestones/`.
+No milestone in progress. Earlier milestones' requirements are archived under
+`.planning/milestones/`; the next set is written by `/gsd-new-milestone`.
 
-Still open in the backlog, for the next milestone discussion:
+Still open in the backlog:
 
 - **`RACE-06`** — every retail racial as its own specified special case.
 - **999.5** — a cooldown icon can stay grey through the GCD; pending a repro.
-- **999.8, 999.9, 999.10, 999.11, 999.15, 999.16** — see the ROADMAP Backlog.
+- **999.8, 999.10, 999.11, 999.15, 999.16** — see the ROADMAP Backlog.
+- **999.19, 999.20** — stack count and remaining duration on custom trackers' buff icons.
 
 ## Current State
 
@@ -283,8 +334,9 @@ Still open in the backlog, for the next milestone discussion:
 
 **Planning drift note:** v0.2.5 (12.1 compatibility) and v0.2.6 (CDM tab placement) were both developed, tagged and released outside the GSD workflow, so they have no phase artifacts under `.planning/phases/`. They are recorded in `CHANGELOG.md`, `MILESTONES.md` and the Validated list above; that is the whole of their planning record — no phases are reconstructed retroactively.
 
-**v0.5.0 Elaborate tracking is archived (2026-09-29)** — 13 phases (53-60, including 57.1-57.5 inserted), 42 plans, 33/33 requirements, verified in game on both flavours including retail M+. See [`milestones/v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md). **Not yet released:** the user's CHANGELOG entry, then squash-merge to `main`, then `scripts/release.bat` from `main` — which creates the tag. The next milestone starts after Phase 60.
+**v0.5.1 Clickable Reminders and new icons shipped 2026-10-01** — 6 phases (61-66), 12 plans, 16/16 requirements, verified in game on both flavours including retail M+, squash-merged to `main`; the user writes the CHANGELOG entry and tags the release. See [`milestones/v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md).
 
+**Earlier —** v0.5.0 Elaborate tracking shipped 2026-09-29 — 13 phases (53-60, including 57.1-57.5 inserted), 42 plans, 33/33 requirements, verified in game on both flavours including retail M+, squash-merged to `main` and tagged `v0.5.0`. See [`milestones/v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md).
 **Earlier —** v0.4.1 Generic Item Tracking and Forever Racials shipped 2026-09-26 — 8 phases (46-52), 18 plans, 22/22 requirements, verified in game on both flavours, squash-merged to `main` and tagged `v0.4.1`. See [`milestones/v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md).
 
 **Earlier —** v0.4.0 Cooldown Tracking and Full CDM View is **archived** (2026-09-23) — 15 phases (31-45), 34 plans, 58/58 requirements, see [`milestones/v0.4.0-ROADMAP.md`](milestones/v0.4.0-ROADMAP.md). It is **not yet released**: squash-merge the milestone branch to `main`, then run `scripts/release.bat 0.4.0` from `main`, which creates the `v0.4.0` tag itself and pushes. Phase numbering never restarts, so the next milestone starts after Phase 45.
@@ -362,6 +414,8 @@ client-side bug — see Context.
 | TBT keeps its own containers; never inject into Blizzard's | Measured 2026-09-20: five injection variants, including one using zero Blizzard Lua, all tainted the CDM until `/reload`. Calling any Blizzard CDM mixin method leaves the frame tainted afterwards, and taint is sticky across combats | Locked. See `.planning/research/TEST-PLAN-CDM-INJECTION-AND-COOLDOWNS.md` |
 | "Cover all ranks" shown by flavour version, not by data | User decision 2026-09-20, taken after being offered the data-driven alternative (show the checkbox only when the spell resolves to a multi-rank family, which would need no flavour check). The user wants the control unconditionally present on Forever and unconditionally absent on retail — not appearing dynamically, not disabled-but-visible | Narrows the v0.3 no-flavour-branch constraint. This is the one sanctioned runtime flavour check; it does not license a second one |
 | Racial meta-tracker ships with Eureka! only | Every racial is an individually-specified special case and the user supplies each spec. Shipping one proven case now keeps v0.4.0 from blocking on a full catalog | Decided 2026-09-20. All other racials appear marked *not yet supported* with an explanatory tooltip; the next minor milestone completes the catalog. Widened 2026-09-23: troll (Berserking) and orc (Blood Fury + a second racial) shipped as well, verified on Forever; racial cooldown tiles added. The next minor milestone still completes the catalogue. |
+| Built-in class-buff reminder rows are tagged per client (Forever, retail, or both) | Several retail spell IDs exist on Forever with another meaning (6673 Battle Shout rank 1, 465 Devotion Aura rank 1, 21562 Prayer of Fortitude), so "is the spell known" alone would offer retail rows on Forever. The tag reads the existing `ns.CLIENT_IS_FOREVER`, the one sanctioned interface-range comparison, so no second comparison is added | Decided 2026-09-30 by the user (Phase 64). Licenses reading that one answer per row; still no second flavour check anywhere |
+| Clickable reminders through secure overlays on UIParent, never anchored to TBT's frames | A secure button inside TBT's display tree would taint it and could not move in combat. Overlays are placed from each icon's screen rect out of combat only, hidden in combat by a state driver, cast by spell name (highest known rank) with `useOnKeyDown = false` | ✓ Good — shipped v0.5.1 (Phase 63), tested through combat, Edit Mode, layout switches and M+ |
 | Trinket and Pot meta-trackers stay as-is | TBT's version has custom durations and bar display, and META-01 already hides them on Forever. Whatever the CDM now does natively, the trackers keep a reason to exist | Decided 2026-09-20 — closes the product half of 999.2. Only the public copy changes |
 
 ## Evolution
@@ -382,4 +436,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-29 at v0.5.0 archive*
+*Last updated: 2026-10-01 after the v0.5.1 milestone*

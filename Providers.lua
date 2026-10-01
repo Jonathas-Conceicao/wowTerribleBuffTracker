@@ -1503,11 +1503,14 @@ function ns:ConditionalCooldown(spellID)
 	return nil
 end
 
--- Class buffs as built-in reminders (Phase 57.4, MREM-01..03), offered on the Forever client only.
--- Spell IDs are Forever IDs from the user (2026-09-29). The class and name on each row are
+-- Class buffs as built-in reminders (Phase 57.4, MREM-01..03; retail rows Phase 64, MREM-04/05).
+-- Each row carries a client tag (forever / retail / both) read against ns.CLIENT_IS_FOREVER only
+-- (PROJECT.md Key Decision 2026-09-30); "is it known" alone is not enough, because 6673, 465 and
+-- 21562 exist on Forever with another meaning. An off-client row is never registered, so a placed
+-- one reads as an orphan. Forever spell IDs are from the user (2026-09-29). The class and name on each row are
 -- reference comments only and are never saved ("class and name are to be noted for future
--- reference on the code"). Each aura ID is assumed equal to its spell ID; the user verifies each
--- in game with TBT's ID tooltip.
+-- reference on the code"). The aura ID is the row's auraID, else its spell ID (Phase 64: 474750
+-- watches 474754, 364342 watches 381748); the user verifies each in game with TBT's ID tooltip.
 --
 -- Deliberately NOT here (user decisions 2026-09-29):
 --   - group versions (Arcane Brilliance, Prayer of Fortitude, Gift of the Wild, the Greater
@@ -1515,8 +1518,10 @@ end
 --   - the shaman totems Strength of Earth (25361) and Windfury (10609) are left out because their
 --     auras have different IDs from the casts.
 --
--- Every rank the character knows counts, through the rank family (ns:ResolveRankFamily; a
--- metaReminder is always rank-covering). A row's duration is in minutes; 0 = no timer (aura only).
+-- On Forever every rank the character knows counts, through the rank family (ns:ResolveRankFamily;
+-- a metaReminder is rank-covering wherever ns.CLIENT_HAS_SPELL_RANKS). Retail has no ranks, so a
+-- retail row watches its single aura ID (Phase 64 review CR-01/WR-01). A row's duration is in
+-- minutes; 0 = no timer (aura only).
 --
 -- In-game verification (user, 2026-09-29): the Mage, Paladin and Warlock rows were tested in
 -- game (57.4-HUMAN-UAT). The other classes are being tested now, and their rows keep
@@ -1542,13 +1547,26 @@ local metaReminderDefsBySpellID = {}
 
 -- Load-time only: builds one row and indexes it. knownID is the spell the load rule and the
 -- Suggested offer ask (the buff itself unless named); petBook adds the pet spellbook to the
--- row's rank family.
-local function MetaReminderRow(spellID, minutes, knownID, petBook)
+-- row's rank family; castID is the spell a click casts (nil = the row's own spellID, false = none).
+-- opts is nil or a load-time table: client ("forever", "retail" or "both"; nil = "forever"), auraID
+-- (nil = the aura is the spell ID) and allyCast (true = a click does not force the player as unit).
+-- This is the ONE point where a row is kept off a client: an unregistered row is neither offered
+-- nor loaded (an already-placed entry for it is an orphan via ns:IsOrphanMetaReminder). Existing
+-- Forever rows need no argument because nil means forever.
+local function MetaReminderRow(spellID, minutes, knownID, petBook, castID, opts)
+	local client = opts and opts.client or "forever"
+	local isForever = ns.CLIENT_IS_FOREVER == true
+	if not (client == "both" or (client == "forever" and isForever) or (client == "retail" and not isForever)) then
+		return
+	end
 	local def = {
+		auraID = opts and opts.auraID or nil,
+		allyCast = opts ~= nil and opts.allyCast == true,
 		spellID = spellID,
 		duration = minutes > 0 and minutes * 60 or nil,
 		knownID = knownID or spellID,
 		petBook = petBook == true,
+		castID = castID == nil and spellID or castID,
 		key = ns:TrackerKey(ns.KIND.META_REMINDER, spellID),
 	}
 	META_REMINDER_DEFS[#META_REMINDER_DEFS + 1] = def
@@ -1574,14 +1592,14 @@ local function MetaReminderGroup(...)
 	end
 end
 
-MetaReminderRow(1459, 60) -- Mage: Arcane Intellect
+MetaReminderRow(1459, 60, nil, nil, nil, { client = "both" }) -- Mage: Arcane Intellect, same ID and duration on Forever and retail
 MetaReminderRow(7301, 30) -- Mage: Frost Armor
 MetaReminderRow(10938, 60) -- Priest: Power Word: Fortitude (unverified in game)
 MetaReminderRow(9885, 60) -- Druid: Mark of the Wild (unverified in game)
 MetaReminderRow(9910, 10) -- Druid: Thorns (unverified in game)
 MetaReminderRow(25289, 3) -- Warrior: Battle Shout (unverified in game)
 MetaReminderRow(20906, 30) -- Hunter: Trueshot Aura (unverified in game)
-MetaReminderRow(11767, 0, 688, true) -- Warlock: Blood Pact (the imp's; loads when Summon Imp 688 is known)
+MetaReminderRow(11767, 0, 688, true, false) -- Warlock: Blood Pact (the imp's; loads when Summon Imp 688 is known; no cast spell: the imp casts it, so no click action (CLICK-06))
 MetaReminderRow(20217, 60) -- Paladin: Blessing of Kings
 MetaReminderRow(25291, 60) -- Paladin: Blessing of Might
 MetaReminderRow(25290, 60) -- Paladin: Blessing of Wisdom
@@ -1591,6 +1609,26 @@ MetaReminderRow(25780, 30) -- Paladin: Righteous Fury (aura ID = spell ID, unver
 
 -- RALT-03: the five blessings satisfy each other -- a paladin holds one own blessing per target.
 MetaReminderGroup(20217, 25291, 25290, 1038, 19979)
+
+-- The retail rows (user data 2026-09-30, MREM-04/MREM-05).
+-- Arcane Familiar trade-off: a cast of 1459 starts only the Arcane Intellect row (the cast index
+-- holds one owner per spell), so the familiar's reminder hides through its aura 210126 (UNIT_AURA
+-- and the post-cast re-check); listing 1459 as its alternative would wrongly let Arcane Intellect
+-- alone satisfy it.
+MetaReminderRow(210126, 60, 205022, nil, 1459, { client = "retail" }) -- Mage: Arcane Familiar; keyed on its aura 210126 so it never collides with metaReminder:1459; loads when talent 205022 is known; a click casts Arcane Intellect 1459, which grants the familiar
+MetaReminderRow(21562, 60, nil, nil, nil, { client = "retail" }) -- Priest: Power Word: Fortitude
+MetaReminderRow(1126, 60, nil, nil, nil, { client = "retail" }) -- Druid: Mark of the Wild (1126 is the druid's spell; 102046, from the original table, is a same-named non-player spell no druid knows, so that row was never offered)
+MetaReminderRow(474750, 60, nil, nil, nil, { client = "retail", auraID = 474754, allyCast = true }) -- Druid: Symbiotic Relationship (aura 474754; cast on your target)
+MetaReminderRow(6673, 60, nil, nil, nil, { client = "retail" }) -- Warrior: Battle Shout
+MetaReminderRow(462854, 60, nil, nil, nil, { client = "retail" }) -- Shaman: Skyfury
+MetaReminderRow(192106, 60, nil, nil, nil, { client = "retail" }) -- Shaman: Lightning Shield (user, 2026-10-01; aura ID = spell ID)
+MetaReminderRow(364342, 60, nil, nil, nil, { client = "retail", auraID = 381748 }) -- Evoker: Blessing of the Bronze (aura 381748)
+MetaReminderRow(369459, 60, nil, nil, nil, { client = "retail", allyCast = true }) -- Evoker: Source of Magic (cast on your target)
+MetaReminderRow(465, 0, nil, nil, nil, { client = "retail" }) -- Paladin: Devotion Aura (permanent: no duration, shown once the aura is gone, no lead window)
+
+-- Per the user decision, Concentration Aura 317920 or Crusader Aura 32223 satisfies Devotion Aura;
+-- they are alternatives only (not rows), so only 465 receives the list, and Devotion stays the cast spell.
+MetaReminderGroup(465, 317920, 32223)
 
 -- The table row for a class-buff spell ID, or nil. One map read.
 function ns:MetaReminderDef(spellID)
@@ -1610,13 +1648,64 @@ function ns:MetaReminderUsesPetBook(spellID)
 	return def ~= nil and def.petBook == true
 end
 
+-- The spell a click on a reminder casts (CLICK-06), or nil for "no click action". A built-in reads
+-- its table row (Blood Pact is data: castID = false); a user reminder reads entry.castID, defaulting
+-- to its own spell ID when nil, and false when the user emptied the box (no click action). Called by ReminderClick.lua; no API call, no allocation.
+function ns:ReminderCastID(entry)
+	if not ns:IsReminderEntry(entry) then
+		return nil
+	end
+	local id
+	if entry.trackerType == ns.KIND.META_REMINDER then
+		local def = metaReminderDefsBySpellID[entry.spellID]
+		if not def or def.castID == false then
+			return nil
+		end
+		id = def.castID
+	else
+		id = entry.castID
+		-- false: the user emptied the Cast spell ID box -- no click action, as for Blood Pact.
+		if id == false then
+			return nil
+		end
+		if type(id) ~= "number" then
+			id = entry.spellID
+		end
+	end
+	if issecretvalue(id) or type(id) ~= "number" or id <= 0 then
+		return nil
+	end
+	return id
+end
+
+-- Whether a click on a reminder should force the player as the cast unit: nil for the ally-cast
+-- rows (Symbiotic Relationship, Source of Magic), "player" for everything else (Phase 63 self-cast).
+-- Called by ReminderClick.lua's flush; nil leaves the overlay's unit unset so the game's default
+-- targeting applies (a friendly target receives the cast); no API call, no allocation.
+function ns:ReminderCastUnit(entry)
+	if entry.trackerType == ns.KIND.META_REMINDER then
+		local def = metaReminderDefsBySpellID[entry.spellID]
+		if def and def.allyCast then
+			return nil
+		end
+	end
+	return "player"
+end
+
 -- Rewrites a metaReminder entry's derived fields from its table row. The table is the one source
 -- of truth; this runs from ns:RebuildCastIndex every rebuild, before any index reads the entry.
 -- An entry whose row was removed (or re-keyed) keeps its saved copy untouched and is never loaded
 -- (ns:IsOrphanMetaReminder, review WR-02). Each field is written only when different.
--- The data is fixed: always rank-covering (MREM-03), the aura ID is the spell ID, and no
--- aura-loss opt-out or cross-spell rule applies. Alternatives (RALT-03, Phase 57.5) come from the
--- table only, never from user input, and a row with no group clears them. This runs before
+-- The data is fixed: rank-covering wherever the client has spell ranks (MREM-03; Forever), the aura
+-- ID comes from the row (nil = the spell ID), and no aura-loss opt-out or cross-spell rule applies.
+-- Phase 64 review CR-01/WR-01: retail has no ranks, so there a metaReminder is NOT rank-covering and
+-- watches its single aura ID like a retail userReminder. Forcing coverage on retail made the
+-- name-matched spellbook scan pull the Arcane Familiar talent 205022 into its own watch list, and
+-- rebuilt retail families uncached on every in-combat SPELLS_CHANGED. Reads the existing
+-- ns.CLIENT_HAS_SPELL_RANKS answer (no new flavour comparison); a retail entry saved with
+-- coverAllRanks = true by the earlier Phase 64 build is cleared here on its next rebuild.
+-- Alternatives (RALT-03, Phase 57.5) come from the table only, never from user input, and a row
+-- with no group clears them. This runs before
 -- ns:RebuildDetailedRuleIndex reads them, in the same ns:RebuildCastIndex.
 -- 57.5 review IN-03: the entry gets its OWN copy of the row's array, never the def's table, so an
 -- in-place edit of a saved list can never reach the def or another row of the blessing group. The
@@ -1630,17 +1719,21 @@ function ns:ApplyMetaReminderDef(entry)
 	if entry.duration ~= def.duration then
 		entry.duration = def.duration
 	end
-	if entry.coverAllRanks ~= true then
-		entry.coverAllRanks = true
+	local covers = ns.CLIENT_HAS_SPELL_RANKS == true or nil
+	if entry.coverAllRanks ~= covers then
+		entry.coverAllRanks = covers
 	end
-	if entry.auraID ~= nil then
-		entry.auraID = nil
+	if entry.auraID ~= def.auraID then
+		entry.auraID = def.auraID
 	end
 	if entry.keepOnAuraLoss ~= nil then
 		entry.keepOnAuraLoss = nil
 	end
 	if entry.endOnCast ~= nil then
 		entry.endOnCast = nil
+	end
+	if entry.castID ~= nil then
+		entry.castID = nil
 	end
 	-- ns:SameIDList / ns:CopyIDList (Core.lua, 57.5 review IN-03); a def's array is always a proper
 	-- sequence (MetaReminderGroup builds it).
@@ -1652,16 +1745,13 @@ end
 -- The Reminders tab's Suggested offer: the metaReminder keys for every row this character knows,
 -- in table order. Render-time, called only by the Reminders tab's Suggested section (CDM open and
 -- after a drag), never per frame; the rank families it needs are cached in ns.endRuleFamilies
--- (shared with the cast rules through ns:CastRuleFamily) until the next SPELLS_CHANGED. Retail
--- offers none (MREM-02). Fails closed like the racial offer: a row never read readably is not
+-- (shared with the cast rules through ns:CastRuleFamily) until the next SPELLS_CHANGED. The table
+-- holds only the rows tagged for this client (MREM-04/05), so the offer needs no flavour gate of its own. Fails closed like the racial offer: a row never read readably is not
 -- offered; any known rank offers the row. Rebuilt into a module-level array, never a fresh table.
 local metaReminderSuggestionKeys = {}
 
 function ns:MetaReminderSuggestionKeys()
 	wipe(metaReminderSuggestionKeys)
-	if not ns.CLIENT_IS_FOREVER then
-		return metaReminderSuggestionKeys
-	end
 	for _, def in ipairs(META_REMINDER_DEFS) do
 		if ns:ResolveSpellKnown(def.knownID, false) == true then
 			metaReminderSuggestionKeys[#metaReminderSuggestionKeys + 1] = def.key

@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.5.0
-milestone_name: "Elaborate tracking"
-status: archived
-last_updated: "2026-09-29"
-last_activity: 2026-09-29 — v0.5.0 archived; awaiting the user's CHANGELOG entry, squash-merge to main and release.
+milestone: v0.5.1
+milestone_name: "Clickable Reminders and new icons"
+status: complete
+last_updated: "2026-10-01"
+last_activity: 2026-10-01 — Milestone v0.5.1 archived and squash-merged to main
 progress:
-  total_phases: 13
-  completed_phases: 13
-  total_plans: 42
-  completed_plans: 42
+  total_phases: 6
+  completed_phases: 6
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -17,138 +17,81 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-29)
+See: .planning/PROJECT.md (updated 2026-10-01)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** releasing v0.5.0 Elaborate tracking. No milestone is active; the next one starts at Phase 61.
+**Current focus:** Planning the next milestone (`/gsd-new-milestone`; phases start at 67).
 
 ## Current Position
 
-**v0.5.0 archived; awaiting CHANGELOG + release.**
+Phase: — (v0.5.1 complete; Phases 61-66 all done)
+Plan: —
+Status: v0.5.1 shipped 2026-10-01 — Phase 66 passed on Forever and retail (incl. M+), user sign-off;
+archived to `.planning/milestones/v0.5.1-*` and squash-merged to `main`. The user writes the
+CHANGELOG entry, commits the new `Assets/` images with it, and tags the release.
+Last activity: 2026-10-01 — milestone close
 
-- Milestone: v0.5.0 Elaborate tracking — all 13 phases (53-60, incl. 57.1-57.5) complete, 42 plans,
-  33/33 requirements; Forever and retail (incl. M+) full reviews approved by the user 2026-09-29.
-- Archives: `.planning/milestones/v0.5.0-ROADMAP.md`, `.planning/milestones/v0.5.0-REQUIREMENTS.md`.
-  Phase directories stay in `.planning/phases/` until the next kickoff moves them, as v0.4.1's were.
-- Release, in order: (1) the user writes the `v0.5.0` entry in `CHANGELOG.md` (no agent edits it
-  unless asked); (2) squash-merge `milestone/v0.5.0-elaborate-tracking` to `main`; (3) run
-  `scripts/release.bat` from `main`, which creates the tag. No tag was created at archive time.
-- Branch: `milestone/v0.5.0-elaborate-tracking`. Next milestone starts at Phase 61.
+- Next kickoff: archive the phase log below to `.planning/milestones/v0.5.1-STATE-phase-log.md` and
+  move `.planning/phases/61-*`..`65-*` to `.planning/milestones/v0.5.1-phases/`, as done for v0.5.0.
+- Still open: 62-HUMAN-UAT #2 (release zip check, at release); 61-HUMAN-UAT #2 (waits on 999.19/999.20).
 
-## v0.5.0 Phase Log
+## v0.5.1 Phase Log
 
-*Kept for the record until the next kickoff archives it as `milestones/v0.5.0-STATE-phase-log.md`,
-as v0.4.1's was. Superseded by the Current Position above; the pending-UAT notes below were all
-closed on 2026-09-29.*
+*Kept for the record until the next kickoff archives it. Superseded by the Current Position above;
+every pending UAT note below was closed by Phase 66 on 2026-10-01.*
 
-Phase: 53 EXECUTED (5/5 plans, review fixes applied, deployed) — in-game UAT pending in
-`53-HUMAN-UAT.md` (8 items, deferred to the end of the run).
-Phase: 54 EXECUTED (4/4 plans, review fixed, deployed) — in-game UAT pending in `54-HUMAN-UAT.md`
-(11 items, incl. one DECISION on racial cooldown kind).
-Phase: 55 EXECUTED (3/3 plans, review fixed, deployed) — in-game UAT pending in `55-HUMAN-UAT.md`
-(14 items, incl. whether retail has `GetSpellBaseCooldown` for non-charge suggestions).
-Phase: 56 EXECUTED (4/4 plans, review fixed incl. WR-04 cover-all-ranks + aura ID, deployed) —
-in-game UAT pending in `56-HUMAN-UAT.md` (13 items). Includes the ADD-06 portrait.
-Phase: 57 EXECUTED (5/5 plans, review fixed, deployed) — in-game UAT pending in `57-HUMAN-UAT.md`
-(16 items). Review fix WR-03 refines the in-combat rule to the user's own wording: visibility
-follows the aura whenever it can be read, and freezes only while it can't. Only the aura-driven
-START waits for combat to end.
-Plan: 53-01..05, 54-01..04, 55-01..03, 56-01..04 and 57-01..05 done
-Phase: 57.1 EXECUTED (3/3 plans, review fixed, deployed) — the dialog redesign: General/Advanced
-TabSystemTemplate tabs, Advanced prefilled, visibility radio dropdown, no `detailed` flag (schema v9).
-In-game UAT pending in `57.1-HUMAN-UAT.md` (8 items). REQUIREMENTS.md ADD-07 still says
-"Simple/Detailed"; the user renamed them General/Advanced, so update the text at milestone close.
-User passed in game 2026-09-29: 57.1 tabs and v9 migration, 57 "absent" reminder.
-Phase: 57.2 EXECUTED (4/4 plans, review fixed, deployed, verification human_needed) — Buff
-Reminders as a third category (REM-01..04): TBT Reminders tab, Buff Reminders base container,
-`userReminder` kind behind `ns:IsReminderEntry`/`ns.REMINDER_KINDS` (ready for metaReminders), the
-Phase 57 absent runtime reused as-is plus combat/unreadable/restriction hide, visibility option
-removed (DTRK-03 superseded), schema v10. In-game UAT pending in `57.2-HUMAN-UAT.md` (20 items, the
-v10 check needs a real logout/login on both clients). Phase 58 candidates from its review: WR-05
-(`visibility*` names now mean reminders; Phase 58 renames them) and IN-05 (the "In Combat" option
-on a reminders container: KEPT, since reminders show mid-combat when a known duration runs out).
-User passed in game 2026-09-29: reminders work and the v10 migration worked.
-Quick follow-up 2026-09-29: Buff Reminders seed moved to BOTTOMLEFT (850, 580), hand-picked by the
-user; buff trackers now get a duration suggestion from the live aura when it is up and readable
-(empty otherwise, no tooltip parsing, by user decision).
-**Secrecy text trimmed 2026-09-29 at the user's direction:** the "Aura secrecy: <level>" line stays;
-the explanations are short and name no content types (no M+/raid). The user may still hand-tune it.
-**Built (57.2-05, 2026-09-29, review fixed, deployed, UAT pending):** reminders are buff trackers in
-their own category (duration, aura-loss and cast rules back; v10 keeps them), their state is held
-while the aura cannot be read, and their timer syncs to a readable expiry, so a reminder fires
-mid-combat when its buff ends. Review fix 05-WR-01 added a 0.5s cast grace to BUFFS too (shared
-path, per the "reminders are buffs" rule). 57.2-HUMAN-UAT.md has 26 items.
-Phase: 57.3 EXECUTED (3/3 plans, deployed) -- in-game UAT pending in `57.3-HUMAN-UAT.md` (22 items),
-on branch `topic/visibility` (cut from the milestone branch at 913c7a3; the user may drop it). One
-load rule, "Load: When known / Always / Never" (LOAD-01..04): an editable Advanced setting on user
-trackers (`entry.load`, nil = When known), fixed for built-ins (racials When known; Lust, trinket,
-pot, bag items Always); an unloaded tracker is in no index, never drawn, greyed in the TBT tab. The
-race gate is gone: racials are just spells, loaded when known. No schema step (still v10).
-Phase: 57.4 EXECUTED (3/3 plans, deployed) -- in-game UAT pending in `57.4-HUMAN-UAT.md` (24 items, 23
-pending, Priest/Druid/Warrior/Hunter rows skipped by user scope). Class buffs as built-in
-`metaReminder` trackers (MREM-01..03): a 14-row Forever table in Providers.lua, offered as Suggested
-tiles on the Reminders tab for known rows, own cast namespace, fixed When known load, every known
-rank counts; Blood Pact loads on Summon Imp (688, unverified) and reads the imp's rank from the pet
-spellbook. No schema step (still v10).
-Phase: 57.5 EXECUTED (3/3 plans, deployed) -- in-game UAT pending in `57.5-HUMAN-UAT.md` (16
-items). Reminder alternatives (RALT-01..03): 'Also satisfied by' replaces 'Ends when you cast' for
-reminders only; the blessings satisfy each other; Righteous Fury added, Sanctuary dropped; schema
-v11.
-Phase: 58 EXECUTED (4/4 plans, deployed) -- in-game smoke UAT pending in `58-HUMAN-UAT.md` (11
-items). Cleanup: reminder runtime renamed (visibility* to reminder*), the milestone's duplicated
-family/base-override/cast-owner/ID-list/radio code unified, dead branch removed, hot paths
-audited, docs corrected; new: Merge Mode on for a fresh database (user request).
-**Autonomous run 56-57 finished 2026-09-28.** Phases 53-57 are all executed and deployed, and all
-await in-game UAT (64 items across five HUMAN-UAT files). Remaining: Phase 58 Cleanup (named
-targets: the base/override lookup duplicated three times in Core.lua, and wiring
-aura-read-gate.js into release, declined 2026-09-29 by user decision), 59 Forever review, 60 Retail review.
-**Autonomous run 53-55 finished 2026-09-28**; the user reviewed 55 in game ("looking nice") and asked
-for the ADD-06 portrait. **Run 56-57 in progress.** Phases 53-56 are executed and deployed but NOT
-closed: each waits on its HUMAN-UAT file. Next after 57: run the UAT (`/gsd-verify-work 53`..57).
-`scripts/aura-read-gate.js` (30-case selftest) is the standing DTRK-06 proof; Phase 57's aura-state
-cache must pass it. Wiring it into release was left to the cleanup phase (declined 2026-09-29 by user decision).
+Phase: 66 of 66 (Human Testing) — in progress: **retail general review passed 2026-10-01** (user);
+Forever regression check pending. Phase 65 executed 2026-10-01 (review WR-01 fixed in `be337ab`;
+its 3 in-game checks passed on retail the same day)
+Plan: —
+Status: Phase 64 retail UAT passed 2026-10-01 (every class, clicks, lead window, combat, M+; Mark
+of the Wild fixed to 1126, Lightning Shield 192106 added); only 64 #1 (Forever) pending, being
+tested by the user
+Last activity: 2026-09-30 — Phases 61, 62 and 63 executed, code-reviewed, review findings fixed,
+verified (all `human_needed`) and deployed. In-game UAT deferred to Phase 66 by the user's
+one-testing-pass decision: 5 items in `61-HUMAN-UAT.md`, 2 in `62-HUMAN-UAT.md`, 11 in
+`63-HUMAN-UAT.md`. **Phase 63 added `ReminderClick.lua` to the TOC — a full client restart is
+needed before testing, not `/reload`.** Phase 65 carries named cleanup targets from the 63 review:
+IN-01 (shared spell-name helper), IN-02 (repeated stamp-clear code), IN-05 (tooltip hide without
+ownership check), IN-06 (castID field duplicates the auraID field's preview row).
+**User in-game review 2026-09-30:** clicks, Edit Mode, every paladin blessing, left/right/centre
+orientations, combat and mid-combat expiry all worked with no errors. Two follow-ups requested and
+built the same day, outside the phase flow: TAB-10 faction-themed tab icons (`5a7256d`, `_ally` /
+`_horde`, resolved once per login) and REM-05, reminders showing in the last max(1s, 10%) of their
+buff with its real remaining time (`0a40b05`). Both deployed; checks added as 63-HUMAN-UAT #12-13.
 
-**Carry into Phases 56-57 (from 54 review WR-02, fixed):** the dialog saves ONLY fields that were
-visible and read at Save time ("not read means not written"), so a detailed-tracking field hidden in
-simple mode keeps its saved value. Design the simple/detailed switch with that rule in mind.
-Status: Autonomous run, Phases 53-55 (started 2026-09-28); context for all three taken up front
-Branch: `milestone/v0.5.0-elaborate-tracking`, branched from `topic/dev`
-Last activity: 2026-09-29 — ALL PHASES 53-60 COMPLETE. Phases 59 (Forever) and 60 (retail, incl.
-M+) full reviews human-reviewed and approved by the user; every HUMAN-UAT file closed (items not
-tested by name recorded as "accepted"). Next: milestone close-out (/gsd-complete-milestone:
-audit, squash-merge to main, then release.bat; CHANGELOG entry only when the user asks).
+| Phase | Name | Requirements | Status |
+|-------|------|--------------|--------|
+| 61 | Bug Fixes | EDM-08, STEAL-09 | Executed — UAT deferred to 66 |
+| 62 | New Icons | TAB-08, TAB-09, INST-10, DIST-13 | Executed — UAT deferred to 66 |
+| 63 | Clickable Reminders | CLICK-01..06 | Executed — UAT deferred to 66 |
+| 64 | Retail Class-Buff Reminder Suggestions | MREM-04, MREM-05 | Executed — UAT deferred to 66 |
+| 65 | Cleanup | — (process only) | Executed — UAT deferred to 66 |
+| 66 | Human Testing (Forever, then retail) | — (testing pass, no plans) | Not started |
 
-**v0.4.1 is released** — squash-merged to `main` as `c30084a` and tagged `v0.4.1`. The "remaining
-before release" list that sat here was stale; the v0.4.1 phase log is archived at
-`.planning/milestones/v0.4.1-STATE-phase-log.md` and its phase directories at
-`.planning/milestones/v0.4.1-phases/`.
+- Branch: `milestone/v0.5.1-clickable-reminders-new-icons`, cut from `topic/dev` on 2026-09-30.
+- Phases start at **61** (v0.5.0 ended at Phase 60; numbering never restarts).
+- Research skipped: backlog 999.18 in ROADMAP.md is the settled design for clickable reminders.
+- **v0.5.0 is released** — squash-merged to `main` as `9aa91d7` and tagged `v0.5.0` (on `22f9f36`, the changelog commit after it). Its phase log
+  is archived at `.planning/milestones/v0.5.0-STATE-phase-log.md` and its phase directories at
+  `.planning/milestones/v0.5.0-phases/`.
 
-Scope, confirmed by the user at kickoff: naming scheme (999.13), tracker editing (999.12), and simple
-+ detailed tracking (999.14 widened — see PROJECT.md Current Milestone). Research skipped.
+Scope, confirmed by the user at kickoff, in build order: 999.9 (Edit Mode taint), 999.17 (Merge
+Mode charge count), new tab icons, clickable reminders (999.18), retail class-buff reminder
+suggestions (Mage specified; the user supplies other classes when that phase starts), cleanup, then
+**one** human testing phase — Forever first, then retail — instead of two separate review phases.
 
-## Phase Plan — v0.5.0 (set at roadmap creation, 2026-09-28)
-
-| Phase | Name | Requirements | Depends on |
-|-------|------|--------------|------------|
-| 53 | Naming Scheme & Saved-Data Migration | NAME-01, NAME-02 | — (v0.4.1 shipped) |
-| 54 | Edit Trackers | EDIT-01, EDIT-02, EDIT-03, EDIT-04 | 53 |
-| 55 | ID Preview, Suggested Cooldown & Secrecy | ADD-04, ADD-05, SECR-01, SECR-02, SECR-03 | 54 |
-| 56 | Detailed Tracking — Mode & Aura Rules | DTRK-01, DTRK-02, DTRK-04, DTRK-06 | 55 |
-| 57 | Detailed Tracking — Visibility & Cross-Spell Rules | DTRK-03, DTRK-05 | 56 |
-| 58 | Cleanup | — (process) | 57 |
-| 59 | Forever Full Review | — (testing pass, no plans) | 58 |
-| 60 | Retail Full Review | — (testing pass, no plans; last phase) | 59 |
 
 ## Last Milestone at a Glance
 
-v0.5.0 Elaborate tracking made every user tracker editable, named every tracker kind by one scheme
-(schema v8-v11), and added Advanced settings, Buff Reminders with alternatives, a When known /
-Always / Never load rule, and Forever class-buff reminders. 33 of 33 requirements closed, 4 adjusted
-by later user decisions. Verified in game on the Forever beta and Midnight retail (incl. M+),
-2026-09-29.
+v0.5.1 Clickable Reminders and new icons: out-of-combat click-to-cast on every reminder through
+secure overlays, an editable Cast spell ID, reminders showing in the last 10% of their buff,
+faction-themed tab icons with a PNG→BLP pipeline, retail class-buff suggestions for every class,
+and the Edit Mode taint and Merge Mode charge-count fixes. 16 of 16 requirements, verified in game
+on the Forever beta and Midnight retail (incl. M+), 2026-10-01.
 
-Full record: `.planning/MILESTONES.md` (v0.5.0 entry), `.planning/milestones/v0.5.0-ROADMAP.md`,
-`.planning/milestones/v0.5.0-REQUIREMENTS.md`.
+Full record: `.planning/MILESTONES.md` (v0.5.1 entry), `.planning/milestones/v0.5.1-ROADMAP.md`,
+`.planning/milestones/v0.5.1-REQUIREMENTS.md`, `.planning/testing/66-HUMAN-TESTING.md`.
 
 ## Deferred Items
 

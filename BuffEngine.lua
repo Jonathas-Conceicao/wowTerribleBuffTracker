@@ -973,8 +973,11 @@ function ns:GetActiveTimers()
 	--
 	-- Phase 57.2-05: ns.reminderAuraID holds exactly the reminder keys that can own a timer (a
 	-- reminder with a numeric spellID, the only kind the cast index maps). A reminder's timer is
-	-- engine-internal: it never reaches the returned list, so no container ever draws its swipe,
-	-- timer text or activity. Its lazy expiry is evidence the aura ended (Phase 57 WR-03), so the
+	-- engine-internal while the buff is comfortably up: it stays out of the returned list, so no
+	-- container draws it. It joins the list only when its reminder is actually drawn with the buff
+	-- still up -- inside the lead window (ns:ReminderInLead), or while the settings or Edit Mode
+	-- show every reminder -- so that icon carries the buff's real remaining time as its sweep and
+	-- countdown rather than a bare placeholder. Its lazy expiry is evidence the aura ended (Phase 57 WR-03), so the
 	-- reminder is marked absent and shows on this same tick, mid-combat included. Cost: one hash
 	-- lookup per live timer, no allocation.
 	-- 57.5 review WR-01: the expiry is only evidence, so it also queues the post-cast aura re-check
@@ -990,7 +993,10 @@ function ns:GetActiveTimers()
 				ns.auraState[key] = false
 				ns:QueueCastAuraRecheck()
 			end
-		elseif ns.reminderAuraID[key] == nil then
+		elseif
+			ns.reminderAuraID[key] == nil
+			or (proc.section ~= "hidden" and (ns.configOpen or ns.editModeActive or ns:ReminderInLead(proc, now)))
+		then
 			activeTimerSet[key] = proc
 		end
 	end
@@ -1560,10 +1566,12 @@ function ns:StartAllPreviewTimers()
 		-- known spell this character does not know -- an orc holding a troll's racial) never
 		-- previews. One cached table read, ns:IsTrackerLoaded.
 		--
-		-- Phase 57.2-05: a reminder previews as its placeholder, never as a demo sweep -- its
-		-- timer is engine-internal and never drawn, so a preview proc would be the only sweep a
-		-- reminder ever showed.
-		if entry.section ~= "hidden" and not ns:IsReminderEntry(entry) and ns:IsTrackerLoaded(key) then
+		-- A reminder previews with its duration like a buff (user request, 2026-09-30): since the
+		-- lead window a live reminder does draw its timer, so the preview shows what that looks
+		-- like. One without a duration (Blood Pact) still previews as its placeholder, below.
+		-- (This reverses 57.2-05's placeholder-only preview, written when a reminder's timer was
+		-- never drawn.)
+		if entry.section ~= "hidden" and ns:IsTrackerLoaded(key) then
 			-- Skip if a live real proc already owns this key (D-05 priority at insertion time).
 			--
 			-- ns.activeTimers is not the whole answer any more. A custom cooldown never enters it
@@ -1685,13 +1693,41 @@ end
 -- ns:ReminderShowsIn). nil = not a reminder (no gating); true = the buff is missing (a readable
 -- read or a timer end found the aura gone) and no timer runs, so the reminder draws;
 -- false = present, unknown or its timer running, so it hides. Phase 57.2-05: a running timer
--- means the buff is up, so the reminder hides while it runs. Allocation-free: no API call, no
--- aura read, two hash lookups.
+-- means the buff is up, so the reminder hides while it runs -- except in its last stretch:
+-- REMINDER_LEAD_FRACTION of the buff's duration, never less than REMINDER_LEAD_MIN seconds (user
+-- request, 2026-09-30). Inside that window the gate is true while the timer still runs, so
+-- Display draws the reminder through its live-timer branch: the buff's own remaining time, as
+-- a sweep and countdown, on a clickable reminder. The timer's duration is the aura's real one
+-- whenever ns:RefreshAuraStates could read it (57.2-05 sync), the typed one otherwise. An
+-- indefinite or duration-less timer has no end to lead, so it keeps the reminder hidden.
+-- Allocation-free: no aura read, two hash lookups, one GetTime only while a timer runs.
+local REMINDER_LEAD_FRACTION = 0.1
+local REMINDER_LEAD_MIN = 1
+
+-- True while a running reminder timer is inside its lead window. The one definition both
+-- ns:ReminderGate (shows the reminder) and ns:GetActiveTimers (hands the timer to Display, so the
+-- icon carries its sweep and countdown) ask, so the two cannot disagree.
+function ns:ReminderInLead(timer, now)
+	local duration = timer.duration
+	if timer.indefinite or not duration or duration <= 0 then
+		return false
+	end
+	local lead = duration * REMINDER_LEAD_FRACTION
+	if lead < REMINDER_LEAD_MIN then
+		lead = REMINDER_LEAD_MIN
+	end
+	return timer.expiresAt - now <= lead
+end
+
 function ns:ReminderGate(key, entry)
 	if not entry or not ns:IsReminderEntry(entry) then
 		return nil
 	end
-	return ns.auraState[key] == false and ns.activeTimers[key] == nil
+	local timer = ns.activeTimers[key]
+	if timer == nil then
+		return ns.auraState[key] == false
+	end
+	return ns:ReminderInLead(timer, GetTime())
 end
 
 -- Phase 57 DTRK-03: true when any reminder filed in that container must draw (a missing buff

@@ -1,13 +1,15 @@
 # Deploys TerribleBuffTracker to every WoW client folder present on the machine.
 #
 # Three things this does that a plain copy cannot:
-#   1. Derives the file set from the TOC instead of duplicating it (INST-09).
+#   1. Derives the file set from the TOC instead of duplicating it (INST-09),
+#      and adds every texture under Media\Textures (INST-10).
 #   2. Substitutes a dev version into the DEPLOYED TOC only, so the client
 #      reports something real instead of the literal "@project-version@"
 #      (INST-05/INST-06). The repo TOC is never modified — the packager keyword
 #      has to survive for real releases.
 #   3. Prunes files the repo no longer has, so a deployed folder is an honest
-#      picture of the current source (INST-07/INST-08).
+#      picture of the current source (INST-07/INST-08). Folders emptied by the
+#      prune go too.
 #
 # Entry point is scripts\install.bat, which just forwards here.
 
@@ -58,9 +60,38 @@ if ($iconLine) {
     if ($icon -and ($files -notcontains $icon.Name)) { $files.Add($icon.Name) }
 }
 
+# Every texture under Media\Textures is shipped (INST-10). The relative path is
+# built the same way the prune loop builds $rel (FullName.Substring(...).TrimStart('\')),
+# so both sides use backslashes and a deployed texture is never pruned as stale.
+$texDir = Join-Path $source 'Media\Textures'
+if (Test-Path -LiteralPath $texDir) {
+    foreach ($tex in Get-ChildItem -LiteralPath $texDir -File -Recurse | Where-Object { $_.Extension -in '.blp', '.tga' }) {
+        $texRel = $tex.FullName.Substring($source.Length).TrimStart('\')
+        if ($files -notcontains $texRel) { $files.Add($texRel) }
+    }
+
+    # Untracked textures still deploy (new art is tested before it is committed), but
+    # the packager ships only what git tracks, so say so. Skipped silently without git.
+    $gitOk = $false
+    try {
+        $trackedTex = @(& git -C $source ls-files -- 'Media/Textures' 2>$null)
+        $gitOk = ($LASTEXITCODE -eq 0)
+    } catch {
+        $gitOk = $false
+    }
+    if ($gitOk) {
+        $trackedTex = @($trackedTex | ForEach-Object { $_ -replace '/', '\' })
+        foreach ($f in $files) {
+            if ($f -like 'Media\Textures\*' -and $trackedTex -notcontains $f) {
+                Write-Host "WARNING: $f is not tracked by git - it will not be in a release"
+            }
+        }
+    }
+}
+
 foreach ($f in $files) {
     if (-not (Test-Path -LiteralPath (Join-Path $source $f))) {
-        Write-Host "ERROR: $tocName references $f, which does not exist in $source"
+        Write-Host "ERROR: the file set includes $f, which does not exist in $source"
         exit 1
     }
 }
@@ -88,6 +119,9 @@ foreach ($flavor in $flavors) {
 
     $dest = Join-Path $clientDir 'Interface\AddOns\TerribleBuffTracker'
     if (-not (Test-Path -LiteralPath $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
+    # Both prunes compare $dest against FullName, so it must be absolute and backslashed
+    # even when TBT_WOW_ROOT is relative or uses forward slashes (65 review WR-01).
+    $dest = (Get-Item -LiteralPath $dest).FullName.TrimEnd('\')
 
     foreach ($f in $files) {
         $target = Join-Path $dest $f
@@ -109,6 +143,19 @@ foreach ($flavor in $flavors) {
             Remove-Item -LiteralPath $existing.FullName -Force
             Write-Host "  pruned stale file: $rel"
             $pruned++
+        }
+    }
+
+    # A renamed or emptied Media\Textures must leave nothing behind (62 review IN-02).
+    # Deepest first, only strictly inside $dest, and a non-recursive delete that throws
+    # on anything not empty, so no file can be lost here.
+    $dirs = @(Get-ChildItem -LiteralPath $dest -Directory -Recurse | Sort-Object { $_.FullName.Length } -Descending)
+    foreach ($dir in $dirs) {
+        if (-not $dir.FullName.StartsWith($dest + '\')) { continue }
+        if (@(Get-ChildItem -LiteralPath $dir.FullName -Force).Count -eq 0) {
+            [System.IO.Directory]::Delete($dir.FullName, $false)
+            $rel = $dir.FullName.Substring($dest.Length).TrimStart('\')
+            Write-Host "  pruned empty directory: $rel"
         }
     }
 

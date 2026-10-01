@@ -839,9 +839,8 @@ ns.CLIENT_HAS_SPELL_RANKS = isForeverBuild
 -- Retail Midnight ships racials in the Cooldown Manager already, so TBT's racial meta-tracker
 -- would be a worse duplicate of something the player can simply add to a CDM category -- and with
 -- Merge Mode on, it would sit in the same container as the CDM's own copy. It is offered on
--- Forever alone (user decision, 2026-09-23). Phase 57.4: it also gates the class-buff Suggested
--- tiles on the Reminders tab (built-in metaReminder rows carry Forever spell IDs) -- still the same
--- one range comparison.
+-- Forever alone (user decision, 2026-09-23). Phase 64: the same answer is read per class-buff row
+-- (Providers.lua MetaReminderRow's client tag) -- still the same one range comparison.
 ns.CLIENT_IS_FOREVER = isForeverBuild
 
 -- Dedupes while appending id to list. Drops id silently (no insert) unless it survives the
@@ -930,8 +929,9 @@ function ns:ResolveRankFamily(spellID, includePetBook)
 	-- a client lacking any of them degrades to base/override-only resolution, a silent
 	-- no-op, never a Lua error. This never actually runs on retail: ns:RebuildRankIndex
 	-- early-outs before calling this function at all when no tracked entry carries
-	-- coverAllRanks, and on retail no entry ever can, because the checkbox that sets it
-	-- does not exist there.
+	-- coverAllRanks, and on retail no entry ever can: the checkbox that sets it does not
+	-- exist there, and ns:ApplyMetaReminderDef sets it on a metaReminder only where
+	-- ns.CLIENT_HAS_SPELL_RANKS (Phase 64 review CR-01/WR-01).
 	if
 		C_SpellBook
 		and C_SpellBook.GetNumSpellBookSkillLines
@@ -1477,6 +1477,10 @@ function ns:RebuildCastIndex()
 	-- SPELLS_CHANGED, CDM drop) also keeps the cross-spell reverse index current, with no new
 	-- call site anywhere else.
 	ns:RebuildDetailedRuleIndex()
+	-- Phase 63 review CR-02: a castID/alternative/load edit, or a learned or lost spell, can change
+	-- what a reminder click casts without moving any icon, so the overlays re-resolve here. Coalesced
+	-- to one flush a frame later (in combat it waits for PLAYER_REGEN_ENABLED).
+	ns:MarkReminderClicksDirty()
 end
 
 -- RALT-01 (Phase 57.5): one family expansion for a cast-rule trigger and for a reminder
@@ -1773,8 +1777,9 @@ function ns:RebuildRankIndex()
 
 	-- Early-out before touching C_SpellBook at all when nothing is covered -- this is what
 	-- costs a retail client nothing: the checkbox that sets coverAllRanks does not exist
-	-- there, so this list is always empty on retail (a metaReminder, always rank-covering, is only
-	-- ever offered on Forever -- Phase 57.4).
+	-- there, and a metaReminder is rank-covering only where ns.CLIENT_HAS_SPELL_RANKS (retail
+	-- rows exist since Phase 64, but ns:ApplyMetaReminderDef leaves them uncovered -- review
+	-- CR-01/WR-01), so this list is always empty on retail.
 	if #rebuildOwners == 0 then
 		wipe(ns.rankIndex)
 		wipe(ns.rankIndexCooldown)

@@ -17,4 +17,5 @@ MergeMode.lua
 EditModeFrames.lua
 Config.lua
 Display.lua
+ReminderClick.lua
 CDMTab.xml

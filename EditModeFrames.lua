@@ -155,7 +155,7 @@ local selectedContainer = nil -- any ns.CONTAINERS key, or nil
 function ns:SelectContainer(which)
 	-- Idempotent, matching EditModeSystemMixin:SelectSystem's `if not self.isSelected`
 	-- guard. Selection now happens on every mouse-DOWN, so without this a click on an
-	-- already-selected container would re-run ClearSelectedSystem and re-show the popup.
+	-- already-selected container would re-show the popup.
 	if selectedContainer == which then
 		return
 	end
@@ -165,11 +165,14 @@ function ns:SelectContainer(which)
 		ns:DeselectContainer(selectedContainer)
 	end
 
-	-- Clear Blizzard's Edit Mode selection — remove their yellow highlight + close their popup
-	-- Use pcall because ClearSelectedSystem may touch secure state in some contexts
-	if EditModeManagerFrame and EditModeManagerFrame.ClearSelectedSystem then
-		pcall(EditModeManagerFrame.ClearSelectedSystem, EditModeManagerFrame)
-	end
+	-- TBT deliberately does not clear Blizzard's own Edit Mode selection (backlog 999.9,
+	-- EDM-08): calling an Edit Mode mixin method (Blizzard's clear-selection method) from
+	-- this click handler taints the manager frame, and pcall catches errors, not taint.
+	-- Blizzard's yellow highlight and popup may therefore stay on a Blizzard system while a
+	-- TBT container is selected. That is the accepted cost. Do not re-add the call.
+	-- Part of that cost: Blizzard's settings dialog and TBT's popup share strata, frame level
+	-- and anchor, so they overlap exactly. ShowSettingsPopup raises TBT's own popup on top
+	-- (a widget method on TBT's frame, no Edit Mode mixin call); Blizzard's stays underneath.
 
 	selectedContainer = which
 	local overlay = ns.containerSelectedOverlays[which]
@@ -204,6 +207,9 @@ end
 
 local tbtSettingsPopup = nil
 local activeContainerKey = nil
+
+-- Tooltip for the reminders-only Click to Cast checkbox (read by AddCheckbox's hook).
+local CLICK_TO_CAST_TOOLTIP = "Left-click a reminder to cast its spell. Out of combat only."
 
 local function CreateSettingsPopup()
 	local popup = CreateFrame("Frame", "TBTSettingsPopup", UIParent, "ResizeLayoutFrame")
@@ -429,12 +435,33 @@ function ns:ShowSettingsPopup(containerKey)
 		frame:Show()
 	end
 
-	local function AddCheckbox(labelText, settingKey)
+	local function AddCheckbox(labelText, settingKey, defaultOn, tooltipText)
 		local frame = popup.pools:GetPool("EditModeSettingCheckboxTemplate"):Acquire()
 		frame.layoutIndex = layoutIndex
 		layoutIndex = layoutIndex + 1
 		frame.Label:SetText(labelText)
-		frame.Button:SetChecked(ns.db.containerSettings[containerKey][settingKey] == true)
+		local value = ns.db.containerSettings[containerKey][settingKey]
+		frame.Button:SetChecked(value == true or (defaultOn == true and value == nil))
+		-- Set on every acquire so a pooled row reused for another checkbox never inherits it.
+		frame.tbtTooltipText = tooltipText
+		-- HookScript accumulates across pool reuse, so hook once per pooled row. HookScript (not
+		-- SetScript) keeps the template's own OnEnter/OnLeave working.
+		if not frame.Button.tbtTooltipHooked then
+			frame.Button.tbtTooltipHooked = true
+			frame.Button:HookScript("OnEnter", function(self)
+				local text = self:GetParent().tbtTooltipText
+				if text then
+					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+					GameTooltip:SetText(text, 1, 1, 1, 1, true)
+					GameTooltip:Show()
+				end
+			end)
+			frame.Button:HookScript("OnLeave", function(self)
+				if GameTooltip:IsOwned(self) then
+					GameTooltip:Hide()
+				end
+			end)
+		end
 		frame.Button:SetScript("OnClick", function(self)
 			local key = activeContainerKey
 			ns.db.containerSettings[key][settingKey] = self:GetChecked()
@@ -503,7 +530,7 @@ function ns:ShowSettingsPopup(containerKey)
 	else
 		-- Icon-kind order (buffs, essential, utility): Orientation, Icon Direction, Icon
 		-- Size, Icon Padding, Opacity, Visibility, Hide When Inactive, Show Timer, Show
-		-- Tooltips
+		-- Tooltips, then Click to Cast on reminders containers only
 		-- Orientation is built first, as it displays, and reaches its sibling through a
 		-- forward-declared upvalue. GenerateMenu re-runs the generator and re-registers the menu,
 		-- which is what refreshes the CLOSED dropdown's text -- without it the labels would only
@@ -523,6 +550,10 @@ function ns:ShowSettingsPopup(containerKey)
 		AddCheckbox("Hide When Inactive", "hideWhenInactive")
 		AddCheckbox("Show Timer", "showTimer")
 		AddCheckbox("Show Tooltips", "showTooltips")
+		-- Reminders containers only (buff and cooldown icon containers never show it).
+		if ns:GetContainerCategory(ns.CONTAINER_BY_KEY[containerKey]) == "reminders" then
+			AddCheckbox("Click to Cast", "clickToCast", true, CLICK_TO_CAST_TOOLTIP)
+		end
 	end
 
 	-- Deferred layout for proper ResizeLayoutFrame sizing
@@ -536,6 +567,12 @@ function ns:ShowSettingsPopup(containerKey)
 	popup.pendingShow = true
 	popup:Show()
 	popup.pendingShow = nil
+	-- Blizzard's EditModeSystemSettingsDialog shares this popup's DIALOG strata, frame level 200
+	-- and default anchor, and SelectContainer no longer clears Blizzard's selection (EDM-08), so
+	-- both can be shown on the same spot. Raise() is a plain widget method on TBT's OWN frame,
+	-- not an Edit Mode mixin call: it makes the TBT popup the one on top, deterministically,
+	-- instead of leaving the order undefined (61-REVIEW WR-04).
+	popup:Raise()
 end
 
 function ns:HideSettingsPopup()

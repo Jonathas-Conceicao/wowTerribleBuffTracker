@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [x] **v0.5.1 Clickable Reminders and new icons** — Phases 61-66 (shipped 2026-10-01) — [archive](milestones/v0.5.1-ROADMAP.md)
 - [x] **v0.5.0 Elaborate tracking** — Phases 53-60 (shipped 2026-09-29) — [archive](milestones/v0.5.0-ROADMAP.md)
 - [x] **v0.4.1 Generic Item Tracking and Forever Racials** — Phases 46-52 (shipped 2026-09-26) — [archive](milestones/v0.4.1-ROADMAP.md)
 - [x] **v0.4.0 Cooldown Tracking and Full CDM View** — Phases 31-45 (shipped 2026-09-23) — [archive](milestones/v0.4.0-ROADMAP.md)
@@ -12,6 +13,21 @@
 - [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
+
+<details>
+<summary>✅ v0.5.1 Clickable Reminders and new icons (Phases 61-66) — SHIPPED 2026-10-01</summary>
+
+Full detail archived at [`milestones/v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md); requirements
+at [`milestones/v0.5.1-REQUIREMENTS.md`](milestones/v0.5.1-REQUIREMENTS.md).
+
+- [x] Phase 61: Bug Fixes (2/2 plans) — Edit Mode taint (999.9), Merge Mode charge count (999.17)
+- [x] Phase 62: New Icons (2/2 plans) — TBT's own tab and side-tab textures, faction-themed
+- [x] Phase 63: Clickable Reminders (3/3 plans) — out-of-combat click-to-cast (999.18), lead window
+- [x] Phase 64: Retail Class-Buff Reminder Suggestions (2/2 plans)
+- [x] Phase 65: Cleanup (3/3 plans)
+- [x] Phase 66: Human Testing (testing pass) — passed 2026-10-01
+
+</details>
 
 <details>
 <summary>✅ v0.5.0 Elaborate tracking (Phases 53-60) — SHIPPED 2026-09-29</summary>
@@ -245,12 +261,13 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 
 ## Phase Details
 
-*Every phase through v0.5.0 (Phases 1-60) is archived under `.planning/milestones/`. The most recent
-is [`v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md), which carries the full detail for Phases
-53-60 including the five inserted phases 57.1-57.5, each phase's success criteria and the notes
-recorded as it ran; [`v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md) covers Phases 46-52.*
+*Every phase through v0.5.1 (Phases 1-66) is archived under `.planning/milestones/`. The most recent
+is [`v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md), which carries the full detail for Phases
+61-66; [`v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md) covers Phases 53-60.*
 
 ## Progress
+
+**Execution order:** v0.5.1 complete; the next milestone starts with `/gsd-new-milestone`
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -290,6 +307,12 @@ recorded as it ran; [`v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md) covers P
 | 58. Cleanup | v0.5.0 | 4/4 | Complete — smoke UAT passed on both clients | 2026-09-29 |
 | 59. Forever Full Review | v0.5.0 | — | Complete — PASSED, user sign-off; run sheet `59-FOREVER-REVIEW.md` | 2026-09-29 |
 | 60. Retail Full Review | v0.5.0 | — | Complete — PASSED incl. M+, no Lua errors; run sheet `60-RETAIL-REVIEW.md` | 2026-09-29 |
+| 61. Bug Fixes | v0.5.1 | 2/2 | Complete — review fixed (4 WR + 2 IN); UAT passed in Phase 66 | 2026-09-30 |
+| 62. New Icons | v0.5.1 | 2/2 | Complete — review fixed (3 WR + 1 IN); UAT passed in Phase 66 | 2026-09-30 |
+| 63. Clickable Reminders | v0.5.1 | 3/3 | Complete — review fixed (2 CR + 5 WR + 3 IN); UAT passed in Phase 66 | 2026-09-30 |
+| 64. Retail Class-Buff Reminder Suggestions | v0.5.1 | 2/2 | Complete — review fixed (1 CR + 1 WR + 1 IN); UAT passed in Phase 66 | 2026-09-30 |
+| 65. Cleanup | v0.5.1 | 3/3 | Complete — review fixed (1 WR); UAT passed in Phase 66 | 2026-10-01 |
+| 66. Human Testing | v0.5.1 | — | Complete — PASSED on Forever and retail incl. M+, user sign-off; run sheet `66-HUMAN-TESTING.md` | 2026-10-01 |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*
@@ -443,7 +466,7 @@ user-visible behaviour change rather than cleanup, and gating all three rows nee
 both Skyborne characters. It had been folded into Phase 50 earlier the same day and was pulled back
 out — the phase is process-only again. Full write-up at `.planning/research/FOREVER-RACIALS.md`, F-3.
 
-**999.9 — TBT taints `EditModeManagerFrame` on every container click in Edit Mode.** Found
+**999.9 — TBT taints `EditModeManagerFrame` on every container click in Edit Mode.** **Shipped in v0.5.1 (Phase 61, EDM-08).** Found
 2026-09-25 while investigating a user's Lua error. **Left in place by user decision the same day** —
 the error was probably unrelated and a one-line change to pre-existing code was not worth the risk
 mid-review. Recorded so it is not rediscovered cold.
@@ -593,6 +616,66 @@ use the CDM's own state where it is available, as Merge Mode already does for pa
 borders — for example the CDM showing an aura in combat, where TBT's own aura read is secret. Would
 lift the out-of-combat-only limit on aura-driven rules for exactly those spells.
 
+**999.17 — Merge Mode hides the charge count while the spell's buff is up.** **Shipped in v0.5.1 (Phase 61, STEAL-09).** Reported by the user,
+2026-09-30. On a charge spell whose buff is active, the Merge Mode cell correctly shows the **buff
+duration** in place of the cooldown, as the CDM does — but the **charge count disappears** for as
+long as the buff is up. Expected: the count stays visible, as it does on the CDM's own icon, so the
+cell reads "buff has this long left, N charges remaining" at once. Reproduced on retail with the
+Mage's **Prismatic Barrier**. Not yet diagnosed. Suspects in
+`Display.lua`: the aura-owned sweep (`ApplyMergedAuraCooldown`) swapping the cell's owner without
+the charge text being re-asserted (`ApplyChargeCount` runs only on a `_cdGen` change), or, with
+`ns.mergeAuraGroupsActive`, the aura overlay drawn on top covering the underlying icon's
+`chargeCount` — in which case the overlay needs its own count, on the CDM's `ChargeCount` rule.
+
+**999.18 — Click a reminder to cast its spell (out of combat).** **Shipped in v0.5.1 (Phase 63, CLICK-01..06).** Intake 2026-09-30, user request.
+Clicking a reminder icon casts the reminder's spell. On by default. Out of combat only, by design:
+secure buttons cannot be changed in combat, so clicks are disabled there and that is stated
+plainly in the option's tooltip.
+
+Concept confirmed through API lookup:
+- **A separate secure overlay per icon, never the icon itself.** `CreateFrame("Button", nil,
+  UIParent, "SecureActionButtonTemplate")`, parented to `UIParent` and **never anchored** to the
+  icon or its container, to avoid tainting the display tree: an anchor from a protected frame into
+  it makes the tree protected, and every later `SetPoint`/`Show` on it would then error in combat.
+- **Screen-coordinate placement.** Read the plain icon's `GetRect()` and place the overlay with
+  `SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)`, copying size, strata and frame
+  level + 1. Done on initial login (deferred a frame so the rects are calculated, which also clears
+  any left-over mis-position) and again when Edit Mode closes. Dirty-checked on the rect.
+- **The action is two attributes.** The secure handler reads what to do from attributes set on
+  the button: `type1 = "spell"` (left click) and `spell = <cast spellID>`. Written only out of
+  combat, and only when the reminder's cast spell changes.
+- **Combat handled by the game's own secure code.**
+  `RegisterStateDriver(overlay, "visibility", "[combat] hide; show")` hides the overlay in combat
+  without TBT touching it. Every function that changes attributes, position, `EnableMouse` or
+  visibility returns early on `InCombatLockdown()`; `PLAYER_REGEN_ENABLED` applies anything
+  deferred.
+- **Disabled during Edit Mode.** Overlays turn their mouse off (or hide) when Edit Mode opens, so
+  they never swallow drags on the container, and are re-placed when it closes. Must not make
+  999.9's `EditModeManagerFrame` taint worse.
+
+**New advanced option on Reminders: the cast spell.** The spell a click casts is not always the
+spell or aura the reminder tracks. Example, Mage on retail: the "Arcane Familiar" reminder is
+gated on the talent 205022 being known and checks for the Arcane Familiar aura 210126, but the
+spell to cast is **1459, Arcane Intellect**, which grants the Arcane Familiar buff when the talent
+is known. The cast spellID defaults to the reminder's own spellID and can be overridden in the
+reminder's advanced settings. Built-in reminders ship with the right cast spell already set.
+
+**999.19 — Custom trackers show the buff's stack count.** Intake 2026-09-30, user request, found
+during the v0.5.1 in-game review. TBT's custom (user) buff trackers ignore stacks: nothing TBT
+draws for a user tracker carries a stack number, so a stacking buff shows no count. The only stack
+count TBT draws today is its own cast-derived `timer.stacks` for built-in racials, on the
+`icon.chargeCount` widget (Display.lua's live-timer branch in `RenderIconContainer`). A real stack
+count is an aura read (`applications`), secret for a tainted caller in combat, so it would follow
+the same readable-only rule as every other aura-driven behaviour, or come from the CDM where the
+spell is also merged (999.16). This gap made 61-HUMAN-UAT #2 untestable; it was skipped, not failed.
+
+**999.20 — Custom trackers show the remaining duration on the buff icon itself.** Intake
+2026-09-30, user request, found during the v0.5.1 in-game review. A custom buff tracker's icon does
+not show its remaining duration on the icon itself. Not yet diagnosed: the live-timer branch drives
+the icon's Cooldown widget (`icon.cooldown:SetCooldown`), so start from how that widget's countdown
+numbers and the container's "Show Timer" setting are applied. Reminders in their lead window
+(REM-05) do show their countdown, so compare that path.
+
 *The four original backlog phases — 999.1 (Edit Mode mouse-down), 999.2 (README and store copy),
 999.3 (single-TOC migration) and 999.4 (`@project-version@` in dev installs) — were promoted into
 v0.4.0 on 2026-09-20 and shipped as Phases 34, 45, 31-32 and 33 respectively.*
@@ -600,3 +683,7 @@ v0.4.0 on 2026-09-20 and shipped as Phases 34, 45, 31-32 and 33 respectively.*
 *999.12 (edit trackers), 999.13 (naming scheme) and 999.14 (elaborate trackers) were promoted into
 v0.5.0 on 2026-09-28 and shipped as Phases 54, 53 and 56-57 (reshaped by 57.1-57.5). Their entries
 above are kept as the design record, as 999.6 and 999.7 are for v0.4.1.*
+
+*999.9 (Edit Mode taint), 999.17 (Merge Mode charge count) and 999.18 (clickable reminders) were
+promoted into v0.5.1 on 2026-09-30 as Phase 61 (999.9 and 999.17) and Phase 63 (999.18). Their
+entries above are kept as the design record.*

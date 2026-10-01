@@ -1,5 +1,32 @@
 # Milestones
 
+## v0.5.1 Clickable Reminders and new icons (Shipped: 2026-10-01)
+
+**Scope:** Click a reminder to cast its spell out of combat, give TBT's tabs icons of their own, offer retail class-buff reminders, and first fix two bugs in the code this work touches (Edit Mode taint, Merge Mode charge count).
+**Phases:** 6 (61-66), 12 plans; Phase 66 a single testing pass with no plans (Forever and retail together, by user decision at kickoff)
+**Timeline:** 2 days (2026-09-30 → 2026-10-01), ~100 commits, 12 source/script files changed (+1225 / -278) plus 10 PNG sources and 10 BLP textures
+**Verified on:** WoW Forever beta and Midnight retail including M+, 2026-10-01 — Phase 66, user sign-off (`.planning/testing/66-HUMAN-TESTING.md`)
+**Requirements:** 16 / 16 closed, all validated in game; TAB-10 (faction icons) and REM-05 (reminder lead window) added mid-milestone from the user's in-game review of 61-63
+**Known deferred items at close:** 62-HUMAN-UAT #2 (the release zip carries `Media/Textures` and not `Media/Source`) is checked by the user at release; 61-HUMAN-UAT #2 waits on backlog 999.19 / 999.20. Backlog 999.5, 999.8, 999.10, 999.11, 999.15, 999.16, 999.19, 999.20 and `RACE-06` stay open. See `milestones/v0.5.1-ROADMAP.md`
+
+### Key accomplishments
+
+- **Clickable reminders without tainting anything.** Each shown reminder gets a `SecureActionButtonTemplate` overlay parented to UIParent, placed from the icon's screen rect out of combat only and hidden in combat by a state driver. It never anchors to TBT's display tree, so TBT's frames stay untainted and combat raises no blocked action. A click casts the cast spell by name (highest known rank), with `useOnKeyDown = false` after the review found clicks could never fire under the default CVar.
+- **A cast spell per reminder, and "no click" as a value.** The Advanced tab carries a Cast spell ID that follows the Spell ID until edited; an emptied box means no click action. Built-ins carry their own (Blood Pact none, Arcane Familiar casts Arcane Intellect), and two retail ally buffs cast on the target.
+- **Reminders arrive before the buff is gone.** A reminder shows in the last 10% of its buff (never under 1 second) with the buff's real remaining time, and previews with a sweep in the CDM and Edit Mode.
+- **TBT's own art pipeline.** Faction-themed tab and side-tab icons, resolved once per login; PNG sources in `Media/Source` converted to BLP2 by `scripts/png2blp.js`; `install.ps1` deploys and prunes `Media/Textures` and `.pkgmeta` keeps the sources out of the zip.
+- **Retail class-buff suggestions for every class.** Rows are tagged per client against the one sanctioned flavour answer, so retail IDs that mean something else on Forever (6673, 465, 21562) are never offered there.
+- **Two bug fixes first.** Selecting a TBT container no longer calls Blizzard's Edit Mode, and a merged charge spell shows its buff time and charges together.
+
+### Bugs found in this milestone's own work
+
+- **Clicks could never cast** under the default `ActionButtonUseKeyDown = 1` (63 review CR-01). Fixed with `useOnKeyDown = false`.
+- **The reminder countdown was missing** on the icon and in preview, because `GetActiveTimers` excluded reminder timers (`064f76c`).
+- **A Prismatic Barrier stayed visible in preview after Merge Mode was turned off.** It was first blamed on Blizzard's viewer; the user insisted it was TBT's, and it was: the off path never cleared the aura filters (`8ac21ae`). A reported bug is TBT's until proven otherwise.
+- **Arcane Familiar could stay hidden forever** because built-ins covered all ranks by name on retail too, pulling talent 205022 into the watch list (64 review CR-01, `0bbee3e`).
+- **Mark of the Wild was never offered** because the supplied ID, 102046, is a same-named spell no druid knows; changed to 1126 (`f2d4209`). The review had flagged it and left it to the in-game check.
+- **A relative or forward-slash `TBT_WOW_ROOT` made `install.ps1` delete every file it had just copied** (65 review WR-01, `be337ab`).
+
 ## v0.5.0 Elaborate tracking (Shipped: 2026-09-29)
 
 **Scope:** Make every user tracker editable after creation, name every tracker kind by one scheme in code and in saved data, and let custom trackers describe more than "a cast starts a fixed timer" — a separate aura ID, aura-loss opt-out, cross-spell rules, buff reminders, a load rule, class-buff reminders and reminder alternatives.

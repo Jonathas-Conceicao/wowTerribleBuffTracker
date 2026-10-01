@@ -4,7 +4,20 @@ local _, ns = ...
 -- CRITICAL: We must NEVER touch CooldownViewerSettings.TabButtons or call
 -- SetDisplayMode with TBT strings — doing so taints CDM's secure code.
 
-local ICON_PATH = "Interface\\AddOns\\TerribleBuffTracker\\tbt_icon_64x64"
+-- TBT's own tab icons, shipped under Media/Textures in a faction-themed pair each
+-- (icon_<name>_ally / icon_<name>_horde). The TBT logo stays on the TOC and the settings panel.
+-- The faction is read once, on first use: every caller (ns:InitCDMTab, gated on
+-- PLAYER_ENTERING_WORLD, and the tracker dialog, built when first opened) runs after login, and
+-- a character never changes faction within a session. Anything but Horde -- including a
+-- Neutral starting Pandaren -- gets the Alliance set.
+local TAB_ICON_DIR = "Interface\\AddOns\\TerribleBuffTracker\\Media\\Textures\\"
+local tabIconSuffix
+local function TabIcon(name)
+	if not tabIconSuffix then
+		tabIconSuffix = UnitFactionGroup("player") == "Horde" and "_horde" or "_ally"
+	end
+	return TAB_ICON_DIR .. name .. tabIconSuffix
+end
 
 -- Description text for meta-buff tiles in the CDM Suggested section (D-06/D-07 Phase 23).
 -- Kept CDMTab-local — this is settings UX text, not provider concern.
@@ -1051,8 +1064,8 @@ function ns:RefreshTBTSections()
 				end
 			elseif def.key == "suggested" and ns.tbtActiveCategory ~= "buffs" then
 				-- Only the Reminders tab reaches this branch (the Cooldowns tab takes the one
-				-- above). Phase 57.4 (MREM-02): the class buffs this character knows, on Forever
-				-- only (the flavour gate lives in ns:MetaReminderSuggestionKeys, Providers.lua).
+				-- above). Phase 57.4 (MREM-02): the class buffs this character knows, for this
+				-- client (rows are tagged per client in Providers.lua's MetaReminderRow).
 				-- A tile stays after its reminder exists, so dragging it again moves that
 				-- reminder (AddSuggestedTracker). The + and settings squares keep slots 1-2.
 				local suggestedSlot = SUGGESTED_RESERVED_SLOTS
@@ -1562,6 +1575,218 @@ local function ValidateSpellList(state)
 	return true
 end
 
+-- One "follows the Spell ID" field: a numeric box prefilled with, and kept in step with, the
+-- Spell ID box until the user types in it, with an icon + name preview and a spell tooltip on
+-- hover. Both the Aura ID and the Cast spell ID fields are built by it (Phase 65, D-01).
+-- opts.id          the field id and the saved entry key
+-- opts.label       the text above the box
+-- opts.tooLarge    the validate message for an ID past 32 bits
+-- opts.visible     the field's visible(state, ctx) hook
+-- opts.secrecy     true: the tooltip carries the scope note and a secrecy badge describes this
+--                  ID's own aura (the Aura ID field)
+-- opts.emptyIsNone true: a box the user emptied reads false and previews "No click action"
+--                  instead of the Spell ID's spell (the Cast spell ID field)
+local function BuildFollowSpellIDField(opts)
+	local key = opts.id
+	return {
+		id = key,
+		entryKey = key,
+		tab = "advanced",
+		visible = opts.visible,
+		build = function(row, y, onChange, dialog)
+			-- An EARLIER sibling, captured at build like every other cross-field read here.
+			local spell = dialog.GetFieldState("spellID")
+
+			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			label:SetText(opts.label)
+			label:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y)
+
+			local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+			box:SetSize(180, 22)
+			box:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y - 18)
+			box:SetNumeric(true)
+			box:SetMaxLetters(10)
+			box:SetAutoFocus(false)
+
+			local hover = CreateFrame("Frame", nil, row)
+			hover:SetSize(130, 20)
+			hover:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y - 44)
+			hover:EnableMouse(true)
+
+			local icon = hover:CreateTexture(nil, "ARTWORK")
+			icon:SetSize(18, 18)
+			icon:SetPoint("LEFT", hover, "LEFT", 0, 0)
+
+			local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			name:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+			name:SetWidth(108)
+			name:SetJustifyH("LEFT")
+			name:SetWordWrap(false)
+
+			-- Built once here, not per hover: ShowBuffTooltip reads whatever these hold at
+			-- OnEnter time, and update keeps tooltipProc.spellID in step with the box. One
+			-- instance per row, mirroring the portrait's own tooltipProc/tooltipOpts above.
+			local tooltipProc = { spellID = nil, label = "Unknown spell" }
+			local tooltipOpts = { showSpellID = true }
+			if opts.secrecy then
+				-- IN-01: the secrecy line on this tooltip describes THIS ID's own aura, which may
+				-- differ from the spell ID's -- one static note says so.
+				local scopeNote = ns:SecrecyScopeNote()
+				if scopeNote then
+					tooltipOpts.extraLines = { scopeNote }
+				end
+			end
+
+			-- Declared before any SetScript below and before ns:BuildSecrecyBadge: every closure
+			-- reads this same table. A table literal built only at the return would leave them
+			-- bound to the nil global state, and every hover would raise.
+			local state = {
+				editBox = box,
+				spell = spell,
+				hover = hover,
+				icon = icon,
+				name = name,
+				tooltipProc = tooltipProc,
+				tooltipOpts = tooltipOpts,
+				generation = 0,
+				-- Phase 57.1: true while the box has not yet been edited by the user, so update
+				-- keeps writing the Spell ID box's text into it. A programmatic SetText (the
+				-- follow itself, or reset/prefill) passes userInput false, so following is
+				-- unaffected by our own writes -- only a real keystroke turns it off.
+				followsSpell = true,
+			}
+
+			-- Phase 57.1: prefilled and kept in step with the Spell ID box until the user types
+			-- here (D-02 is retired: the box is never blank by default any more).
+			box:SetScript("OnTextChanged", function(_, userInput)
+				-- Review IN-02: the follow write in update runs inside RefreshState's own loop,
+				-- which already updates the later fields and validates -- no nested refresh.
+				if state.syncing then
+					return
+				end
+				if userInput then
+					state.followsSpell = false
+				end
+				onChange()
+			end)
+
+			hover:SetScript("OnEnter", function()
+				if state.spellID then
+					ns:ShowBuffTooltip(hover, state.tooltipProc, state.tooltipOpts)
+				end
+			end)
+			hover:SetScript("OnLeave", function()
+				GameTooltip:Hide()
+			end)
+
+			if opts.secrecy then
+				-- The badge describes the AURA ID's own secrecy (D-02), independent of the
+				-- portrait's badge, which describes the spell ID's.
+				state.badge = ns:BuildSecrecyBadge(row, state)
+				state.badge:SetPoint("LEFT", hover, "RIGHT", 6, 0)
+				state.badge:Hide()
+			end
+
+			return state, y - 72
+		end,
+		reset = function(state)
+			-- Blank here, not the spell ID: the first update (which always runs before the
+			-- dialog is shown) fills it in via the follow below, so a freshly opened Add dialog
+			-- still ends up showing the spell's own ID.
+			state.followsSpell = true
+			state.editBox:SetText("")
+			state.shownID = nil
+			state.resolved = nil
+			state.spellID = nil
+			if opts.secrecy then
+				state.level = nil
+				state.checkedID = nil
+				state.checkedGen = nil
+				state.badge:Hide()
+			end
+		end,
+		prefill = function(state, entry)
+			-- No saved ID means the field follows the spell (the prefilled default); a saved
+			-- ID, even one equal to the spell ID, means the user is done following. A saved
+			-- false (no click action) is not nil, so it prefills an empty, non-following box.
+			state.followsSpell = entry[key] == nil
+			state.editBox:SetText(entry[key] and tostring(entry[key]) or "")
+			state.shownID = nil
+			state.resolved = nil
+			if opts.secrecy then
+				state.checkedID = nil
+			end
+		end,
+		update = function(state)
+			-- Phase 57.1: while following, keep this box's text in step with the Spell ID box.
+			-- Compare before writing, and write under state.syncing: SetText fires this field's
+			-- own OnTextChanged synchronously, which returns early while syncing is set instead
+			-- of starting a nested RefreshState from inside this loop.
+			if state.followsSpell then
+				local spellText = state.spell.editBox:GetText()
+				if state.editBox:GetText() ~= spellText then
+					state.syncing = true
+					state.editBox:SetText(spellText)
+					state.syncing = false
+				end
+			end
+
+			local typed = state.editBox:GetNumber()
+			-- A box the user emptied means "no click action" (e.g. a reminder for a buff another
+			-- class gives you), so the preview says so instead of showing the Spell ID's spell.
+			if opts.emptyIsNone and not state.followsSpell and typed <= 0 then
+				ns:RefreshIDPreview(state, 0)
+				state.name:SetText("No click action")
+				return
+			end
+			local id = typed > 0 and typed or state.spell.editBox:GetNumber()
+			ns:RefreshIDPreview(state, id)
+
+			if not opts.secrecy then
+				return
+			end
+			-- The badge describes the secrecy of whatever ID this box holds, including while it
+			-- follows the spell (Phase 57.1 fills the box with the spell ID then). The portrait's
+			-- own badge sits on General, so on Advanced this one is the only secrecy cue in view.
+			-- Only a blank box (badgeID 0) leaves the level nil and the badge hidden.
+			local badgeID = typed > 0 and typed or 0
+			-- Compare-before-write, keyed like secrecyBadge: an ID the client resolves late is
+			-- asked again once.
+			if badgeID == state.checkedID and state.generation == state.checkedGen then
+				return
+			end
+			state.checkedID = badgeID
+			state.checkedGen = state.generation
+			state.level = badgeID > 0 and ns:SpellAuraSecrecy(badgeID) or nil
+			state.badge:SetShown(ns:SecrecyWarns(state.level) and true or false)
+		end,
+		read = function(state)
+			-- Blank or equal to the spell ID stores nothing (the default); a read nil clears a
+			-- previously saved ID on edit. A box the user emptied reads false for emptyIsNone
+			-- (no click action, the same value a built-in row uses, Blood Pact).
+			local typed = state.editBox:GetNumber()
+			if typed <= 0 then
+				if opts.emptyIsNone and not state.followsSpell then
+					return false
+				end
+				return nil
+			end
+			if typed ~= state.spell.editBox:GetNumber() then
+				return typed
+			end
+			return nil
+		end,
+		validate = function(state)
+			-- The aura read APIs take 32-bit IDs. Review WR-02: skipped while following, since
+			-- the text is then the Spell ID's own, and that field reports its own range error.
+			if not state.followsSpell and state.editBox:GetNumber() > 2147483647 then
+				return false, opts.tooLarge
+			end
+			return true
+		end,
+	}
+end
+
 -- THE FIELD DEFINITION CONTRACT (EDIT-03; 54-CONTEXT "One dialog, two modes"). TRACKER_FIELDS is
 -- one ordered array literal that drives the Add dialog end to end: a new field is one entry here;
 -- neither the add nor the edit path names a field. Each element is a table with:
@@ -1650,6 +1875,10 @@ end
 -- `ns:RebuildDetailedRuleIndex`, and for `alternatives` Core.lua's
 -- `ns:RebuildDetailedRuleIndex` and `ns:RebuildReminderWatch` (57.5-02). General never
 -- becomes invalid or disabled because of a value on Advanced (57.1-CONTEXT).
+-- A reminder also sees `castID` ("Cast spell ID:", Phase 63, CLICK-06), prefilled following the
+-- Spell ID and stored nil when equal, false when emptied (no click action); its runtime reader is
+-- Providers.lua's `ns:ReminderCastID`.
+-- Built-ins never open this dialog, so their cast spell stays table-driven.
 -- `load` (Phase 57.3, LOAD-01) comes LAST on Advanced, after the spell-ID list, for every kind -- it
 -- has no visible() hook, so a cooldown, a buff and a reminder all show it. When known is stored
 -- as nil; Always / Never as their ns.LOAD strings. The runtime reader is Core.lua's
@@ -2021,182 +2250,18 @@ local TRACKER_FIELDS = {
 			return true
 		end,
 	},
-	{
+	-- A cooldown's aura ID drove only the removed visibility option, and schema v10 dropped
+	-- the saved key (REM-04). Buffs and reminders keep it: prefilled, following the Spell ID
+	-- until typed in, stored nil when equal.
+	BuildFollowSpellIDField({
 		id = "auraID",
-		entryKey = "auraID",
-		tab = "advanced",
-		-- A cooldown's aura ID drove only the removed visibility option, and schema v10 dropped
-		-- the saved key (REM-04). Buffs and reminders keep it: prefilled, following the Spell ID
-		-- until typed in, stored nil when equal.
+		label = "Aura ID:",
+		tooLarge = "Aura ID is too large",
+		secrecy = true,
 		visible = function(_, ctx)
 			return ctx.kind ~= ns.KIND.USER_CD
 		end,
-		build = function(row, y, onChange, dialog)
-			-- An EARLIER sibling, captured at build like every other cross-field read here.
-			local spell = dialog.GetFieldState("spellID")
-
-			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			label:SetText("Aura ID:")
-			label:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y)
-
-			local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-			box:SetSize(180, 22)
-			box:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y - 18)
-			box:SetNumeric(true)
-			box:SetMaxLetters(10)
-			box:SetAutoFocus(false)
-
-			local hover = CreateFrame("Frame", nil, row)
-			hover:SetSize(130, 20)
-			hover:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y - 44)
-			hover:EnableMouse(true)
-
-			local icon = hover:CreateTexture(nil, "ARTWORK")
-			icon:SetSize(18, 18)
-			icon:SetPoint("LEFT", hover, "LEFT", 0, 0)
-
-			local name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			name:SetPoint("LEFT", icon, "RIGHT", 4, 0)
-			name:SetWidth(108)
-			name:SetJustifyH("LEFT")
-			name:SetWordWrap(false)
-
-			-- Built once here, not per hover: ShowBuffTooltip reads whatever these hold at
-			-- OnEnter time, and update keeps tooltipProc.spellID in step with the box. One
-			-- instance per row, mirroring the portrait's own tooltipProc/tooltipOpts above.
-			local tooltipProc = { spellID = nil, label = "Unknown spell" }
-			local tooltipOpts = { showSpellID = true }
-			-- IN-01: the secrecy line on this tooltip describes THIS ID's own aura, which may
-			-- differ from the spell ID's -- one static note says so.
-			local scopeNote = ns:SecrecyScopeNote()
-			if scopeNote then
-				tooltipOpts.extraLines = { scopeNote }
-			end
-
-			-- Declared before any SetScript below and before ns:BuildSecrecyBadge: every closure
-			-- reads this same table. A table literal built only at the return would leave them
-			-- bound to the nil global state, and every hover would raise.
-			local state = {
-				editBox = box,
-				spell = spell,
-				hover = hover,
-				icon = icon,
-				name = name,
-				tooltipProc = tooltipProc,
-				tooltipOpts = tooltipOpts,
-				generation = 0,
-				-- Phase 57.1: true while the box has not yet been edited by the user, so update
-				-- keeps writing the Spell ID box's text into it. A programmatic SetText (the
-				-- follow itself, or reset/prefill) passes userInput false, so following is
-				-- unaffected by our own writes -- only a real keystroke turns it off.
-				followsSpell = true,
-			}
-
-			-- Phase 57.1: prefilled and kept in step with the Spell ID box until the user types
-			-- here (D-02 is retired: the box is never blank by default any more).
-			box:SetScript("OnTextChanged", function(_, userInput)
-				-- Review IN-02: the follow write in update runs inside RefreshState's own loop,
-				-- which already updates the later fields and validates -- no nested refresh.
-				if state.syncing then
-					return
-				end
-				if userInput then
-					state.followsSpell = false
-				end
-				onChange()
-			end)
-
-			hover:SetScript("OnEnter", function()
-				if state.spellID then
-					ns:ShowBuffTooltip(hover, state.tooltipProc, state.tooltipOpts)
-				end
-			end)
-			hover:SetScript("OnLeave", function()
-				GameTooltip:Hide()
-			end)
-
-			-- The badge describes the AURA ID's own secrecy (D-02), independent of the
-			-- portrait's badge, which describes the spell ID's.
-			state.badge = ns:BuildSecrecyBadge(row, state)
-			state.badge:SetPoint("LEFT", hover, "RIGHT", 6, 0)
-			state.badge:Hide()
-
-			return state, y - 72
-		end,
-		reset = function(state)
-			-- Blank here, not the spell ID: the first update (which always runs before the
-			-- dialog is shown) fills it in via the follow below, so a freshly opened Add dialog
-			-- still ends up showing the spell's own ID.
-			state.followsSpell = true
-			state.editBox:SetText("")
-			state.shownID = nil
-			state.resolved = nil
-			state.spellID = nil
-			state.level = nil
-			state.checkedID = nil
-			state.checkedGen = nil
-			state.badge:Hide()
-		end,
-		prefill = function(state, entry)
-			-- No saved aura ID means the field follows the spell (the prefilled default);
-			-- a saved aura ID, even one equal to the spell ID, means the user is done following.
-			state.followsSpell = entry.auraID == nil
-			state.editBox:SetText(entry.auraID and tostring(entry.auraID) or "")
-			state.shownID = nil
-			state.resolved = nil
-			state.checkedID = nil
-		end,
-		update = function(state)
-			-- Phase 57.1: while following, keep this box's text in step with the Spell ID box.
-			-- Compare before writing, and write under state.syncing: SetText fires this field's
-			-- own OnTextChanged synchronously, which returns early while syncing is set instead
-			-- of starting a nested RefreshState from inside this loop.
-			if state.followsSpell then
-				local spellText = state.spell.editBox:GetText()
-				if state.editBox:GetText() ~= spellText then
-					state.syncing = true
-					state.editBox:SetText(spellText)
-					state.syncing = false
-				end
-			end
-
-			local typed = state.editBox:GetNumber()
-			local id = typed > 0 and typed or state.spell.editBox:GetNumber()
-			ns:RefreshIDPreview(state, id)
-
-			-- The badge describes the secrecy of whatever ID this box holds, including while it
-			-- follows the spell (Phase 57.1 fills the box with the spell ID then). The portrait's
-			-- own badge sits on General, so on Advanced this one is the only secrecy cue in view.
-			-- Only a blank box (badgeID 0) leaves the level nil and the badge hidden.
-			local badgeID = typed > 0 and typed or 0
-			-- Compare-before-write, keyed like secrecyBadge: an ID the client resolves late is
-			-- asked again once.
-			if badgeID == state.checkedID and state.generation == state.checkedGen then
-				return
-			end
-			state.checkedID = badgeID
-			state.checkedGen = state.generation
-			state.level = badgeID > 0 and ns:SpellAuraSecrecy(badgeID) or nil
-			state.badge:SetShown(ns:SecrecyWarns(state.level) and true or false)
-		end,
-		read = function(state)
-			-- Blank or equal to the spell ID stores nothing (the default); a read nil clears a
-			-- previously saved aura ID on edit.
-			local typed = state.editBox:GetNumber()
-			if typed > 0 and typed ~= state.spell.editBox:GetNumber() then
-				return typed
-			end
-			return nil
-		end,
-		validate = function(state)
-			-- The aura read APIs take 32-bit IDs. Review WR-02: skipped while following, since
-			-- the text is then the Spell ID's own, and that field reports its own range error.
-			if not state.followsSpell and state.editBox:GetNumber() > 2147483647 then
-				return false, "Aura ID is too large"
-			end
-			return true
-		end,
-	},
+	}),
 	{
 		id = "keepOnAuraLoss",
 		entryKey = "keepOnAuraLoss",
@@ -2288,6 +2353,18 @@ local TRACKER_FIELDS = {
 			return ns.REMINDER_KINDS[ctx.kind] == true
 		end,
 	},
+	-- Phase 63 (CLICK-06): the spell a click on this reminder casts. Prefilled and following the
+	-- Spell ID box until typed in; stored nil when equal to it, false when emptied (no click
+	-- action, for a buff the character cannot cast). Reminders only.
+	BuildFollowSpellIDField({
+		id = "castID",
+		label = "Cast spell ID:",
+		tooLarge = "Cast spell ID is too large",
+		emptyIsNone = true,
+		visible = function(_, ctx)
+			return ns.REMINDER_KINDS[ctx.kind] == true
+		end,
+	}),
 	{
 		-- Phase 57.3 (LOAD-01): whether this tracker runs at all. Never called "visibility" --
 		-- containers already have one. No visible() hook: every user kind gets it.
@@ -2413,13 +2490,6 @@ function ns:CreatePanelDialog(name)
 	return dialog
 end
 
--- Side tab icons. General is a file texture, not an atlas. Advanced prefers the GM settings
--- gear atlas; its existence on the Forever beta is unverified, so C_Texture.GetAtlasInfo gates it
--- and a file icon stands in when the atlas is missing.
-local SIDE_TAB_GENERAL_ICON = "Interface\\Icons\\INV_Misc_Book_09"
-local SIDE_TAB_ADVANCED_ATLAS = "GM-icon-settings"
-local SIDE_TAB_ADVANCED_FALLBACK = "Interface\\Icons\\Trade_Engineering"
-
 -- Replaces SidePanelTabButtonMixin:SetChecked on the dialog's side tabs: the mixin version calls
 -- Icon:SetAtlas(activeAtlas/inactiveAtlas), which would wipe a file texture. Only the selected
 -- highlight changes with the state; the icon is set once at creation.
@@ -2430,11 +2500,13 @@ end
 -- Builds one dialog side tab. The template's own OnMouseDown/OnMouseUp keep the icon nudge
 -- and click sound; the hook below only reports a left click released over the tab. upInside is
 -- nil-tolerant in case a client does not pass it. The tooltip comes from the mixin's OnEnter,
--- which reads tooltipText. Runs once per tab at dialog creation, never per frame.
-function ns:CreateDialogSideTab(dialog, tooltipText, iconSize, onSelect)
+-- which reads tooltipText. Runs once per tab at dialog creation, never per frame. The icon is a
+-- file shipped with the addon, so no per-flavour guard is needed.
+function ns:CreateDialogSideTab(dialog, tooltipText, iconPath, iconSize, onSelect)
 	local tab = CreateFrame("Frame", nil, dialog, "LargeSideTabButtonTemplate")
 	tab.tooltipText = tooltipText
 	tab.SetChecked = SetDialogSideTabChecked
+	tab.Icon:SetTexture(iconPath)
 	tab.Icon:SetSize(iconSize, iconSize)
 	tab:SetChecked(false)
 	tab:HookScript("OnMouseUp", function(_, button, upInside)
@@ -2443,18 +2515,6 @@ function ns:CreateDialogSideTab(dialog, tooltipText, iconSize, onSelect)
 		end
 	end)
 	return tab
-end
-
--- Sets the Advanced side tab's icon, falling back to a file icon where the atlas is missing.
--- SetAtlas without useAtlasSize, then SetSize again, so both icons draw at the same size.
-function ns:SetAdvancedSideTabIcon(tab, iconSize)
-	local hasAtlas = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(SIDE_TAB_ADVANCED_ATLAS)
-	if hasAtlas then
-		tab.Icon:SetAtlas(SIDE_TAB_ADVANCED_ATLAS, false)
-	else
-		tab.Icon:SetTexture(SIDE_TAB_ADVANCED_FALLBACK)
-	end
-	tab.Icon:SetSize(iconSize, iconSize)
 end
 
 -- The add/edit dialog's width, shared by the dialog and every field row. 260 rather than the
@@ -2718,13 +2778,11 @@ local function CreateAddDialog()
 		SelectTab("general")
 	end
 
-	generalSideTab = ns:CreateDialogSideTab(dialog, "General", iconSize, SelectGeneral)
-	generalSideTab.Icon:SetTexture(SIDE_TAB_GENERAL_ICON)
+	generalSideTab = ns:CreateDialogSideTab(dialog, "General", TabIcon("icon_info"), iconSize, SelectGeneral)
 	generalSideTab:SetPoint("TOPLEFT", dialog, "TOPRIGHT", DIALOG_SIDE_TAB_X, DIALOG_SIDE_TAB_Y)
-	advancedSideTab = ns:CreateDialogSideTab(dialog, "Advanced", iconSize, function()
+	advancedSideTab = ns:CreateDialogSideTab(dialog, "Advanced", TabIcon("icon_advanced"), iconSize, function()
 		SelectTab("advanced")
 	end)
-	ns:SetAdvancedSideTabIcon(advancedSideTab, iconSize)
 	advancedSideTab:SetPoint("TOP", generalSideTab, "BOTTOM", 0, DIALOG_SIDE_TAB_GAP)
 
 	confirmBtn:SetScript("OnClick", function()
@@ -3278,11 +3336,11 @@ end
 -- Tab init
 ---------------------------------------------------------------------
 
--- All three TBT tabs are set up identically apart from their label and the category they
--- select. Written once here rather than inline per tab, so they cannot drift.
-local function SetUpTBTTab(tab, label, category)
+-- All three TBT tabs are set up identically apart from their label, the category they
+-- select and their icon. Written once here rather than inline per tab, so they cannot drift.
+local function SetUpTBTTab(tab, label, category, iconPath)
 	-- Set icon via SetTexture (not SetAtlas — our icon is a file, not an atlas)
-	tab.Icon:SetTexture(ICON_PATH)
+	tab.Icon:SetTexture(iconPath)
 	tab.Icon:SetSize(30, 30)
 
 	-- Store atlas fields so SetChecked (from LargeSideTabButtonTemplate) works
@@ -3293,7 +3351,7 @@ local function SetUpTBTTab(tab, label, category)
 
 	-- Override SetChecked to use SetTexture instead of SetAtlas
 	function tab:SetChecked(checked)
-		self.Icon:SetTexture(ICON_PATH)
+		self.Icon:SetTexture(iconPath)
 		if self.SelectedTexture then
 			self.SelectedTexture:SetShown(checked)
 		end
@@ -3321,9 +3379,9 @@ function ns:InitCDMTab()
 	-- as spells. Only the LABEL changes -- the category key stays "spells" throughout the code
 	-- and in ns.db.userContainers, because renaming a persisted value would need a migration to
 	-- buy nothing but a matching word.
-	SetUpTBTTab(TBTSpellsTab, "TBT Cooldowns", "spells")
-	SetUpTBTTab(TBTSettingsTab, "TBT Buffs", "buffs")
-	SetUpTBTTab(TBTRemindersTab, "TBT Reminders", "reminders")
+	SetUpTBTTab(TBTSpellsTab, "TBT Cooldowns", "spells", TabIcon("icon_cooldown"))
+	SetUpTBTTab(TBTSettingsTab, "TBT Buffs", "buffs", TabIcon("icon_buff"))
+	SetUpTBTTab(TBTRemindersTab, "TBT Reminders", "reminders", TabIcon("icon_reminder"))
 
 	-- Create TBT content panel — plain frame matching CDM's content area
 	-- CDM's CooldownScroll has NO backdrop — it's a plain ScrollFrame

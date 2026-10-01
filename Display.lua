@@ -141,6 +141,41 @@ ns.containerTooltipsShown = {}
 local slots = {}
 local activeByKey = {}
 
+-- Phase 63 (CLICK-04) -- container key -> true while any of its icons carries a click stamp,
+-- so the hidden-container path clears with one table read instead of walking the pool.
+local clickStampedIn = {}
+
+-- Nils one icon's five click-stamp fields; returns whether it carried a stamp. The only place
+-- they are cleared. Declared here, above ClearClickStamps and every caller.
+local function ClearClickStamp(icon)
+	if icon._clickKey == nil then
+		return false
+	end
+	icon._clickKey = nil
+	icon._clickAnchor = nil
+	icon._clickX = nil
+	icon._clickY = nil
+	icon._clickScale = nil
+	return true
+end
+
+-- Nils the click stamps on every pooled icon of a container (via ClearClickStamp).
+local function ClearClickStamps(pool)
+	for i = 1, #pool do
+		ClearClickStamp(pool[i])
+	end
+end
+
+-- A container that stamped icons and then went away (hidden, or no settings) clears them and
+-- marks the overlays dirty once. Costs one table read when nothing is stamped.
+local function ClearContainerClickStamps(key, pool)
+	if clickStampedIn[key] then
+		clickStampedIn[key] = nil
+		ClearClickStamps(pool)
+		ns:MarkReminderClicksDirty()
+	end
+end
+
 -- Phase 38 (CD-04) -- cooldown slots per container key, and the ns.trackerGeneration stamp
 -- taken when the counts were last rebuilt. Same "constructed once, wiped in place, never
 -- reconstructed" contract as slots/activeByKey above: RefreshCooldownSlotCounts wipe()s it.
@@ -197,6 +232,7 @@ local function RefreshContainerSettings()
 			dst.hideWhenInactive = src.hideWhenInactive ~= false
 			dst.timerShown = src.showTimer ~= false
 			dst.tooltipsShown = src.showTooltips ~= false
+			dst.clickToCast = src.clickToCast ~= false
 
 			if def.kind == "bar" then
 				dst.barWidth = BAR_WIDTH * (src.barWidth or 100) / 100
@@ -242,11 +278,37 @@ function ns.ReleaseContainerRuntime(key)
 			pool[i]:Hide()
 			pool[i]:SetParent(nil)
 		end
+		ClearClickStamps(pool)
 	end
+	clickStampedIn[key] = nil
+	ns:MarkReminderClicksDirty()
 	pools[key] = nil
 	timersByContainer[key] = nil
 	cachedSettings[key] = nil
 	ns.containerTooltipsShown[key] = nil
+end
+
+-- Called only from ReminderClick's flush (a dirty edge), never per frame. Returns the count collected
+-- and the count of stamped icons left out for not being visible (review WR-03: the flush retries).
+function ns:CollectReminderClickIcons(out)
+	wipe(out)
+	local hidden = 0
+	for _, def in ipairs(ns.CONTAINERS) do
+		local pool = pools[def.key]
+		if pool then
+			for i = 1, #pool do
+				local icon = pool[i]
+				if icon._clickKey ~= nil then
+					if icon:IsVisible() then
+						out[#out + 1] = icon
+					else
+						hidden = hidden + 1
+					end
+				end
+			end
+		end
+	end
+	return #out, hidden
 end
 
 for _, def in ipairs(ns.CONTAINERS) do
@@ -475,6 +537,13 @@ local function MarkCooldownsDirtyOnDone()
 	ns:MarkCooldownsDirty()
 end
 
+-- The charge count's resting level, relative to its icon: one above the Cooldown and the
+-- dispelBorder (both icon+1), so it draws over the swipe by LEVEL rather than by creation order.
+-- Creation order alone stopped being enough once SetChargeCountRaised re-levels the frame, since
+-- SetFrameLevel re-inserts it among same-level siblings in a client-defined order (61-REVIEW
+-- WR-03). Declared above CreateTimerIcon, its first user, for the upvalue-order rule.
+local CHARGE_REST_LEVEL = 2
+
 local function CreateTimerIcon(parent)
 	local frame = CreateFrame("Frame", nil, parent or UIParent)
 	frame:SetSize(BUFF_ICON_SIZE, BUFF_ICON_SIZE)
@@ -553,7 +622,8 @@ local function CreateTimerIcon(parent)
 	-- Three details are load-bearing, not taste:
 	--   * the child Frame is created AFTER the Cooldown, in the same <Frames> block, so it
 	--     draws above the swipe -- an OVERLAY font string parented straight to the icon
-	--     would sit under it;
+	--     would sit under it. Since Phase 61 the level is also set explicitly, to
+	--     CHARGE_REST_LEVEL, so the order no longer rests on creation order alone;
 	--   * NumberFontNormal, not the 30x30 CooldownViewerUtilityItemTemplate's
 	--     NumberFontNormalSmall -- TBT's icon is 40x40, the BuffIcon size, so NumberFontNormal
 	--     is the matching pair;
@@ -566,6 +636,8 @@ local function CreateTimerIcon(parent)
 	frame.chargeCount.Current = frame.chargeCount:CreateFontString(nil, "OVERLAY")
 	frame.chargeCount.Current:SetFontObject(NumberFontNormal)
 	frame.chargeCount.Current:SetPoint("BOTTOMRIGHT", -2, 2)
+	frame.chargeCount:SetFrameLevel(frame:GetFrameLevel() + CHARGE_REST_LEVEL)
+	frame._chargeRaised = false
 	frame.chargeCount:Hide()
 
 	-- Phase 40: the countdown for a MERGED buff icon, and nothing else -- every TBT-owned icon
@@ -673,10 +745,10 @@ local function EnsurePandemicIconFX(icon)
 	fx:SetPoint("TOPLEFT", icon, "TOPLEFT", -6, 6)
 	fx:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 6, -6)
 
-	-- SyncEntryContainers gives a merged aura container host:GetFrameLevel() + 10
-	-- (MergeMode.lua:1410, :1457) -- one level above that keeps this highlight from ever being
-	-- covered by an engine aura frame.
-	fx:SetFrameLevel(parent:GetFrameLevel() + 11)
+	-- SyncEntryContainers gives a merged aura container host:GetFrameLevel() +
+	-- ns.MERGE_AURA_CONTAINER_LEVEL (MergeMode.lua, SyncEntryContainers) -- one level above that
+	-- keeps this highlight from ever being covered by an engine aura frame.
+	fx:SetFrameLevel(parent:GetFrameLevel() + ns.MERGE_AURA_CONTAINER_LEVEL + 1)
 	fx:Hide() -- a freshly created FX has no answer yet, exactly like frame.chargeCount / bar.stacks
 
 	icon.pandemicFX = fx
@@ -1092,6 +1164,40 @@ local function ApplyCachedIcon(widget, spellID, iconOverride)
 	widget.icon:SetTexture(widget.cachedIcon)
 end
 
+-- Backlog 999.17 / STEAL-09: a merged charge spell lost its charge count while its buff was up.
+-- Root cause: with the engine aura path active, MergeMode's per-entry AuraContainer for an
+-- Essential/Utility entry sits at host:GetFrameLevel() + 10 on the same cell and covers the
+-- icon's chargeCount, which lives at container+2. The count was set and shown, only covered.
+-- Ruled out: ApplyChargeCount not re-running while the aura owns the sweep. It already runs on
+-- every generation change, outside the aura-ownership guard in ApplyCooldownSlot.
+-- Levels: aura container +10, engine aura frame +11, its Cooldown +12, so the count at +13
+-- draws above the buff sweep (same idea as EnsurePandemicIconFX's +11).
+-- The CDM rule (RefreshSpellChargeInfo) shows the count with no aura condition; TBT's shown
+-- decision already matches, only the draw order changes. The CDM's Essential/Utility templates
+-- have no Applications, so MergeMode's cooldown-host aura frames register none either and the
+-- raised count has its corner to itself (61-REVIEW WR-01).
+-- The raise applies only to a merged entry in the cooldown-slot branch, and only while
+-- ns.mergeAuraGroupsActive. The item-backed Tracked Buffs tiles are never raised (WR-02). TBT's
+-- Edit Mode overlays sit at +10/+11; the engine path goes off in Edit Mode and CDM settings, and
+-- the icons lower on the render tick after that queued mirror pass.
+-- Derived from MergeMode's shared constant (61-REVIEW IN-01) so a change there moves this too.
+-- The +11/+12 for the engine aura frame and its Cooldown are assumed, not verified in game.
+local CHARGE_OVER_AURA_LEVEL = ns.MERGE_AURA_CONTAINER_LEVEL + 3
+
+-- ApplyCooldownSlot does the icon._chargeRaised stamp test inline; ClearCooldownStamps calls this
+-- unconditionally with false. The level is only touched when entering a raised state or leaving
+-- one, never on an icon that was never raised (61-REVIEW WR-03), and lowering restores exactly
+-- the CHARGE_REST_LEVEL CreateTimerIcon set. Assumes the icon's own frame level does not change
+-- after CreateTimerIcon.
+local function SetChargeCountRaised(icon, raised)
+	if raised then
+		icon.chargeCount:SetFrameLevel(icon:GetParent():GetFrameLevel() + CHARGE_OVER_AURA_LEVEL)
+	elseif icon._chargeRaised then
+		icon.chargeCount:SetFrameLevel(icon:GetFrameLevel() + CHARGE_REST_LEVEL)
+	end
+	icon._chargeRaised = raised
+end
+
 -- Drop the cooldown stamps a pooled widget carries away from a cooldown slot. Phase 38: a
 -- widget recycled from a cooldown slot to a buff or a placeholder slot must not keep a stale
 -- charge count or an engine-driven sweep.
@@ -1117,6 +1223,7 @@ local function ClearCooldownStamps(icon)
 	icon._userCdGrey = nil
 	icon._cdGen = nil
 	icon.chargeCount:Hide()
+	SetChargeCountRaised(icon, false)
 	icon.cooldown:Clear()
 	icon._stacks = nil
 	-- Phase 43.1: the aura-over-cooldown stamps go with the rest, for the same reason the two
@@ -1642,7 +1749,10 @@ local function RelayMergedCooldown(icon, entry)
 	return true
 end
 
-local function ApplyCooldownSlot(icon, entry, settings, now)
+-- overAura: true only from the cooldown-slot branch, where an engine aura frame can overlay the
+-- cell (61-REVIEW WR-02). The item-backed Tracked Buffs call passes false, so its item count stays
+-- under the buff tile as before.
+local function ApplyCooldownSlot(icon, entry, settings, now, overAura)
 	-- Every entry ns:AddTrackedBuff has ever written carries a numeric spellID, so this screen
 	-- should never fire; when it does it yields a blank icon with no sweep, not an error.
 	local spellID = entry.spellID
@@ -1657,6 +1767,14 @@ local function ApplyCooldownSlot(icon, entry, settings, now)
 	-- the label ns:ShowBuffTooltip reads, so the placeholder branch's per-tick table
 	-- constructor is not needed here.
 	icon.proc = entry
+
+	-- 999.17: count above the engine aura frame while it is active; outside the generation block
+	-- because ns.mergeAuraGroupsActive flips without moving ns.cooldownGeneration. Only a merged
+	-- entry has an aura container on its cell, so nothing else is raised.
+	local raised = overAura == true and entry.isMerged == true and ns.mergeAuraGroupsActive == true
+	if icon._chargeRaised ~= raised then
+		SetChargeCountRaised(icon, raised)
+	end
 
 	-- A custom tracker's own duration wins over the game's handle, and is evaluated EVERY tick
 	-- rather than on a generation change: nothing fires an event when a TBT-owned cooldown
@@ -2311,6 +2429,8 @@ local function RenderIconContainer(def, container, settings, timers, now)
 
 	if not iconVisible then
 		container:Hide()
+		-- A hidden container has no clickable area. One table read per tick, no pool walk.
+		ClearContainerClickStamps(def.key, pool)
 		return
 	end
 
@@ -2365,6 +2485,8 @@ local function RenderIconContainer(def, container, settings, timers, now)
 		end
 	end
 	local drawnIndex = 0
+	-- Review IN-03: recomputed each pass so clickStampedIn clears once the last stamp does.
+	local anyStamped = false
 
 	for slotIndex, entry in ipairs(slots) do
 		local icon = GetIcon(def.key, slotIndex)
@@ -2437,7 +2559,7 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			-- and must still go quiet when it drops; only a trinket or a potion has a second
 			-- thing to say.
 			if entry.equipSlot or entry.spellCategoryID then
-				ApplyCooldownSlot(icon, entry, settings, now)
+				ApplyCooldownSlot(icon, entry, settings, now, false)
 				icon.mergedTime:Hide()
 				icon._mergedExpiry = nil
 				icon:Show()
@@ -2518,7 +2640,7 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			-- generation-gated block branches ApplyChargeCount vs ApplyItemCount internally.
 			-- entry.isMerged is always false for an item entry, so the merge-aura call below
 			-- is already a no-op for it and needs no guard.
-			ApplyCooldownSlot(icon, entry, settings, now)
+			ApplyCooldownSlot(icon, entry, settings, now, true)
 			icon.mergedTime:Hide()
 			icon._mergedExpiry = nil
 			icon:Show()
@@ -2629,11 +2751,47 @@ local function RenderIconContainer(def, container, settings, timers, now)
 		else
 			icon:Hide()
 		end
+
+		-- Phase 63 (CLICK-04): the only per-tick part of clickable reminders -- comparisons only.
+		-- GetRect and every secure write happen in ReminderClick's flush, on the dirty edge.
+		-- gate == true is exactly the placeholder branch that draws a missing-buff reminder.
+		local clickKey = (gate == true and settings.clickToCast and not iconEditing and anchor ~= nil) and entry.key
+			or nil
+		if
+			icon._clickKey ~= clickKey
+			or (
+				clickKey
+				and (
+					icon._clickAnchor ~= anchor
+					or icon._clickX ~= offsetMajor
+					or icon._clickY ~= offsetMinor
+					or icon._clickScale ~= settings.iconScale
+				)
+			)
+		then
+			if clickKey then
+				icon._clickKey = clickKey
+				icon._clickAnchor = anchor
+				icon._clickX = offsetMajor
+				icon._clickY = offsetMinor
+				icon._clickScale = settings.iconScale
+			else
+				ClearClickStamp(icon)
+			end
+			ns:MarkReminderClicksDirty()
+		end
+		if clickKey then
+			anyStamped = true
+		end
 	end
+	clickStampedIn[def.key] = anyStamped or nil
 
 	-- Hide extra icons
 	for i = #slots + 1, #pool do
 		pool[i]:Hide()
+		if ClearClickStamp(pool[i]) then
+			ns:MarkReminderClicksDirty()
+		end
 		-- Phase 48: pool[i]:Hide() does NOT hide the pandemic FX -- it hangs off the
 		-- container, not the icon (see EnsurePandemicIconFX's comment) -- so without this
 		-- explicit clear a shrinking container would leave a highlight floating over an empty
@@ -2659,6 +2817,7 @@ local function RenderIconContainer(def, container, settings, timers, now)
 	-- the only thing that ever renders the container itself -- the Edit Mode highlight -- was the
 	-- one thing that showed it: the box stayed put while the icons grew out of it.
 	local visibleCount = #slots
+	local containerW, containerH
 	if visibleCount > 0 then
 		local majorCount = math.min(visibleCount, perRow)
 		local minorCount = math.ceil(visibleCount / perRow)
@@ -2666,17 +2825,29 @@ local function RenderIconContainer(def, container, settings, timers, now)
 		local minorSize = (minorCount * BUFF_ICON_SIZE + (minorCount - 1) * iconPadding) * settings.iconScale
 		if orientation == 0 then
 			-- Horizontal layout
-			container:SetSize(math.max(1, majorSize), math.max(1, minorSize))
+			containerW, containerH = math.max(1, majorSize), math.max(1, minorSize)
 		else
 			-- Vertical layout
-			container:SetSize(math.max(1, minorSize), math.max(1, majorSize))
+			containerW, containerH = math.max(1, minorSize), math.max(1, majorSize)
 		end
 	else
 		-- An empty icon container keeps one icon of size so it stays clickable in Edit
 		-- Mode. An example-icon placeholder, the icon equivalent of the bar path's
 		-- example slot, is explicitly deferred by 35-CONTEXT.md.
 		local empty = BUFF_ICON_SIZE * settings.iconScale
-		container:SetSize(empty, empty)
+		containerW, containerH = empty, empty
+	end
+	container:SetSize(containerW, containerH)
+
+	-- Phase 63 review WR-02: the click stamps are container-relative, and the container re-centres
+	-- on its own anchor when it grows or shrinks, so a size change moves every icon on screen with
+	-- no stamp changing. Two number compares per tick; the cache always follows the size, and only a
+	-- container that carries stamps asks for a re-place.
+	if container._clickW ~= containerW or container._clickH ~= containerH then
+		container._clickW, container._clickH = containerW, containerH
+		if clickStampedIn[def.key] then
+			ns:MarkReminderClicksDirty()
+		end
 	end
 end
 
@@ -2712,6 +2883,7 @@ function ns:UpdateDisplay()
 				for i = 1, #pool do
 					pool[i]:Hide()
 				end
+				ClearContainerClickStamps(def.key, pool)
 			end
 			if container then
 				container:Hide()

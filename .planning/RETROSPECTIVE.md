@@ -2,6 +2,43 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v0.5.1 — Clickable Reminders and new icons
+
+**Shipped:** 2026-10-01 (squash-merged; changelog and tag by the user)
+**Phases:** 6 (61-66) | **Plans:** 12 | **Commits:** ~100 | **Span:** 2 days
+
+### What Was Built
+
+- Out-of-combat click-to-cast on every reminder, through secure overlays on UIParent that never touch TBT's display tree; per-container "Click to Cast"; an editable Cast spell ID where empty means no click.
+- Reminders that show in the last 10% (min 1s) of their buff with its real remaining time.
+- Faction-themed tab and side-tab icons, with a PNG→BLP2 converter and install/packager support for `Media/Textures`.
+- Retail class-buff reminder suggestions for every class, rows tagged per client.
+- Edit Mode taint (999.9) and Merge Mode charge count (999.17) fixed first.
+
+### What Worked
+
+- **One testing pass instead of two review phases.** The user tested each phase's features as they landed, so Phase 66 closed in a day with no rework.
+- **Code review before in-game testing caught the worst bugs:** clicks that could never fire (CR-01, `useOnKeyDown`), and Arcane Familiar's watch list pulling in a talent.
+- **Follow-ups built straight from the user's in-game review** (faction icons, lead window) instead of inserting phases.
+
+### What Was Inefficient
+
+- **A real TBT bug was first blamed on Blizzard** (the Prismatic Barrier leftover after Merge Mode off). The user had to insist; the cause was TBT's own off path. Investigate a reported bug as TBT's first.
+- **A review flag was parked instead of resolved.** Mark of the Wild 102046 vs 1126 was raised, left to the in-game check, and failed there. A spell ID the review doubts can be checked against a database before shipping.
+- **A power cut mid-session** left it unclear whether planning had finished; checking git and the phase directory answered it in one step.
+
+### Patterns Established
+
+- Secure click areas live on UIParent, placed from screen rects out of combat, hidden in combat by a state driver, and every write deferred to `PLAYER_REGEN_ENABLED`.
+- Per-row client tags read the one existing flavour answer; no second comparison.
+- Art: `Media/Source` PNG (not shipped) → `scripts/png2blp.js` → `Media/Textures` BLP (shipped).
+
+### Key Lessons
+
+- A user-reported bug is TBT's until proven otherwise.
+- Normalise any path a script compares against `FullName`; an unnormalised root turned a prune into "delete everything".
+- Cleanup merges of milestone-introduced duplicates need an explicit difference table and an in-game check, because nothing else proves behaviour preservation here.
+
 ## Milestone: v0.4.0 — Cooldown Tracking and Full CDM View
 
 **Shipped:** 2026-09-23 (archived; not yet tagged)
