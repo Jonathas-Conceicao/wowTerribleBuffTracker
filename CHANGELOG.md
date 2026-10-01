@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.5.1 — Clickable reminders and new icons
+
+Adding clickable buttons to reminders so you can easily cast your
+buffs when the game allows it.
+
+### New Features
+- Clickable reminders - All suggested buffs come with the clickable
+  spell ready to be used, custom reminders can set up custom spells
+- On by default - On Edit Mode you can disable this new clickable cast
+  functionality for the whole container
+- Added class-buffs reminders to retail:
+  - Mage: Arcane Intellect and Arcane Familiar
+  - Priest: Power Word: Fortitude
+  - Druid: Mark of the Wild and Symbiotic Relationship
+  - Warrior: Battle Shout
+  - Shaman: Skyfury and Lightning Shield
+  - Evoker: Blessing of the Bronze and Source of Magic
+  - Paladin: Devotion Aura, which is also satisfied by Concentration or Crusader Aura
+- New icons for the TBT tabs, the colors are faction themed
+
+### Fixes
+- Selecting a TBT container in Edit Mode no longer clears Blizzard
+  selection, this avoids some edge cases of addon taint that could
+  cause the whole UI to need a reload
+- In Merge Mode, spell charges can still be visible while the buff is up
+- Turning Merge Mode off doesn't leave buffs behind anymore
+
 ## v0.5.0 — Buff Reminders and Elaborate Tracking
 
 Adding direct support for Buff Reminders, a tracker that shows only
