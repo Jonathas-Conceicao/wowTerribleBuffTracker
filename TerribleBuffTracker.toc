@@ -14,6 +14,7 @@ Core.lua
 BuffEngine.lua
 Providers.lua
 MergeMode.lua
+MergeReanchor.lua
 EditModeFrames.lua
 Config.lua
 Display.lua

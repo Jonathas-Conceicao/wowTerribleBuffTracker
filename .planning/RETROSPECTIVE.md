@@ -2,6 +2,44 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v0.5.2 — Improved Merge Mode and small fixes
+
+**Shipped:** 2026-10-10 (archived; squash-merge, changelog and tag by the user)
+**Phases:** 6 (67-72) | **Plans:** 17 | **Commits:** 118 | **Span:** 1 day
+
+### What Was Built
+
+- Merge Mode by moving Blizzard's own CDM item frames onto TBT's cells, styled with plain C setters only and one `Layout` post-hook per viewer; TBT's container settings drive the moved frames, and Merge Mode turns off without `/reload`.
+- The prototype's open issues fixed: CDM settings-window reorders, an Edit Mode placeholder for merged entries Blizzard is not drawing, hidden containers hiding their moved frames.
+- About 2,800 lines of redraw path deleted, closing 999.21-999.25; Merge Mode reads no auras, and a written whole-path review finds no way to paint one thing over every cell.
+- Racials removed entirely, with saved racial trackers dropped silently by schema v12.
+
+### What Worked
+
+- **Prototype first, decision second.** The re-anchor POC passed a retail raid boss with no taint before the milestone committed to it, so the design never changed mid-milestone.
+- **Deleting instead of keeping a fallback.** Five Merge Mode bugs closed by removing the code they lived in, and the re-checks in Phase 72 all passed.
+- **Code review before the game again caught the worst bug:** preview frames were never placed (68 CR-01), found and fixed before any in-game test.
+- **One testing pass for everything.** All 22 deferred in-game checks across Phases 67-70 passed in Phase 72, on retail raid and M+ and on Forever, with no rework.
+
+### What Was Inefficient
+
+- **Phase 68 needed two review passes.** The first fix round reshaped placement (record intent, flush once per render), and the second review found follow-ups in the new shape.
+- **A written review stated a false fact.** The whole-path review called a potion constant unused; the phase code review caught it (70 WR-01). Same shape as the Shadowmeld comment recorded in STATE.md.
+- **Cleanup for state no player has.** The prototype's `/tbt reanchor` flag got a load-time clear, a dry-run mirror and a selftest case, though the flag never shipped. Removed during Phase 72.
+- **A late feature in a testing pass.** Divine Spirit was added during Phase 72 and ships unverified in game, since no leveled priest was available.
+
+### Patterns Established
+
+- Touching Blizzard's frames: plain C setters on the item frames and their regions, one `hooksecurefunc` on each viewer's `Layout`; never `SetParent`, a field write or a mixin call; every frame handed back when the feature is off.
+- Placement records intent during the render and flushes once at its end, walking Blizzard's pools rather than a shown-frames list, so hidden and preview frames are reached.
+- A migration that drops retired data names the retired IDs in a frozen local list recovered from the released source (`git show`), not from the current catalogue.
+
+### Key Lessons
+
+- "Unused" is a grep result, not a recollection; check before writing it into a review.
+- Migrate only what a released version could have saved. Check the release history for both directions: data a past release wrote (v0.4.x racial cooldown tiles) and data no release ever wrote (the prototype flag).
+- Prefer deleting a workaround path over fixing its bugs one by one when a sounder path exists.
+
 ## Milestone: v0.5.1 — Clickable Reminders and new icons
 
 **Shipped:** 2026-10-01 (squash-merged; changelog and tag by the user)

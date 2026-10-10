@@ -84,9 +84,8 @@ end
 
 -- Exposed on ns, not called directly: Providers.lua's ns:MarkItemCatalogueDirty() late-binds
 -- through this field, guarded, because Providers.lua loads before CDMTab.lua and the field is nil
--- until this file runs. Same idiom as ns:RacialCooldownSeed (Providers.lua:886-889) -- a Lua
--- file-local is an upvalue only to functions declared AFTER it, and this project has produced
--- that bug four times.
+-- until this file runs. A Lua file-local is an upvalue only to functions declared AFTER it, and
+-- this project has produced that bug four times.
 ns.RequestItemCatalogueRebuild = RequestItemCatalogueRebuild
 
 ---------------------------------------------------------------------
@@ -146,33 +145,27 @@ local BeginDrag, EndDrag
 -- Create a tracker from a Suggested tile, or move it if one already exists.
 --
 -- Written once and called from both add paths -- the right-click menu and the drag drop --
--- which were the same twenty lines twice over. Unifying them is what lets the racial COOLDOWN
--- tiles work without a third copy: their keys are "metaSkillCd:<spellID>" rather than meta
--- strings, so validating against ns.SUGGESTED_KEYS alone would have created nothing at all.
+-- which were the same twenty lines twice over. Three key shapes are recognised: the
+-- ns.SUGGESTED_KEYS meta keys, "metaItem:<itemID>" bag items and "metaReminder:<spellID>" class buffs.
 local function AddSuggestedTracker(key, targetSection)
 	-- Only the tile's own key is ever reused. A built-in tracker never touches a user tracker for
-	-- the same spell (user decision 2026-09-29): a metaSkillCd:X tile creates or moves
-	-- metaSkillCd:X alone, and a userCd:X for the same spell stays exactly where it is.
+	-- the same spell (user decision 2026-09-29): a metaItem:X tile creates or moves
+	-- metaItem:X alone, and a user tracker for the same item stays exactly where it is.
 	if ns.db.trackedBuffs[key] then
 		ns:SetBuffSection(key, targetSection)
 		return
 	end
 
-	-- A cooldown tile carries its spell in the key; a meta tile IS its key; an item tile carries
-	-- its itemID in the key. Either way the display info is what fills the entry, which is why a
-	-- racial cooldown's seed duration matters -- see ns:RacialCooldownSeed.
-	local cooldownSpellID = ns:CooldownKeySpellID(key)
+	-- A meta tile IS its key; an item tile carries its itemID in the key. Either way the display
+	-- info is what fills the entry.
 	local itemID = ns:ItemKeyItemID(key)
-	-- D-4: a racial buff tile is a fourth recognised key shape, following the same precedent
-	-- as the item: branch immediately above -- resolved here so the reject below admits it.
-	local racialSpellID = ns:RacialKeySpellID(key)
-	-- A class-buff tile (Phase 57.4) is a fifth recognised key shape, admitted only for a spell in
-	-- the Providers.lua class-buff table: a metaReminder key for any other spell creates nothing.
+	-- A class-buff tile (Phase 57.4) is admitted only for a spell in the Providers.lua class-buff
+	-- table: a metaReminder key for any other spell creates nothing.
 	local metaReminderSpellID = ns:KeyNumericID(key, ns.KIND.META_REMINDER)
 	if metaReminderSpellID and not ns:MetaReminderDef(metaReminderSpellID) then
 		metaReminderSpellID = nil
 	end
-	if not cooldownSpellID and not itemID and not racialSpellID and not metaReminderSpellID then
+	if not itemID and not metaReminderSpellID then
 		local known = false
 		for _, suggestedKey in ipairs(ns.SUGGESTED_KEYS) do
 			if suggestedKey == key then
@@ -203,18 +196,14 @@ local function AddSuggestedTracker(key, targetSection)
 		duration = info.duration,
 		section = targetSection,
 		layoutOrder = maxOrder + 1,
-		-- Every Suggested key is canonical, so its own kind IS the entry's kind -- Lust and
-		-- racial buffs mint metaSkill, trinket/pot/bag items mint metaItem, racial cooldowns
-		-- mint metaSkillCd. Unlike before this scheme, a meta buff entry now carries a kind too.
+		-- Every Suggested key is canonical, so its own kind IS the entry's kind -- Lust mints
+		-- metaSkill, trinket/pot/bag items mint metaItem. A meta buff entry carries a kind too.
 		-- Class-buff tiles (Phase 57.4) mint metaReminder, whose duration and rank coverage the
 		-- next rebuild re-applies from the Providers.lua table (ns:ApplyMetaReminderDef).
 		trackerType = ns:KeyKind(key),
 		-- An item entry carries no spellID -- writing itemID here would misroute
 		-- ApplyCooldownSlot's spellID branch and produce a spell-shaped tooltip and a wrong icon.
-		-- A racial DOES carry its real spellID here, unlike an item -- it resolves its icon
-		-- through ns:GetDisplayInfoForKey -> RacialProvider:GetDisplayInfo -> ns:GetSpellIcon,
-		-- an ordinary spell icon lookup that needs the numeric ID, not an override.
-		spellID = cooldownSpellID or racialSpellID or metaReminderSpellID or nil,
+		spellID = metaReminderSpellID or nil,
 		itemID = itemID or nil,
 		-- Not optional and no second chance: an item entry has no spellID, and
 		-- ApplyCachedIcon (Display.lua) reads entry.iconOverride straight off the DB entry and
@@ -236,8 +225,8 @@ local function AddSuggestedTracker(key, targetSection)
 	-- The pooled proc buffers for the new key, so its first cast allocates nothing (the pool rule).
 	ns:PreallocateProc(key)
 
-	-- The cast path reads the cast indexes (ns.metaCooldownKeyBySpell etc.), not a per-cast concat,
-	-- so a freshly-minted key (e.g. a racial cooldown tile) is invisible to the next cast until
+	-- The cast path reads the cast indexes (ns.cooldownKeyBySpell etc.), not a per-cast concat,
+	-- so a freshly-minted key (e.g. a bag item tile) is invisible to the next cast until
 	-- the indexes learn it. ns:RebuildRankIndex runs ns:RebuildCastIndex first, and also builds the
 	-- rank families and the rank-aware aura watch, so a new metaReminder (Phase 57.4) answers a
 	-- lower-rank cast and reads its aura at once (it refreshes the aura states itself) -- the same
@@ -442,8 +431,7 @@ local function CreateIconFrame(parent)
 					end)
 				end
 				-- userBuff, userCd and userReminder only (EDIT-01, Phase 57.2): Lust, trinket, pot,
-				-- racial buffs, racial cooldowns (metaSkillCd, by user decision) and bag items get no
-				-- Edit entry.
+				-- class-buff reminders and bag items get no Edit entry.
 				-- Reached through the ns field, not a file-local -- CreateIconFrame is declared
 				-- above CreateAddDialog, so a file-local ns.tbtAddDialog would still be nil here.
 				if ns:IsEditableTracker(entry) then
@@ -763,7 +751,7 @@ EndDrag = function(commit)
 		local result = SectionHitTest()
 		if result == "delete" then
 			-- Phase 57.4 review WR-03: a Suggested tile is a catalogue entry, not a tracker. A
-			-- class-buff or racial cooldown tile stays offered once tracked and carries the placed
+			-- class-buff tile stays offered once tracked and carries the placed
 			-- tracker's key, so deleting by that key removed the tracker the user placed. A drag
 			-- that started in Suggested cancels here like a drop back on Suggested.
 			if not tbtDragState.isFromSuggested then
@@ -927,8 +915,7 @@ function ns:UpdateScrollChildHeight()
 	ns.tbtScrollChild:SetHeight(total)
 end
 
--- One tile per Suggested key, shared by the racial cooldown tiles (Cooldowns tab) and the class-buff
--- tiles (Reminders tab, Phase 57.4). The key is stored opaquely in item.spellID, which every shared
+-- One tile per Suggested key, used by the class-buff tiles (Reminders tab, Phase 57.4). The key is stored opaquely in item.spellID, which every shared
 -- handler (drag, tooltip, right-click) reads. Pooled frames must lose a previous tile's grey and
 -- count, so both are cleared here.
 local function PlaceSuggestedKeyTile(section, key, slot)
@@ -989,33 +976,16 @@ function ns:RefreshTBTSections()
 				end
 			end
 
-			-- The catalogue tiles are all buff meta-trackers (lust, trinket, pot, racial), so
+			-- The catalogue tiles are all buff meta-trackers (lust, trinket, pot), so
 			-- they belong to the Buffs tab. The + and settings squares are NOT part of this --
 			-- they occupy the reserved slots and are built once in ns:BuildAllSections, so they
 			-- stay put under either tab, which is what the user asked for.
 			if def.key == "suggested" and ns.tbtActiveCategory == "spells" then
-				-- The Cooldowns tab gets the racial COOLDOWN tiles, and nothing else: every other
-				-- catalogue entry is a buff meta-tracker. Keys are ordinary metaSkillCd:<spellID>
-				-- strings, so adding one creates a normal cooldown tracker -- the only thing
-				-- special about them is that the spell and its duration are filled in for a
-				-- character who would otherwise have to look both up.
-				--
-				-- No ns:IsSuggestedKeyResolvable call: ns:RacialCooldownKeys only returns keys
-				-- for a racial that actually resolved, so an unsupported race yields an empty
-				-- list and no tiles rather than a greyed placeholder. That differs from the buff
-				-- tile on purpose -- RACE-01 requires THAT one to appear on both clients.
+				-- The Cooldowns tab offers the bag-derived item catalogue and nothing else: every
+				-- other catalogue entry is a buff meta-tracker.
 				local suggestedSlot = SUGGESTED_RESERVED_SLOTS
-				for i, cooldownKey in ipairs(ns:RacialCooldownKeys()) do
-					suggestedSlot = suggestedSlot + 1
-					-- Pooled frames keep a previous tile's desaturation; these are always
-					-- supported, so PlaceSuggestedKeyTile clears it rather than leaving it.
-					local item = PlaceSuggestedKeyTile(section, cooldownKey, suggestedSlot)
-					item.suggestedIndex = i
-				end
 
-				-- Phase 46 (ITEM-03): append the bag-derived item catalogue after the racial
-				-- tiles, continuing the same suggestedSlot counter so the racial tiles keep
-				-- their current position. No ns:IsSuggestedKeyResolvable call here -- that
+				-- Phase 46 (ITEM-03): the bag-derived item catalogue. No ns:IsSuggestedKeyResolvable call here -- that
 				-- function answers "does this provider's catalog exist on this client at all",
 				-- which has no meaning for a bag-derived, per-character-inventory list; the
 				-- item builder's own taxonomy filter (classID/subClassID/use-spell) already
@@ -1026,8 +996,8 @@ function ns:RefreshTBTSections()
 				--
 				-- Dragging an item tile into a container creates a real metaItem:<itemID>
 				-- tracker entry (ITEM-04, Phase 47) -- AddSuggestedTracker now resolves
-				-- ns:ItemKeyItemID(key) as a third valid key shape alongside a
-				-- metaSkillCd:<spellID> key and a ns.SUGGESTED_KEYS member. Once tracked, the
+				-- ns:ItemKeyItemID(key) as a valid key shape alongside a metaReminder
+				-- key and a ns.SUGGESTED_KEYS member. Once tracked, the
 				-- metaItem:<itemID> entry below is what makes it drop out of this loop
 				-- (ITEM-02) -- no separate removal code needed.
 				for _, itemID in ipairs(ns:ItemCatalogue()) do
@@ -1094,48 +1064,13 @@ function ns:RefreshTBTSections()
 						local iconID = (info and info.icon) or 134400
 						item.spellID = suggestedKey -- string key metaSkill:lust / metaItem:trinket / metaItem:pot
 						item.Icon:SetTexture(iconID)
-						-- RACE-01 requires the tile to appear on both clients, so an unimplemented
-						-- racial is greyed rather than hidden; written on every tile because item
-						-- frames are pooled and a previous tile's desaturation must not persist.
+						-- A tile whose provider reports unsupported is greyed rather than hidden;
+						-- written on every tile because item frames are pooled.
 						item.Icon:SetDesaturated((info and info.unsupported) == true)
 						item.sectionName = "suggested"
 						item.suggestedIndex = i -- index into ns.SUGGESTED_KEYS (D-13)
 						item.layoutIndex = suggestedSlot
 						item:Show()
-					end
-				end
-
-				-- RACE-10/RACE-08 (D-4): a per-race racial buff tile, appended after the static
-				-- SUGGESTED_KEYS catalogue above and continuing its suggestedSlot counter. A
-				-- racial tile is per-character and per-race, one key per spellID -- dynamic
-				-- exactly like the metaItem: catalogue below, not a static ordered list, so it
-				-- cannot live in ns.SUGGESTED_KEYS.
-				for _, def in ipairs(ns:RacialSuggestions()) do
-					-- Cooldown-only racials (Will of the Forsaken, Will to Survive, War Stomp,
-					-- Cultivation) have no buff to preview here -- they surface only as the
-					-- Cooldowns-tab metaSkillCd:<spellID> tile ns:RacialCooldownKeys already emits.
-					if def.duration or def.indefinite then
-						local racialKey = ns:TrackerKey(ns.KIND.META_SKILL, def.spellID)
-						-- Drop-out-once-tracked, no separate removal code -- the identical
-						-- mechanism the item: loop below uses.
-						if not ns.db.trackedBuffs[racialKey] then
-							suggestedSlot = suggestedSlot + 1
-							local item = section.itemPool:Acquire()
-							local info = ns:GetDisplayInfoForKey(racialKey)
-							item.spellID = racialKey
-							item.Icon:SetTexture((info and info.icon) or 134400)
-							-- Pooled frames keep a previous item tile's desaturation; a racial
-							-- tile has no unsupported state any more (D-7 removed the generic
-							-- greyed tile).
-							item.Icon:SetDesaturated(false)
-							item.sectionName = "suggested"
-							-- No item.suggestedIndex: like the bag-derived item list, there is
-							-- no ns.SUGGESTED_KEYS position to index into.
-							-- Pooled frames keep a previous item tile's count.
-							item.chargeCount:Hide()
-							item.layoutIndex = suggestedSlot
-							item:Show()
-						end
 					end
 				end
 			else
@@ -2280,8 +2215,7 @@ local TRACKER_FIELDS = {
 			return { check = check }, y - 26
 		end,
 		reset = function(state)
-			-- Default ON (the prefilled Advanced default; also the lesson from the removed
-			-- racial cancelOnAuraLoss opt-in).
+			-- Default ON (the prefilled Advanced default).
 			state.check:SetChecked(true)
 		end,
 		prefill = function(state, entry)

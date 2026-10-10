@@ -1,6 +1,6 @@
 // Dry-run TBT's ADDON_LOADED sequence against a real SavedVariables file, without a game client.
 //
-//   node scripts/migrate-dryrun.js [--race <raceID>] <path-to-TerribleBuffTracker.lua> [...]
+//   node scripts/migrate-dryrun.js <path-to-TerribleBuffTracker.lua> [...]
 //   node scripts/migrate-dryrun.js --selftest
 //
 // Why this exists: the v4, v5 and v6 migrations had never executed against a genuine v0.3.0
@@ -9,23 +9,23 @@
 // and ns.EnsureContainerSettings FIRST, then the migration blocks, with `ver` read once before
 // any of them -- and prints what each step does to the real data.
 //
-// Covers schema v1 through v11 (Phase 53, NAME-02; Phase 57.1, ADD-07; Phase 57.2, REM-04; Phase 57.5, RALT-02). v7 (ns:MigrateRacialKeys)
-// needs a raceID -- pass one with `--race <n>`; omitted means "unreadable", mirroring a real
-// ADDON_LOADED where UnitRace("player") is not yet safe to call. v8 (the canonical kind +
-// `<kind>:<id>` re-key) reads the racial spell catalogue LIVE out of Providers.lua's RACIAL_SPELLS
-// (extractRacialSpells, below), so this script cannot drift from the Lua data it classifies
+// Covers schema v1 through v12 (Phase 53, NAME-02; Phase 57.1, ADD-07; Phase 57.2, REM-04; Phase 57.5, RALT-02;
+// Phase 67, MIG-03). v7 (ns:MigrateRacialKeys) drops the legacy "racial"/"racial2" slots: Phase 67
+// removed racials, so it never reads the race. v8 (the canonical kind + `<kind>:<id>` re-key)
+// classifies every legacy cooldown as userCd, because no racial catalogue exists to identify one
 // against. v9 (Phase 57.1) drops the saved `detailed` mode flag, clearing the four Advanced keys
 // (auraID, keepOnAuraLoss, visibility, endOnCast) only on records whose `detailed` was not true.
 // v10 (Phase 57.2) turns every userBuff saved with visibility "absent" into a userReminder, and
 // drops every other visibility value and the cooldown aura ID. v11 (Phase 57.5) moves every
 // reminder's "Ends when you cast" list (endOnCast) into its "Also satisfied by" list
-// (alternatives); buff and cooldown trackers keep endOnCast.
+// (alternatives); buff and cooldown trackers keep endOnCast. v12 (Phase 67, MIG-03) drops racial
+// trackers, identified by key shape only (metaSkill:<id>, metaSkillCd:<id>, racial, racial2).
 //
-// `--selftest` runs the v7/v8 mirror against embedded v0.4.1-shaped and pre-v7 fixtures with hard
-// assertions -- there is no Lua test runner and the only real runtime is the WoW client, so this
-// is the closest thing to an automated test the migration has. It is written from the locked
-// decisions in 53-CONTEXT.md, so it is the SPEC plan 53-02's Lua migration is reconciled against
-// in plan 53-05 -- not a transcription of whatever the Lua ends up doing.
+// `--selftest` runs the migration mirror against embedded v0.4.1-shaped, pre-v7 and racial-bearing
+// fixtures with hard assertions -- there is no Lua test runner and the only real runtime is the WoW
+// client, so this is the closest thing to an automated test the migration has. It is written from
+// the locked decisions in 53-CONTEXT.md and 67-CONTEXT.md, so it is the SPEC the Lua migration is
+// reconciled against -- not a transcription of whatever the Lua ends up doing.
 //
 // It is a prediction, not a substitute for the in-game pass (plan 53-05). Keep the registry and
 // the migration blocks below in step with Core.lua and BuffEngine.lua; if they drift, this lies
@@ -41,7 +41,6 @@ const KIND = {
   USER_CD: 'userCd',
   USER_REMINDER: 'userReminder',
   META_SKILL: 'metaSkill',
-  META_SKILL_CD: 'metaSkillCd',
   META_REMINDER: 'metaReminder',
   META_ITEM: 'metaItem',
   USER_ITEM: 'userItem',
@@ -51,8 +50,8 @@ const META_KEY = {
   TRINKET: 'metaItem:trinket',
   POT: 'metaItem:pot',
 };
-const SPELL_KINDS = new Set([KIND.USER_BUFF, KIND.USER_CD, KIND.META_SKILL, KIND.META_SKILL_CD]);
-const KNOWN_KINDS = new Set([KIND.USER_BUFF, KIND.USER_CD, KIND.USER_REMINDER, KIND.META_SKILL, KIND.META_SKILL_CD, KIND.META_REMINDER, KIND.META_ITEM, KIND.USER_ITEM]);
+const SPELL_KINDS = new Set([KIND.USER_BUFF, KIND.USER_CD, KIND.META_SKILL]);
+const KNOWN_KINDS = new Set([KIND.USER_BUFF, KIND.USER_CD, KIND.USER_REMINDER, KIND.META_SKILL, KIND.META_REMINDER, KIND.META_ITEM, KIND.USER_ITEM]);
 // Mirrors Core.lua's ns.REMINDER_KINDS (Phase 57.5): the kinds schema v11 converts.
 const REMINDER_KINDS = new Set([KIND.USER_REMINDER, KIND.META_REMINDER]);
 
@@ -151,93 +150,6 @@ function parse(src) {
   return value();
 }
 
-// --- read the racial spell catalogue LIVE out of Providers.lua -------------------
-// A brace-depth scan of `local RACIAL_SPELLS = {`, so this table can never drift from the Lua
-// data it classifies against. Depth-1 (relative to the table's own opening brace, which is not
-// itself counted) entries are `[raceID] = { ... }`; depth-2 tables inside them are the individual
-// racial defs, walked in source order. Strings and `--` line comments are skipped so a spellID
-// or fallbackLabel value can never be mistaken for a brace.
-function extractRacialSpells() {
-  const luaPath = path.join(__dirname, '..', 'Providers.lua');
-  const src = fs.readFileSync(luaPath, 'utf8');
-  const marker = 'local RACIAL_SPELLS = {';
-  const markerIdx = src.indexOf(marker);
-  if (markerIdx === -1) {
-    throw new Error('extractRacialSpells: "local RACIAL_SPELLS = {" not found in Providers.lua -- has it been renamed?');
-  }
-
-  let i = markerIdx + marker.length; // just past the table's own opening '{'
-  let depth = 0;
-  let segmentStart = i;
-  let currentRaceID = null;
-  let defStart = -1;
-  const byRace = new Map();
-  const spellIDs = new Set();
-
-  const addDef = (text) => {
-    const spellM = text.match(/spellID\s*=\s*(\d+)/);
-    if (!spellM || currentRaceID == null) return;
-    const spellID = Number(spellM[1]);
-    const durM = text.match(/duration\s*=\s*(\d+)/);
-    const labelM = text.match(/fallbackLabel\s*=\s*"([^"]*)"/);
-    const def = { spellID };
-    if (durM) def.duration = Number(durM[1]);
-    if (labelM) def.fallbackLabel = labelM[1];
-    if (!byRace.has(currentRaceID)) byRace.set(currentRaceID, []);
-    byRace.get(currentRaceID).push(def);
-    spellIDs.add(spellID);
-  };
-
-  while (i < src.length) {
-    const ch = src[i];
-    if (ch === '"') {
-      i++;
-      while (i < src.length && src[i] !== '"') { if (src[i] === '\\') i++; i++; }
-      i++;
-      continue;
-    }
-    if (ch === '-' && src[i + 1] === '-') {
-      while (i < src.length && src[i] !== '\n') i++;
-      continue;
-    }
-    if (ch === '{') {
-      depth++;
-      if (depth === 1) {
-        const header = src.slice(segmentStart, i);
-        const raceM = header.match(/\[(\d+)\]/);
-        currentRaceID = raceM ? Number(raceM[1]) : null;
-      } else if (depth === 2) {
-        defStart = i;
-      }
-      i++;
-      segmentStart = i;
-      continue;
-    }
-    if (ch === '}') {
-      if (depth === 0) {
-        // closing brace of RACIAL_SPELLS itself
-        i++;
-        break;
-      }
-      if (depth === 2) {
-        addDef(src.slice(defStart, i + 1));
-      } else if (depth === 1) {
-        currentRaceID = null;
-      }
-      depth--;
-      i++;
-      segmentStart = i;
-      continue;
-    }
-    i++;
-  }
-
-  if (byRace.size === 0) {
-    throw new Error('extractRacialSpells: RACIAL_SPELLS parsed to zero races -- brace scan is broken or the table moved');
-  }
-  return { byRace, spellIDs };
-}
-
 // --- the registry, transcribed from Core.lua ns.CONTAINERS -----------------------
 const CONTAINERS = [
   { key: 'buffs',     kind: 'icon', category: 'buffs' },
@@ -254,67 +166,38 @@ const category = d => (d && d.category) || 'buffs';
 // historical `category(def) === 'buffs'` test.
 const defaultGrowth = d => (d.kind !== 'bar' && category(d) !== 'spells') ? GROWTH_CENTERED : 0;
 
-// --- schema v7: legacy racial re-key (mirrors ns:MigrateRacialKeys, BuffEngine.lua) ----------
-// Gates on a LITERAL 7 (53-CONTEXT "Pin v7 first" -- CURRENT_SCHEMA_VERSION cannot be reused here
-// once v8 exists, or a v7 DB would re-stamp 8 without ever re-keying). Reads schemaVersion FRESH
-// on every call, not a `ver` captured earlier, matching the live function's own re-entrant design
-// (called once from ns:InitBuffEngine, again from Core.lua's PLAYER_ENTERING_WORLD retry).
-function migrateV7(db, raceID, racial, log) {
+// --- schema v7: legacy racial slots dropped (mirrors ns:MigrateRacialKeys, BuffEngine.lua) ----
+// Phase 67 removed racials, so the pre-v7 "racial"/"racial2" slots address nothing: they are dropped
+// rather than re-keyed, and the race is never read. Gates on a LITERAL 7 (53-CONTEXT "Pin v7
+// first" -- CURRENT_SCHEMA_VERSION cannot be reused here once v8 exists). Reads schemaVersion FRESH
+// on every call, matching the live function.
+function migrateV7(db, log) {
   const schemaVersion = db.get('schemaVersion') || 0;
   if (schemaVersion >= 7) return;
 
   const tb = db.get('trackedBuffs');
-  // WR-02: nothing race-dependent to migrate -- stamp 7 without reading the race, so v8 is never
-  // held back waiting on UnitRace for a database v7 has nothing to do for.
-  if (!tb.has('racial') && !tb.has('racial2')) {
-    log.push('v7: no legacy racial slots -- stamped 7 without reading the race');
-    db.set('schemaVersion', 7);
-    return;
-  }
-
-  if (raceID == null) {
-    log.push('v7: raceID unreadable -- deferred (no change)');
-    return;
-  }
-
-  const defs = racial.byRace.get(raceID) || [];
-  const oldSlotKeys = ['racial', 'racial2'];
-  let rekeyed = false;
-
-  for (let slot = 0; slot < oldSlotKeys.length; slot++) {
-    const oldKey = oldSlotKeys[slot];
-    const entry = tb.get(oldKey);
-    if (!entry) continue;
+  for (const oldKey of ['racial', 'racial2']) {
+    if (!tb.has(oldKey)) continue;
     tb.delete(oldKey);
-    const def = defs[slot];
-    if (!def) {
-      log.push(`v7: ${oldKey} has no def for this race's slot ${slot} -- dropped`);
-      continue;
-    }
-    const newKey = 'racial:' + def.spellID; // legacy literal prefix -- NOT ns.RACIAL_KEY_PREFIX
-    if (tb.has(newKey)) {
-      log.push(`v7: ${oldKey} dropped (${newKey} already occupied)`);
-      continue;
-    }
-    entry.set('key', newKey);
-    entry.set('spellID', def.spellID);
-    entry.set('duration', def.duration);
-    entry.set('label', def.fallbackLabel != null ? def.fallbackLabel : entry.get('label'));
-    tb.set(newKey, entry);
-    rekeyed = true;
-    log.push(`v7: ${oldKey} -> ${newKey}`);
+    log.push(`v7: ${oldKey} dropped (legacy racial slot)`);
   }
-
-  if (!rekeyed) log.push('v7: no racial slots to move');
   db.set('schemaVersion', 7);
 }
 
 // --- schema v8: canonical kind + `<kind>:<id>` re-key -----------------------------------------
-// Runs only after v7 has completed (schemaVersion in [7, 8)) -- re-keying a stray "racial"/
-// "racial2" legacy slot before v7 has resolved it would misclassify it, since v8 has no race
-// context of its own. Collects every key FIRST (into a plain array snapshot), then moves each
-// entry table to its new key -- never rebuilds a record.
-function migrateV8(db, racial, log) {
+// Runs only after v7 has completed (schemaVersion in [7, 8)). Every legacy cooldown (numeric key
+// with trackerType 'cooldown', or "cd:<id>") becomes a user cooldown, EXCEPT one whose id is in the
+// frozen LEGACY_RACIAL_CD list below: that is a v0.4.x racial cooldown tile, and it is dropped
+// (MIG-03, Phase 67 review WR-01). Collects every key FIRST (into a plain array snapshot), then
+// moves each entry table to its new key -- never rebuilds a record.
+//
+// Frozen: every spellID the v0.4.0-v0.5.1 racial catalogue offered as a racial cooldown tile. History,
+// not a catalogue -- this list must never grow. Mirrors LEGACY_RACIAL_CD in ns:MigrateKindKeys.
+const LEGACY_RACIAL_CD = new Set([
+  20600, 1259718, 20572, 1299026, 20594, 20580, 1259799, 20577, 7744,
+  20549, 20552, 1259817, 20589, 20554, 1260270, 1259416, 1259705, 1259686,
+]);
+function migrateV8(db, log) {
   const schemaVersion = db.get('schemaVersion') || 0;
   if (schemaVersion < 7 || schemaVersion >= 8) return;
 
@@ -323,7 +206,7 @@ function migrateV8(db, racial, log) {
 
   for (const oldKey of keys) {
     const entry = tb.get(oldKey);
-    let newKey = null, kind = null, id = null;
+    let newKey = null, kind = null, id = null, dropRacial = false;
 
     if (typeof oldKey === 'number') {
       const trackerType = entry.get('trackerType');
@@ -334,7 +217,7 @@ function migrateV8(db, racial, log) {
       } else if (trackerType === 'cooldown') {
         // Defensive only -- v6 should already have moved this to "cd:<id>". Classify exactly
         // like a cd:N key below in case one somehow reached v8 unrekeyed.
-        if (racial.spellIDs.has(oldKey)) { newKey = `${KIND.META_SKILL_CD}:${oldKey}`; kind = KIND.META_SKILL_CD; id = oldKey; }
+        if (LEGACY_RACIAL_CD.has(oldKey)) dropRacial = true;
         else { newKey = `${KIND.USER_CD}:${oldKey}`; kind = KIND.USER_CD; id = oldKey; }
       }
       // anything else (e.g. an already-numeric key with an unrecognised trackerType) is left
@@ -343,7 +226,7 @@ function migrateV8(db, racial, log) {
       let m;
       if ((m = oldKey.match(/^cd:(\d+)$/))) {
         const n = Number(m[1]);
-        if (racial.spellIDs.has(n)) { newKey = `${KIND.META_SKILL_CD}:${n}`; kind = KIND.META_SKILL_CD; id = n; }
+        if (LEGACY_RACIAL_CD.has(n)) dropRacial = true;
         else { newKey = `${KIND.USER_CD}:${n}`; kind = KIND.USER_CD; id = n; }
       } else if ((m = oldKey.match(/^item:(\d+)$/))) {
         const n = Number(m[1]);
@@ -365,6 +248,11 @@ function migrateV8(db, racial, log) {
       // anything else (an unrecognised string key) is left exactly as it is.
     }
 
+    if (dropRacial) {
+      tb.delete(oldKey);
+      log.push(`v8: ${oldKey} dropped (legacy racial cooldown)`);
+      continue;
+    }
     if (newKey == null) continue;
 
     if (newKey !== oldKey) {
@@ -560,15 +448,43 @@ function migrateV11(db, log) {
   db.set('schemaVersion', 11);
 }
 
+// --- schema v12: racial trackers dropped (Phase 67, MIG-03) ----------------------------------
+// Mirrors ns:MigrateDropRacials, BuffEngine.lua; runs only when schemaVersion is in [11, 12).
+// Racial trackers are identified by key shape, never by a catalogue: metaSkill:<digits> (racial
+// buffs), metaSkillCd:<digits> (racial cooldowns) and the legacy racial/racial2 slots.
+// metaSkill:lust has no numeric id and is kept. Keys are collected FIRST, then deleted. The
+// patterns are frozen literals, not KIND, since the metaSkillCd kind is deleted from the Lua.
+function migrateV12(db, log) {
+  const schemaVersion = db.get('schemaVersion') || 0;
+  if (schemaVersion < 11 || schemaVersion >= 12) return;
+
+  const tb = db.get('trackedBuffs');
+  const drop = [];
+  for (const key of tb.keys()) {
+    if (typeof key !== 'string') continue;
+    if (/^metaSkill:\d+$/.test(key) || /^metaSkillCd:\d+$/.test(key) || key === 'racial' || key === 'racial2') {
+      drop.push(key);
+    }
+  }
+  for (const key of drop) {
+    tb.delete(key);
+    log.push(`v12: ${key} dropped (racial)`);
+  }
+  if (!drop.length) log.push('v12: no racial trackers');
+
+  db.set('schemaVersion', 12);
+}
+
 // --- Core.lua defaults + ns:InitBuffEngine's migration chain, on an already-parsed db --------
 // Split out of run() so --selftest can replay the exact same sequence a real login runs, without
-// going through a file on disk. Both real entry points -- ADDON_LOADED (v1..v6, v7, v8) and the
-// PLAYER_ENTERING_WORLD retry (v7, v8 only, when v7 deferred) -- reduce to "run v7 then v8" for a
-// db already at schemaVersion >= 6, which is why a single migrate() call models both call sites.
-function migrate(db, raceID, racial, log) {
+// going through a file on disk. The one real entry point is ADDON_LOADED (v1..v12); the
+// world-entry retry was removed in Phase 67 (v7 no longer needs a readable race), so every step now
+// completes on ADDON_LOADED and a single migrate() call models the whole login.
+function migrate(db, log) {
   const g = k => db.get(k);
 
   // --- Core.lua ADDON_LOADED defaults, in source order -------------------------
+  if (g('dialogStyle') != null) { db.delete('dialogStyle'); log.push('clear dialogStyle (dev-only)'); }
   if (g('tbtVisible') == null)     { db.set('tbtVisible', true);        log.push('seed tbtVisible = true'); }
   if (g('mergeMode') == null)      { db.set('mergeMode', false);        log.push('seed mergeMode = false'); }
   if (!g('containerSettings'))     { db.set('containerSettings', new Map()); }
@@ -666,27 +582,33 @@ function migrate(db, raceID, racial, log) {
     db.set('schemaVersion', 6);
   }
 
-  // Schema v7, then v8, then v9, then v10, then v11 -- the same order ns:InitBuffEngine uses (plan
-  // 53-02, plan 57.1-01, plan 57.2-01, plan 57.5-01). Each gates and no-ops internally exactly like
-  // the live Lua does.
-  migrateV7(db, raceID, racial, log);
-  migrateV8(db, racial, log);
+  // Schema v7, then v8, then v9, then v10, then v11, then v12 -- the same order ns:InitBuffEngine
+  // uses (plan 53-02, 57.1-01, 57.2-01, 57.5-01, 67-01). Each gates and no-ops internally exactly
+  // like the live Lua does.
+  migrateV7(db, log);
+  migrateV8(db, log);
   migrateV9(db, log);
   migrateV10(db, log);
   migrateV11(db, log);
+  migrateV12(db, log);
 }
 
-function run(filePath, raceID) {
+// Read-only: parses and migrates in memory, never writes the input file.
+function run(filePath) {
   const db = parse(fs.readFileSync(filePath, 'utf8'));
   const log = [];
-  const racial = extractRacialSpells();
 
   log.push(`schemaVersion in  : ${db.get('schemaVersion')}`);
-  migrate(db, raceID, racial, log);
+  migrate(db, log);
   log.push(`schemaVersion out : ${db.get('schemaVersion')}`);
 
   // --- what survived -----------------------------------------------------------
   const tb = db.get('trackedBuffs');
+  const dropped = log
+    .map(line => line.match(/^v(?:7|12): (\S+) dropped \((?:legacy racial slot|racial)\)$/))
+    .filter(Boolean)
+    .map(m => m[1]);
+  log.push(`trackers dropped  : ${dropped.length} -> ${dropped.join(', ')}`);
   log.push(`trackers kept     : ${tb.size} -> ${[...tb.keys()].join(', ')}`);
   const pos = db.get('editModePositions');
   log.push(`positions kept    : ${pos ? [...pos.keys()].join(', ') : '(none)'}`);
@@ -699,7 +621,8 @@ function run(filePath, raceID) {
 // SavedVariables syntax, so these go through the same parse() a real file does. Fixtures A-B match
 // plan 53-01's <feature><behavior> block exactly; Fixture D is shaped like a client-written file.
 
-// Fixture A: v0.4.1 shape, schemaVersion 7 (v7 already complete), race 2 = Orc.
+// Fixture A: v0.4.1 shape, schemaVersion 7 (v7 already complete). Its racial rows are dropped: the racial
+// cooldowns (cd:20572, cd:20554) by v8, the racial buff (racial:20572, via metaSkill:20572) by v12.
 const FIXTURE_A = `
 TerribleBuffTrackerDB = {
 	["schemaVersion"] = 7,
@@ -860,16 +783,15 @@ function assertMoved(expect, tbAfter, snapshot, fieldsBefore, oldKey, newKey, ki
   }
 }
 
-// oldKey, newKey, kind, backfilled-field-or-null -- matches the ten trackers Fixture A carries.
+// oldKey, newKey, kind, backfilled-field-or-null -- the seven trackers Fixture A keeps.
+// racial:20572 is absent on purpose: v8 re-keys it to metaSkill:20572 and v12 then drops it. cd:20572
+// and cd:20554 are absent too: they are legacy racial cooldowns, dropped by v8 (WR-01, MIG-03).
 const FIXTURE_A_MOVES = [
   [1719, 'userBuff:1719', 'userBuff', null],
   ['cd:1719', 'userCd:1719', 'userCd', null],
   ['lust', 'metaSkill:lust', 'metaSkill', null],
   ['trinket', 'metaItem:trinket', 'metaItem', null],
   ['pot', 'metaItem:pot', 'metaItem', null],
-  ['racial:20572', 'metaSkill:20572', 'metaSkill', null],
-  ['cd:20572', 'metaSkillCd:20572', 'metaSkillCd', null],
-  ['cd:20554', 'metaSkillCd:20554', 'metaSkillCd', null],
   ['item:241308', 'metaItem:241308', 'metaItem', null],
   [6673, 'userBuff:6673', 'userBuff', 'spellID'],
 ];
@@ -881,12 +803,20 @@ function caseA(expect) {
   const fieldsBefore = new Map();
   for (const [k, e] of tb) { snapshot.set(k, e); fieldsBefore.set(k, snapshotFields(e)); }
 
-  const racial = extractRacialSpells();
-  migrate(db, 2, racial, []);
+  migrate(db, []);
 
-  expect(db.get('schemaVersion') === 11, `schemaVersion expected 11, got ${db.get('schemaVersion')}`);
+  expect(db.get('schemaVersion') === 12, `schemaVersion expected 12, got ${db.get('schemaVersion')}`);
   const tbAfter = db.get('trackedBuffs');
-  expect(tbAfter.size === 10, `trackedBuffs.size expected 10, got ${tbAfter.size}`);
+  expect(tbAfter.size === 7, `trackedBuffs.size expected 7, got ${tbAfter.size}`);
+  for (const k of tbAfter.keys()) {
+    expect(
+      !(typeof k === 'string' && ((k.startsWith('metaSkill:') && k !== 'metaSkill:lust') || k.startsWith('metaSkillCd:'))),
+      `${k}: a racial tracker survived v12`
+    );
+  }
+  for (const k of ['userCd:20572', 'userCd:20554', 'cd:20572', 'cd:20554']) {
+    expect(!tbAfter.has(k), `${k}: a legacy racial cooldown survived the upgrade`);
+  }
 
   const expectedKeys = new Set(FIXTURE_A_MOVES.map(m => m[1]));
   const actualKeys = new Set(tbAfter.keys());
@@ -917,8 +847,7 @@ function caseB(expect, prev) {
   const sizeBefore = tbAfter.size;
   const schemaBefore = db.get('schemaVersion');
 
-  const racial = extractRacialSpells();
-  migrate(db, 2, racial, []);
+  migrate(db, []);
 
   const tbNow = db.get('trackedBuffs');
   expect(db.get('schemaVersion') === schemaBefore, `schemaVersion changed on second pass: ${schemaBefore} -> ${db.get('schemaVersion')}`);
@@ -937,70 +866,97 @@ function caseB(expect, prev) {
   }
 }
 
+// Case C: the pre-v7 legacy "racial"/"racial2" slots are dropped WITHOUT reading the race, in one
+// pass, and everything else completes the whole chain to v12.
 function caseC(expect) {
   const db = parse(FIXTURE_B);
-  const tb = db.get('trackedBuffs');
-  const snapshot = new Map([...tb]);
+  const buff = db.get('trackedBuffs').get(1719);
 
-  const racial = extractRacialSpells();
-  migrate(db, null, racial, []);
+  migrate(db, []);
 
-  expect(db.get('schemaVersion') === 6, `schemaVersion expected 6, got ${db.get('schemaVersion')}`);
+  expect(db.get('schemaVersion') === 12, `schemaVersion expected 12, got ${db.get('schemaVersion')}`);
   const tbAfter = db.get('trackedBuffs');
-  const expectedKeys = new Set(['racial', 'racial2', 1719]);
-  const actualKeys = new Set(tbAfter.keys());
-  expect(
-    actualKeys.size === expectedKeys.size && [...expectedKeys].every(k => actualKeys.has(k)),
-    `key set expected {racial, racial2, 1719}, got {${[...actualKeys].join(', ')}}`
-  );
-  for (const k of expectedKeys) {
-    expect(tbAfter.get(k) === snapshot.get(k), `${k}: object identity changed despite deferred migration`);
+  expect(tbAfter.size === 1 && tbAfter.has('userBuff:1719'), `key set expected {userBuff:1719}, got {${[...tbAfter.keys()].join(', ')}}`);
+  const e = tbAfter.get('userBuff:1719');
+  if (e) {
+    expect(e === buff, 'userBuff:1719: expected the same object that sat at 1719');
+    expect(e.get('layoutOrder') === 3, `userBuff:1719.layoutOrder expected 3, got ${e.get('layoutOrder')}`);
+    expect(e.get('trackerType') === 'userBuff', `userBuff:1719.trackerType expected 'userBuff', got ${e.get('trackerType')}`);
   }
-  return { db };
 }
 
-function caseD(expect, prev) {
-  if (!prev) { expect(false, 'case C produced no result to continue from'); return; }
-  const { db } = prev;
-  const tbBefore = db.get('trackedBuffs');
-  const racialEntry = tbBefore.get('racial');
-  const racial2Entry = tbBefore.get('racial2');
+// Fixture R: schemaVersion 11 (v11 already complete), racial trackers of both kinds and a legacy key
+// next to non-racial ones, for case D (schema v12, Phase 67 MIG-03). userCd:20572 is a USER cooldown of
+// a racial's spell and must survive; metaSkill:lust has no numeric id and must survive.
+const FIXTURE_R = `
+TerribleBuffTrackerDB = {
+	["schemaVersion"] = 11,
+	["containerSettings"] = {},
+	["userContainers"] = {
+		{ ["key"] = "user1", ["title"] = "Mine", ["kind"] = "icon", ["category"] = "buffs", ["defaultX"] = 300, ["defaultY"] = -320 },
+	},
+	["nextContainerId"] = 2,
+	["trackedBuffs"] = {
+		["metaSkill:20572"] = { ["trackerType"] = "metaSkill", ["key"] = "metaSkill:20572", ["spellID"] = 20572, ["duration"] = 15, ["section"] = "buffs", ["layoutOrder"] = 1 },
+		["metaSkillCd:20572"] = { ["trackerType"] = "metaSkillCd", ["key"] = "metaSkillCd:20572", ["spellID"] = 20572, ["duration"] = 120, ["section"] = "utility", ["layoutOrder"] = 2 },
+		["metaSkill:1299026"] = { ["trackerType"] = "metaSkill", ["key"] = "metaSkill:1299026", ["spellID"] = 1299026, ["duration"] = 8, ["section"] = "bars", ["layoutOrder"] = 3 },
+		["metaSkillCd:20554"] = { ["trackerType"] = "metaSkillCd", ["key"] = "metaSkillCd:20554", ["spellID"] = 20554, ["section"] = "hidden", ["layoutOrder"] = 4 },
+		["racial2"] = { ["section"] = "bars", ["layoutOrder"] = 5 },
+		["metaSkill:lust"] = { ["trackerType"] = "metaSkill", ["key"] = "metaSkill:lust", ["duration"] = 40, ["label"] = "Lust", ["section"] = "bars", ["layoutOrder"] = 6 },
+		["userBuff:1719"] = { ["trackerType"] = "userBuff", ["key"] = "userBuff:1719", ["spellID"] = 1719, ["duration"] = 12, ["label"] = "Recklessness", ["section"] = "buffs", ["layoutOrder"] = 7 },
+		["userCd:20572"] = { ["trackerType"] = "userCd", ["key"] = "userCd:20572", ["spellID"] = 20572, ["duration"] = 120, ["section"] = "utility", ["layoutOrder"] = 8 },
+		["userReminder:5555"] = { ["trackerType"] = "userReminder", ["key"] = "userReminder:5555", ["spellID"] = 5555, ["label"] = "Reminder", ["section"] = "reminders", ["layoutOrder"] = 9 },
+		["metaReminder:20217"] = { ["trackerType"] = "metaReminder", ["key"] = "metaReminder:20217", ["spellID"] = 20217, ["alternatives"] = { 1 }, ["section"] = "reminders", ["layoutOrder"] = 10 },
+		["metaItem:trinket"] = { ["trackerType"] = "metaItem", ["key"] = "metaItem:trinket", ["section"] = "bars", ["layoutOrder"] = 11 },
+		["metaItem:241308"] = { ["trackerType"] = "metaItem", ["key"] = "metaItem:241308", ["itemID"] = 241308, ["section"] = "utility", ["layoutOrder"] = 12 },
+		["userBuff:3333"] = { ["trackerType"] = "userBuff", ["key"] = "userBuff:3333", ["spellID"] = 3333, ["duration"] = 30, ["section"] = "user1", ["layoutOrder"] = 13 },
+	},
+}
+`;
 
-  const racial = extractRacialSpells();
-  migrate(db, 2, racial, []);
+// Case D: v11 -> v12 standalone. Exactly the five racial keys go; every other key is the SAME object
+// with byte-equal fields; a second pass changes nothing; a database below 11 is not touched.
+function caseD(expect) {
+  const db = parse(FIXTURE_R);
+  const tb = db.get('trackedBuffs');
+  const snapshot = new Map([...tb]);
+  const fieldsBefore = new Map([...tb].map(([k, v]) => [k, snapshotFields(v)]));
+  const racialKeys = ['metaSkill:20572', 'metaSkillCd:20572', 'metaSkill:1299026', 'metaSkillCd:20554', 'racial2'];
 
-  expect(db.get('schemaVersion') === 11, `schemaVersion expected 11, got ${db.get('schemaVersion')}`);
+  migrateV12(db, []);
+
+  expect(db.get('schemaVersion') === 12, `schemaVersion expected 12, got ${db.get('schemaVersion')}`);
   const tbAfter = db.get('trackedBuffs');
-  expect(tbAfter.size === 3, `trackedBuffs.size expected 3, got ${tbAfter.size}`);
-
-  const skill1 = tbAfter.get('metaSkill:20572');
-  expect(skill1 !== undefined, 'metaSkill:20572: missing');
-  if (skill1) {
-    expect(skill1 === racialEntry, 'metaSkill:20572: expected the same object that sat at "racial"');
-    expect(skill1.get('duration') === 15, `metaSkill:20572.duration expected 15, got ${skill1.get('duration')}`);
-    expect(skill1.get('label') === 'Blood Fury', `metaSkill:20572.label expected 'Blood Fury', got ${skill1.get('label')}`);
-    expect(skill1.get('section') === 'buffs', `metaSkill:20572.section expected 'buffs', got ${skill1.get('section')}`);
-    expect(skill1.get('layoutOrder') === 1, `metaSkill:20572.layoutOrder expected 1, got ${skill1.get('layoutOrder')}`);
-    expect(skill1.get('trackerType') === 'metaSkill', `metaSkill:20572.trackerType expected 'metaSkill', got ${skill1.get('trackerType')}`);
+  for (const k of racialKeys) expect(!tbAfter.has(k), `${k}: racial tracker should be gone`);
+  expect(tbAfter.size === snapshot.size - racialKeys.length, `trackedBuffs.size expected ${snapshot.size - racialKeys.length}, got ${tbAfter.size}`);
+  for (const [k, obj] of snapshot) {
+    if (racialKeys.includes(k)) continue;
+    expect(tbAfter.get(k) === obj, `${k}: expected the same object, kept`);
+    const after = tbAfter.get(k);
+    const before = fieldsBefore.get(k);
+    if (!after) continue;
+    for (const field of Object.keys(before)) {
+      expect(after.get(field) === before[field], `${k}.${field}: changed`);
+    }
+    for (const field of after.keys()) expect(field in before, `${k}.${field}: unexpected new field`);
   }
+  expect(tbAfter.has('metaSkill:lust'), 'metaSkill:lust must survive v12');
+  expect(tbAfter.has('userCd:20572'), 'userCd:20572 (a user cooldown of a racial spell) must survive v12');
 
-  const skill2 = tbAfter.get('metaSkill:1299026');
-  expect(skill2 !== undefined, 'metaSkill:1299026: missing');
-  if (skill2) {
-    expect(skill2 === racial2Entry, 'metaSkill:1299026: expected the same object that sat at "racial2"');
-    expect(skill2.get('duration') === 8, `metaSkill:1299026.duration expected 8, got ${skill2.get('duration')}`);
-    expect(skill2.get('label') === 'Shatter Curse', `metaSkill:1299026.label expected 'Shatter Curse', got ${skill2.get('label')}`);
-    expect(skill2.get('section') === 'bars', `metaSkill:1299026.section expected 'bars', got ${skill2.get('section')}`);
-    expect(skill2.get('layoutOrder') === 2, `metaSkill:1299026.layoutOrder expected 2, got ${skill2.get('layoutOrder')}`);
-    expect(skill2.get('trackerType') === 'metaSkill', `metaSkill:1299026.trackerType expected 'metaSkill', got ${skill2.get('trackerType')}`);
-  }
+  // Second pass: a no-op.
+  const keysAfter = [...tbAfter.keys()];
+  migrateV12(db, []);
+  expect(db.get('schemaVersion') === 12, `second pass: schemaVersion expected 12, got ${db.get('schemaVersion')}`);
+  expect(tbAfter.size === keysAfter.length && keysAfter.every(k => tbAfter.has(k)), 'second pass: key set changed');
 
-  const userBuff = tbAfter.get('userBuff:1719');
-  expect(userBuff !== undefined, 'userBuff:1719: missing');
-  if (userBuff) {
-    expect(userBuff.get('layoutOrder') === 3, `userBuff:1719.layoutOrder expected 3, got ${userBuff.get('layoutOrder')}`);
-    expect(userBuff.get('trackerType') === 'userBuff', `userBuff:1719.trackerType expected 'userBuff', got ${userBuff.get('trackerType')}`);
-  }
+  // A database below 11 is not touched by v12 (not even its schemaVersion).
+  const low = parse(FIXTURE_R);
+  low.set('schemaVersion', 10);
+  const lowKeys = [...low.get('trackedBuffs').keys()];
+  migrateV12(low, []);
+  expect(low.get('schemaVersion') === 10, `below 11: schemaVersion expected 10, got ${low.get('schemaVersion')}`);
+  const lowTb = low.get('trackedBuffs');
+  expect(lowTb.size === lowKeys.length && lowKeys.every(k => lowTb.has(k)), 'below 11: key set changed');
 }
 
 // Fixture C: pre-v7, schemaVersion 6, NO legacy racial slot (WR-02).
@@ -1014,13 +970,11 @@ TerribleBuffTrackerDB = {
 }
 `;
 
-// WR-02: with no "racial"/"racial2" slot, an unreadable race must NOT defer v7 -- v7 stamps
-// immediately and v8 re-keys in the same pass.
+// With no "racial"/"racial2" slot, v7 stamps and v8 re-keys in the same pass.
 function caseF(expect) {
   const db = parse(FIXTURE_C);
-  const racial = extractRacialSpells();
-  migrate(db, null, racial, []);
-  expect(db.get('schemaVersion') === 11, `schemaVersion expected 11, got ${db.get('schemaVersion')}`);
+  migrate(db, []);
+  expect(db.get('schemaVersion') === 12, `schemaVersion expected 12, got ${db.get('schemaVersion')}`);
   const tb = db.get('trackedBuffs');
   expect(tb.has('userBuff:1719'), 'userBuff:1719: missing');
   expect(tb.has('userCd:1719'), 'userCd:1719: missing');
@@ -1062,8 +1016,8 @@ function caseG(expect) {
   const label = db.get('trackedBuffs').get(1719).get('label');
   expect(label === 'Say "hi"', `label with escaped quotes mis-parsed: ${JSON.stringify(label)}`);
 
-  migrate(db, null, extractRacialSpells(), []);
-  expect(db.get('schemaVersion') === 11, `schemaVersion expected 11, got ${db.get('schemaVersion')}`);
+  migrate(db, []);
+  expect(db.get('schemaVersion') === 12, `schemaVersion expected 12, got ${db.get('schemaVersion')}`);
   const tb = db.get('trackedBuffs');
   expect(!tb.has('metaSkill:lust') && !tb.has('lust'), 'v3 should have removed the hidden auto-seeded lust');
   expect(tb.has('userBuff:1719') && tb.size === 1, `key set expected {userBuff:1719}, got {${[...tb.keys()].join(', ')}}`);
@@ -1382,9 +1336,9 @@ function caseK(expect) {
   const snapshot = new Map([...tb]);
   const fieldsBefore = new Map([...tb].map(([k, v]) => [k, snapshotFields(v)]));
 
-  migrate(db, null, extractRacialSpells(), []);
+  migrate(db, []);
 
-  expect(db.get('schemaVersion') === 11, `schemaVersion expected 11, got ${db.get('schemaVersion')}`);
+  expect(db.get('schemaVersion') === 12, `schemaVersion expected 12, got ${db.get('schemaVersion')}`);
   const tbAfter = db.get('trackedBuffs');
   expect(tbAfter.size === snapshot.size, `trackedBuffs.size expected ${snapshot.size}, got ${tbAfter.size}`);
   for (const [k, obj] of snapshot) {
@@ -1450,8 +1404,8 @@ function caseK(expect) {
 
   // Second login is a no-op: same keys, same object identity, same fields.
   const fieldsAfter = new Map([...tbAfter].map(([k, v]) => [k, snapshotFields(v)]));
-  migrate(db, null, extractRacialSpells(), []);
-  expect(db.get('schemaVersion') === 11, `second pass: schemaVersion expected 11, got ${db.get('schemaVersion')}`);
+  migrate(db, []);
+  expect(db.get('schemaVersion') === 12, `second pass: schemaVersion expected 12, got ${db.get('schemaVersion')}`);
   for (const [k, obj] of snapshot) {
     const e = db.get('trackedBuffs').get(k);
     expect(e === obj, `${k}: object identity changed on second pass`);
@@ -1517,9 +1471,9 @@ function caseL(expect) {
   const tb = db.get('trackedBuffs');
   const rule = tb.get('userBuff:1719').get('endOnCast');
 
-  migrate(db, null, extractRacialSpells(), []);
+  migrate(db, []);
 
-  expect(db.get('schemaVersion') === 11, `schemaVersion expected 11, got ${db.get('schemaVersion')}`);
+  expect(db.get('schemaVersion') === 12, `schemaVersion expected 12, got ${db.get('schemaVersion')}`);
   const tbAfter = db.get('trackedBuffs');
   const r1719 = tbAfter.get('userReminder:1719');
   expect(r1719 !== undefined, 'userReminder:1719: missing');
@@ -1534,6 +1488,50 @@ function caseL(expect) {
     expect(endOnCast instanceof Map && endOnCast.size === 1 && endOnCast.get(1) === 100, 'userCd:1719.endOnCast expected [100]');
     expect(!cd1719.has('alternatives'), 'userCd:1719: a cooldown must not gain alternatives');
   }
+}
+
+// Fixture M: client-written shape (implicit arrays with `-- [n]` comments, an escaped quote in a
+// label) at schemaVersion 11, carrying racial trackers of both kinds, for case M.
+const FIXTURE_M = `
+TerribleBuffTrackerDB = {
+	["schemaVersion"] = 11,
+	["userContainers"] = {
+		{
+			["key"] = "user1",
+			["tags"] = {
+				"a", -- [1]
+			},
+		}, -- [1]
+	},
+	["trackedBuffs"] = {
+		["metaSkill:59752"] = { ["trackerType"] = "metaSkill", ["key"] = "metaSkill:59752", ["spellID"] = 59752, ["alternatives"] = {
+			1, -- [1]
+		}, ["section"] = "buffs", ["layoutOrder"] = 1 },
+		["metaSkillCd:59752"] = { ["trackerType"] = "metaSkillCd", ["key"] = "metaSkillCd:59752", ["spellID"] = 59752, ["section"] = "utility", ["layoutOrder"] = 2 },
+		["metaSkill:lust"] = { ["trackerType"] = "metaSkill", ["key"] = "metaSkill:lust", ["duration"] = 40, ["section"] = "bars", ["layoutOrder"] = 3 },
+		["userBuff:1719"] = { ["trackerType"] = "userBuff", ["key"] = "userBuff:1719", ["spellID"] = 1719, ["label"] = "Say \\"hi\\"", ["section"] = "buffs", ["layoutOrder"] = 4 },
+	},
+}
+`;
+
+// Case M: a client-written file carrying racial trackers runs through the whole migrate() and loses
+// only the racial keys.
+function caseM(expect) {
+  const db = parse(FIXTURE_M);
+  const lust = db.get('trackedBuffs').get('metaSkill:lust');
+  const buff = db.get('trackedBuffs').get('userBuff:1719');
+  expect(buff && buff.get('label') === 'Say "hi"', `label with escaped quotes mis-parsed: ${buff && JSON.stringify(buff.get('label'))}`);
+
+  migrate(db, []);
+
+  expect(db.get('schemaVersion') === 12, `schemaVersion expected 12, got ${db.get('schemaVersion')}`);
+  const tb = db.get('trackedBuffs');
+  expect(
+    tb.size === 2 && tb.has('metaSkill:lust') && tb.has('userBuff:1719'),
+    `key set expected {metaSkill:lust, userBuff:1719}, got {${[...tb.keys()].join(', ')}}`
+  );
+  expect(tb.get('metaSkill:lust') === lust, 'metaSkill:lust: object identity changed');
+  expect(tb.get('userBuff:1719') === buff, 'userBuff:1719: object identity changed');
 }
 
 function selftest() {
@@ -1559,18 +1557,19 @@ function selftest() {
     return result;
   }
 
-  const resultA = runCase('v0.4.1 -> v8', caseA);
+  const resultA = runCase('v0.4.1 -> v12', caseA);
   runCase('second login is a no-op', caseB, resultA);
-  const resultC = runCase('unreadable race defers v7 and v8', caseC);
-  runCase('pre-v7 -> v8 after race resolves', caseD, resultC);
+  runCase('pre-v7 legacy racial slots dropped without reading the race', caseC);
+  runCase('v11 -> v12: racial trackers dropped, every other tracker untouched', caseD);
   runCase('comparator can fail', caseE, resultA);
-  runCase('no racial slot: unreadable race does not defer v7/v8', caseF);
-  runCase('WoW-written file (arrays, comments, escapes), pre-v4 -> v8', caseG);
+  runCase('pre-v7 with no legacy slot -> v12', caseF);
+  runCase('WoW-written file (arrays, comments, escapes), pre-v4 -> v12', caseG);
   runCase('v8 -> v9: detailed flag dropped, switched-off values cleared', caseH);
   runCase('v9 -> v10: absent buffs become reminders, visibility and cooldown aura ID dropped', caseI);
   runCase('v9 -> v10 fallbacks: key-parse, no ID, user container, cooldown saved absent', caseJ);
   runCase('v10 -> v11: reminder cast rules become alternatives, buffs and cooldowns keep theirs', caseK);
   runCase('v9 -> v11 chain: an absent buff becomes a reminder whose cast rule becomes alternatives', caseL);
+  runCase('client-written file with racial trackers -> v12', caseM);
 
   if (failures === 0) {
     console.log(`SELFTEST PASS (${caseCount} cases)`);
@@ -1586,15 +1585,9 @@ if (process.argv.includes('--selftest')) {
   selftest();
 } else {
   const rawArgs = process.argv.slice(2);
-  let raceID = null;
-  const raceIdx = rawArgs.indexOf('--race');
-  if (raceIdx !== -1) {
-    raceID = Number(rawArgs[raceIdx + 1]);
-    rawArgs.splice(raceIdx, 2);
-  }
   for (const p of rawArgs) {
     console.log('\n######## ' + p.split(/[\/]/).pop() + ' ########');
-    try { console.log(run(p, raceID).map(s => '  ' + s).join('\n')); }
+    try { console.log(run(p).map(s => '  ' + s).join('\n')); }
     catch (e) { console.log('  FAILED: ' + e.message); }
   }
 }

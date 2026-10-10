@@ -5,6 +5,7 @@ area: display
 files:
   - Display.lua
 phase_hint: 42
+resolves_phase: 72
 ---
 
 ## Problem

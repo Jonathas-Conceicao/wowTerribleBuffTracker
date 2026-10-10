@@ -10,9 +10,10 @@ local BAR_PADDING_OFFSET = -2
 local ICON_PADDING_OFFSET = -4
 
 -- Where slot N of an icon grid sits, as an anchor point plus an offset from the container's
--- matching corner. THE one place that arithmetic lives: TBT's own pooled icons and the engine
--- aura slots MergeMode hands to Blizzard have to land on the same grid, and every time the two
--- were derived separately they drifted apart -- first by padding, then by scale, then by origin.
+-- matching corner. THE one place that arithmetic lives. It once also placed the engine aura slots
+-- MergeMode handed to Blizzard (deleted in Phase 70); its only caller now is RenderIconContainer's
+-- non-centred placement. A merged Blizzard frame follows the pooled cell it is attached to, so it
+-- lands on this same grid without a second derivation.
 --
 -- Offsets are deliberately UNSCALED. Every icon is individually SetScale'd, so SetPoint reads
 -- them in the icon's own space and the scale applies itself; see the step comment in
@@ -78,16 +79,17 @@ end
 -- the COUNT before it can place the first one. Any branch added there must be added here, or a
 -- centred run will leave a gap for an icon that never appears.
 --
--- A merged aura the engine owns is the one case TBT does not draw itself, so its answer comes
--- from the CDM's own item frames instead -- ns:RefreshMergeShownSlots stamps entry.cdmShown from
--- them. That flag is Blizzard's own "is this up", already computed, and readable as a plain
--- boolean; TBT must not re-derive it from the aura APIs, and cannot ask the engine, whose frames
--- refuse tainted reads while auras are secret.
+-- A merged entry draws exactly when Blizzard's own frame is shown (or, while previewing, when
+-- TBT's placeholder is), stamped as entry.cdmShown by ns:RefreshMergeShownSlots. That flag is
+-- Blizzard's own "is this up", already computed, and readable as a plain boolean; TBT must not
+-- re-derive it from the aura APIs.
 -- Phase 57.2 (REM-03): the reminder gate sits right here, at the same position as the hide
--- branch RenderIconContainer's own chain adds -- after the engine-drawn merged early return,
--- before anything that would otherwise draw.
-local function SlotDraws(entry, timer, settings, iconEditing, engineDrawsHere)
-	if engineDrawsHere and entry.isMerged then
+-- branch RenderIconContainer's own chain adds -- after the merged early return, before anything
+-- that would otherwise draw.
+local function SlotDraws(entry, timer, settings, iconEditing)
+	if entry.isMerged then
+		-- Ignores RenderIconContainer's fail-closed merged arm (always hidden) on purpose: that arm
+		-- is unreachable, since mergeShownSlots is filled only while Merge Mode is on.
 		return entry.cdmShown == true
 	end
 
@@ -107,7 +109,6 @@ local function SlotDraws(entry, timer, settings, iconEditing, engineDrawsHere)
 	-- its own terms rather than load-bearing today.
 	return timer ~= nil
 		or ns:IsCooldownSlotEntry(entry)
-		or entry.isMerged
 		or not settings.hideWhenInactive
 		or ns.configOpen
 		or iconEditing
@@ -245,6 +246,11 @@ local function RefreshContainerSettings()
 				dst.itemsPerRow = math.max(1, src.itemsPerRow or 12)
 			end
 		end
+	end
+
+	-- A settings change reaches the moved CDM frames through the placement generation, never per tick.
+	if ns.MarkMergedPlacementDirty then
+		ns:MarkMergedPlacementDirty()
 	end
 end
 
@@ -439,39 +445,6 @@ local function CreateTimerBar(parent)
 	bar.iconOverlay:SetPoint("TOPLEFT", -6, 5)
 	bar.iconOverlay:SetPoint("BOTTOMRIGHT", 6, -5)
 
-	-- Phase 41 (RACE-02): stack count, copied field-for-field from Blizzard's own
-	-- CooldownViewerBuffBarItemTemplate `Applications` FontString
-	-- (Blizzard_CooldownViewer/CooldownViewer.xml, the bar's Icon sub-frame). Parented to
-	-- bar.iconFrame, not bar.statusBar, so it draws over the icon exactly as Blizzard's does,
-	-- and created after bar.iconOverlay so it layers on top of it (both OVERLAY). Uses
-	-- NumberFontNormalSmall, not the buff icon's NumberFontNormal (see frame.chargeCount's
-	-- comment above CreateTimerIcon) -- TBT's bar icon is 30x30, matching Blizzard's small face.
-	bar.stacks = bar.iconFrame:CreateFontString(nil, "OVERLAY")
-	bar.stacks:SetFontObject(NumberFontNormalSmall)
-	bar.stacks:SetSize(32, 10)
-	bar.stacks:SetJustifyH("RIGHT")
-	bar.stacks:SetPoint("BOTTOMRIGHT", -5, 5)
-	bar.stacks:Hide() -- a freshly pooled bar has no stack answer yet
-
-	-- Phase 48.1 (DISP-02): the bar's dispel-type border. On a bar Blizzard draws this around the
-	-- ICON, not around the bar -- CooldownViewerBuffBarItemTemplate anchors its DebuffBorder to
-	-- $parent.Icon at the same -3/+3 inset the icon template uses (CooldownViewer.xml:246-251), so
-	-- the two faces match and only the frame level differs.
-	--
-	-- Parented to `bar` and level-bumped, mirroring Blizzard's own numbers: its DebuffBorder is
-	-- frameLevel 520 against Icon 512 and Bar 511, i.e. above both. TBT's equivalents are
-	-- iconFrame at +2 and statusBar at +1, so +3 is the matching slot. Explicit rather than
-	-- creation-order-dependent, unlike the icon path above, because here it has to clear two
-	-- siblings rather than one parent's layers -- the same class of defect as S13 at the bar
-	-- border below, where omitting a bump rendered a border behind the fill.
-	bar.dispelBorder = CreateFrame("Frame", nil, bar)
-	bar.dispelBorder:SetFrameLevel(bar:GetFrameLevel() + 3)
-	bar.dispelBorder:SetPoint("TOPLEFT", bar.iconFrame, "TOPLEFT", -3, 3)
-	bar.dispelBorder:SetPoint("BOTTOMRIGHT", bar.iconFrame, "BOTTOMRIGHT", 3, -3)
-	bar.dispelBorder.Texture = bar.dispelBorder:CreateTexture(nil, "ARTWORK")
-	bar.dispelBorder.Texture:SetAllPoints()
-	bar.dispelBorder:Hide()
-
 	-- StatusBar (height 19, anchored to the right of icon)
 	bar.statusBar = CreateFrame("StatusBar", nil, bar)
 	bar.statusBar:SetHeight(19)
@@ -537,11 +510,9 @@ local function MarkCooldownsDirtyOnDone()
 	ns:MarkCooldownsDirty()
 end
 
--- The charge count's resting level, relative to its icon: one above the Cooldown and the
--- dispelBorder (both icon+1), so it draws over the swipe by LEVEL rather than by creation order.
--- Creation order alone stopped being enough once SetChargeCountRaised re-levels the frame, since
--- SetFrameLevel re-inserts it among same-level siblings in a client-defined order (61-REVIEW
--- WR-03). Declared above CreateTimerIcon, its first user, for the upvalue-order rule.
+-- The charge count's resting level, relative to its icon: one above the Cooldown, so it draws
+-- over the swipe by LEVEL rather than by creation order. Declared above CreateTimerIcon, its
+-- first user, for the upvalue-order rule.
 local CHARGE_REST_LEVEL = 2
 
 local function CreateTimerIcon(parent)
@@ -594,26 +565,6 @@ local function CreateTimerIcon(parent)
 	frame.cooldown:SetDrawEdge(true)
 	frame.cooldown:SetDrawSwipe(true)
 
-	-- Phase 48.1 (DISP-01): the dispel-type border, built field-for-field from Blizzard's
-	-- CooldownViewerItemDebuffBorderTemplate and its use inside CooldownViewerBuffIconItemTemplate
-	-- (Blizzard_CooldownViewer/CooldownViewer.xml:12-19, :189-193). A Frame holding one ARTWORK
-	-- texture, anchored to the ICON rather than the frame, inset -3/+3 on both corners.
-	--
-	-- A child Frame, not a bare texture on `frame`, and created immediately after the Cooldown for
-	-- the same load-bearing reason frame.chargeCount documents below: a same-level child created
-	-- after the Cooldown draws above the swipe, while an OVERLAY texture parented straight to the
-	-- icon would sit under it. Blizzard's own <Frames> order is Cooldown, DebuffBorder,
-	-- Applications, so this sits between the two -- the charge count stays on top, as it is there.
-	--
-	-- Hidden on creation: a freshly pooled icon has no dispel answer yet, and a merged entry that
-	-- never carries a harmful aura must never flash one.
-	frame.dispelBorder = CreateFrame("Frame", nil, frame)
-	frame.dispelBorder:SetPoint("TOPLEFT", frame.icon, "TOPLEFT", -3, 3)
-	frame.dispelBorder:SetPoint("BOTTOMRIGHT", frame.icon, "BOTTOMRIGHT", 3, -3)
-	frame.dispelBorder.Texture = frame.dispelBorder:CreateTexture(nil, "ARTWORK")
-	frame.dispelBorder.Texture:SetAllPoints()
-	frame.dispelBorder:Hide()
-
 	-- Phase 38 (CD-03): charge count, copied field-for-field from Blizzard's own source in
 	-- Blizzard_CooldownViewer/CooldownViewer.xml. Both CooldownViewerBuffIconItemTemplate
 	-- (its `Applications` frame) and CooldownViewerEssentialItemTemplate (its `ChargeCount`
@@ -629,33 +580,15 @@ local function CreateTimerIcon(parent)
 	--     is the matching pair;
 	--   * hidden on creation, because a freshly pooled icon has no charge answer yet and the
 	--     sticky chargeCapable cache only populates once a readable value arrives.
-	-- Phase 40 will put a merged CDM Essential cooldown beside a TBT one in the same
-	-- container, where any difference in font, size or position would show.
+	-- Merge Mode puts Blizzard's own Essential item frame (re-anchored onto a cell) beside a
+	-- TBT one in the same container, so any difference in font, size or position would show.
 	frame.chargeCount = CreateFrame("Frame", nil, frame)
 	frame.chargeCount:SetAllPoints()
 	frame.chargeCount.Current = frame.chargeCount:CreateFontString(nil, "OVERLAY")
 	frame.chargeCount.Current:SetFontObject(NumberFontNormal)
 	frame.chargeCount.Current:SetPoint("BOTTOMRIGHT", -2, 2)
 	frame.chargeCount:SetFrameLevel(frame:GetFrameLevel() + CHARGE_REST_LEVEL)
-	frame._chargeRaised = false
 	frame.chargeCount:Hide()
-
-	-- Phase 40: the countdown for a MERGED buff icon, and nothing else -- every TBT-owned icon
-	-- draws its numbers through the Cooldown widget above, which does it for free once
-	-- SetCooldown has been called. A merged buff icon can never have SetCooldown called on it
-	-- (see RelayMergedIconTime), so it needs somewhere of its own to put the relayed text.
-	-- Parented to the icon frame and NOT to chargeCount, even though chargeCount is where the
-	-- other relayed text lives: that frame is hidden whenever there is no charge count to show,
-	-- and a hidden parent hides its children, so a countdown parented there would never appear.
-	-- An explicit OVERLAY sublevel puts it above iconOverlay; it does not need to clear the
-	-- swipe, because a merged buff icon never draws one.
-	frame.mergedTime = frame:CreateFontString(nil, "OVERLAY")
-	frame.mergedTime:SetDrawLayer("OVERLAY", 7)
-	-- NumberFontNormal is only the fallback for the one frame before RelayMergedIconTime has
-	-- matched the real font; see MatchMergedTimeFont for why it cannot be the final answer.
-	frame.mergedTime:SetFontObject(NumberFontNormal)
-	frame.mergedTime:SetPoint("CENTER", 0, 0)
-	frame.mergedTime:Hide()
 
 	-- Tooltips (Phase 22, D-19: delegates to shared ns:ShowBuffTooltip)
 	frame:EnableMouse(true)
@@ -698,259 +631,6 @@ local function GetIcon(key, index)
 		pool[index] = frame
 	end
 	return pool[index]
-end
-
----------------------------------------------------------------------
--- Pandemic highlight FX (Phase 48, PAND-01/PAND-02/PAND-05) -- render half only.
--- Every frame below is created by TBT via CreateFrame and parented to a TBT widget. The
--- CDM-owned pool backing Blizzard's own highlight frame is never acquired from, never released
--- to, and Blizzard's own highlight frame is never read, reparented or touched -- this whole
--- section crosses no CDM boundary at all, which is what makes Show/Hide/SetPoint/SetFrameLevel
--- on these frames taint-free (the locked rule is about frames TBT does not own).
----------------------------------------------------------------------
-
--- Lazy, pcall-guarded creator for TBT's OWN instance of Blizzard's icon pandemic FX template.
--- Parented to icon:GetParent() -- the TBT container -- and NOT to the icon itself. This is
--- load-bearing: RenderIconContainer hides TBT's own pooled icon for a merged Tracked Buff
--- whenever the engine draws that aura (see the engineDrawsHere/entry.isMerged branch's
--- icon:Hide() below), and Tracked Buffs is exactly the pandemic-relevant category -- item-backed
--- entries structurally never carry a pandemic window at all (Blizzard's own IsItem()
--- short-circuit). An FX frame parented to the icon would therefore be invisible in the
--- mainstream case -- the same hidden-parent hazard frame.mergedTime's own comment above already
--- records. Parenting to the container avoids it entirely.
-local function EnsurePandemicIconFX(icon)
-	if icon.pandemicFX then
-		return icon.pandemicFX
-	end
-	if icon._pandemicFailed then
-		return nil
-	end
-
-	local parent = icon:GetParent()
-	-- No mechanism exists to introspect a virtual template's existence ahead of instantiation
-	-- (PANDEMIC.md, "Absence-of-template guard"), so pcall around CreateFrame itself is the only
-	-- defensive option -- same shape as pcall(CollectShownCooldownIDs, viewer) in MergeMode.lua.
-	-- A failure is stamped once here, never retried every tick (PAND-05, S10).
-	local ok, fx = pcall(CreateFrame, "Frame", nil, parent, "CooldownPandemicFXTemplate")
-	if not ok or not fx then
-		icon._pandemicFailed = true
-		return nil
-	end
-
-	-- Icon offsets, Blizzard's own default AnchorPandemicStateFrame (CooldownViewer.lua:2129-2133).
-	-- Anchored to the icon's own rect, not the container's -- a hidden frame keeps its points and
-	-- size, so this resolves whether or not the icon is currently shown, and follows the icon
-	-- whenever the layout moves it, with no per-tick repositioning needed.
-	fx:ClearAllPoints()
-	fx:SetPoint("TOPLEFT", icon, "TOPLEFT", -6, 6)
-	fx:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 6, -6)
-
-	-- SyncEntryContainers gives a merged aura container host:GetFrameLevel() +
-	-- ns.MERGE_AURA_CONTAINER_LEVEL (MergeMode.lua, SyncEntryContainers) -- one level above that
-	-- keeps this highlight from ever being covered by an engine aura frame.
-	fx:SetFrameLevel(parent:GetFrameLevel() + ns.MERGE_AURA_CONTAINER_LEVEL + 1)
-	fx:Hide() -- a freshly created FX has no answer yet, exactly like frame.chargeCount / bar.stacks
-
-	icon.pandemicFX = fx
-	return fx
-end
-
--- Lazy, pcall-guarded creator for TBT's OWN instance of Blizzard's bar pandemic FX template.
--- Parented to bar itself, unlike the icon's -- bars are never engine-drawn (the aura-group
--- cover-up applies to the Tracked Buffs ICON category only) and RenderBarContainer calls
--- bar:Show() unconditionally for every slot it lays out, so there is no hidden-parent hazard here
--- and parenting straight to the widget matches Blizzard's own shape.
-local function EnsurePandemicBarFX(bar)
-	if bar.pandemicFX then
-		return bar.pandemicFX
-	end
-	if bar._pandemicFailed then
-		return nil
-	end
-
-	local ok, fx = pcall(CreateFrame, "Frame", nil, bar, "CooldownPandemicBarFXTemplate")
-	if not ok or not fx then
-		bar._pandemicFailed = true
-		return nil
-	end
-
-	-- Bar offsets, Blizzard's own BuffBarCooldownViewerMixin override
-	-- (CooldownViewer.lua:2353-2358), anchored to bar.statusBar -- the fill sub-region, TBT's
-	-- exact structural equivalent of Blizzard's cooldownItem.Bar (confirmed independently by
-	-- RelayMergedBar reading itemFrame.Bar). NOT bar, NOT bar.fillTexture.
-	fx:ClearAllPoints()
-	fx:SetPoint("TOPLEFT", bar.statusBar, "TOPLEFT", -9, 10)
-	fx:SetPoint("BOTTOMRIGHT", bar.statusBar, "BOTTOMRIGHT", 9, -10)
-
-	-- Omitting this bump renders the border behind the bar fill (S13) -- the same defect
-	-- Blizzard's own UI would have if its override were skipped (CooldownViewer.lua:2357).
-	fx:SetFrameLevel(bar.statusBar:GetFrameLevel() + 1)
-	fx:Hide() -- a freshly created FX has no answer yet, exactly like frame.chargeCount / bar.stacks
-
-	bar.pandemicFX = fx
-	return fx
-end
-
--- Shared dirty-checked Show/Hide toggle both apply functions below call.
--- AnimateWhileShownTemplate starts and stops its own AnimationGroup purely from the frame's own
--- Show/Hide, with no controller code needed -- this toggle IS the entire animation lifecycle.
--- Never call Play/Stop on the animation group directly.
-local function SetPandemicShown(widget, fx, active)
-	if widget._pandemicShown == active then
-		return
-	end
-	widget._pandemicShown = active
-	if active then
-		fx:Show()
-	else
-		fx:Hide()
-	end
-end
-
--- Call-site entry point for icons (Task 2). Safe to call unconditionally for every icon slot on
--- every tick. When active is false and no FX frame has ever been created, this costs exactly one
--- field read -- the common case for every player who never sees a pandemic window.
-local function ApplyPandemicIcon(icon, active, settings)
-	if not active then
-		local fx = icon.pandemicFX
-		if not fx then
-			return
-		end
-		SetPandemicShown(icon, fx, false)
-		return
-	end
-
-	local fx = EnsurePandemicIconFX(icon)
-	if not fx then
-		return
-	end
-
-	-- The icon FX is parented to the container, not the icon, so unlike a true child of the icon
-	-- it does not inherit ApplyIconStyle's SetScale/SetAlpha -- match them explicitly here, each
-	-- behind its own dirty stamp so an unchanged value costs one comparison.
-	if icon._pandemicScale ~= settings.iconScale then
-		icon._pandemicScale = settings.iconScale
-		fx:SetScale(settings.iconScale)
-	end
-	if icon._pandemicAlpha ~= settings.alpha then
-		icon._pandemicAlpha = settings.alpha
-		fx:SetAlpha(settings.alpha)
-	end
-
-	SetPandemicShown(icon, fx, true)
-end
-
--- Call-site entry point for bars (Task 2). ApplyPandemicBar needs neither scale nor alpha
--- matching, unlike ApplyPandemicIcon -- the bar FX is a true child of bar and inherits both
--- already.
-local function ApplyPandemicBar(bar, active)
-	if not active then
-		local fx = bar.pandemicFX
-		if not fx then
-			return
-		end
-		SetPandemicShown(bar, fx, false)
-		return
-	end
-
-	local fx = EnsurePandemicBarFX(bar)
-	if not fx then
-		return
-	end
-
-	SetPandemicShown(bar, fx, true)
-end
-
--- Phase 48.1 (DISP-01/DISP-02/DISP-03) -- render half. One call site per widget kind, shared by
--- icons and bars because both carry an identically-built `dispelBorder`; the only thing that
--- differed between them was construction, and that is done by the time this runs.
---
--- `atlas` is entry.dispelAtlas straight off MergeMode's mirror, and it decides nothing: `shown`
--- does. TBT never interprets the atlas -- it does not know or care which of the six dispel types
--- it names -- so a client that adds a seventh works here with no change.
---
--- Dirty-checked on the widget exactly as SetPandemicShown is, and for the same reason: this runs
--- per widget per render pass at 20 Hz, and the overwhelmingly common answer is nil-to-nil, which
--- must cost one field compare and no widget call at all.
---
--- SetAtlas's second argument is useAtlasSize, passed false to match Blizzard's own
--- TextureKitConstants.IgnoreAtlasSize at AuraUtil.lua:612 -- the texture is SetAllPoints to a
--- frame that is already the right size, so letting the atlas resize it would undo the -3/+3 inset.
--- The literal rather than the constant keeps this off a SharedXML global that Forever need not
--- have.
--- Sentinel standing in for "this pass's atlas is secret". A fresh table, so it can never collide
--- with a real atlas name however Blizzard renames its assets.
-local SECRET_ATLAS_KEY = {}
-
--- `shown` decides visibility and is always a plain boolean; `atlas` is RELAYED, never read, and
--- in combat it is a secret string (measured retail 2026-09-24 -- see ReadDispelBorder for the log
--- line and for why SetAtlas may be handed one).
---
--- The two are separate parameters rather than one nil-able atlas because a secret value cannot
--- safely stand in for its own presence: `atlas ~= nil` and `atlas == widget._dispelAtlas` both
--- feed a secret into a conditional, and the earlier version of this function did exactly that.
--- That is what made the in-combat case fail closed even once the value was being relayed.
---
--- Phase 50 (SC3/D-04/D-05): a FOURTH parameter, `identity`, closes the trade the paragraph above
--- describes: while the atlas is secret, `key == SECRET_ATLAS_KEY` used to force a re-set on every
--- single pass, forever, for as long as combat lasted. `identity` is a second, NON-SECRET stamp --
--- the entry's `cooldownID` -- that answers "is this the same entry as last pass?" without ever
--- touching the atlas. `cooldownID` is provably plain: MergeMode.lua:341 builds
--- `entry.key = "cdm:" .. cooldownID`, a concatenation, which raises on a secret value, so any
--- entry that exists in that list already has a non-secret cooldownID. `issecretvalue(id)` still
--- runs first, before any comparison, because a caller could in principle hand this function
--- something else later -- belt and suspenders, not because cooldownID is expected to trip it.
---
--- ACCEPTED TRADE: while the atlas stays secret AND the identity is unchanged, a dispel type that
--- somehow changed for that same cooldownID would not be re-issued until the identity changes or
--- becomes unreadable. Accepted because a dispel type is a static property of the aura a
--- cooldownID names -- it does not change out from under a live entry.
-local function ApplyDispelBorder(widget, atlas, shown, identity)
-	local border = widget.dispelBorder
-	if not border then
-		return
-	end
-
-	if not shown then
-		-- Dirty-checked on the plain boolean, so the overwhelmingly common no-border case still
-		-- costs one field compare and no widget call -- what the original dirty check bought,
-		-- kept, without ever touching the atlas.
-		if widget._dispelShown then
-			widget._dispelShown = false
-			widget._dispelKey = nil
-			widget._dispelID = nil
-			border:Hide()
-		end
-		return
-	end
-
-	-- issecretvalue() BEFORE any comparison -- the standing project rule -- so a secret identity
-	-- never reaches a `~=`, never reaches the widget, and falls back to the always-set behaviour
-	-- below rather than being trusted to prove a skip safe.
-	local id = identity
-	if issecretvalue(id) then
-		id = nil
-	end
-
-	-- The cache key is NEVER the secret itself: comparing a secret to a stored value is the trap
-	-- described above, and storing one would spread it to the next pass. A secret collapses to one
-	-- sentinel, which compares unequal to every real atlas name and equal to itself.
-	local key = issecretvalue(atlas) and SECRET_ATLAS_KEY or atlas
-	-- Re-issue SetAtlas when: the plain key changed (unchanged from before), OR the identity
-	-- changed (a pooled widget now shows a DIFFERENT entry -- the hazard D-05 names, and the
-	-- reason this cannot key on the atlas alone), OR there is no readable identity this pass (the
-	-- skip cannot be proven safe, so the old always-set behaviour is kept). This replaces the old
-	-- `or key == SECRET_ATLAS_KEY` clause, which WAS the always-re-set behaviour this task removes.
-	if widget._dispelKey ~= key or widget._dispelID ~= id or id == nil then
-		widget._dispelKey = key
-		widget._dispelID = id
-		border.Texture:SetAtlas(atlas, false)
-	end
-
-	if not widget._dispelShown then
-		widget._dispelShown = true
-		border:Show()
-	end
 end
 
 ---------------------------------------------------------------------
@@ -1164,40 +844,6 @@ local function ApplyCachedIcon(widget, spellID, iconOverride)
 	widget.icon:SetTexture(widget.cachedIcon)
 end
 
--- Backlog 999.17 / STEAL-09: a merged charge spell lost its charge count while its buff was up.
--- Root cause: with the engine aura path active, MergeMode's per-entry AuraContainer for an
--- Essential/Utility entry sits at host:GetFrameLevel() + 10 on the same cell and covers the
--- icon's chargeCount, which lives at container+2. The count was set and shown, only covered.
--- Ruled out: ApplyChargeCount not re-running while the aura owns the sweep. It already runs on
--- every generation change, outside the aura-ownership guard in ApplyCooldownSlot.
--- Levels: aura container +10, engine aura frame +11, its Cooldown +12, so the count at +13
--- draws above the buff sweep (same idea as EnsurePandemicIconFX's +11).
--- The CDM rule (RefreshSpellChargeInfo) shows the count with no aura condition; TBT's shown
--- decision already matches, only the draw order changes. The CDM's Essential/Utility templates
--- have no Applications, so MergeMode's cooldown-host aura frames register none either and the
--- raised count has its corner to itself (61-REVIEW WR-01).
--- The raise applies only to a merged entry in the cooldown-slot branch, and only while
--- ns.mergeAuraGroupsActive. The item-backed Tracked Buffs tiles are never raised (WR-02). TBT's
--- Edit Mode overlays sit at +10/+11; the engine path goes off in Edit Mode and CDM settings, and
--- the icons lower on the render tick after that queued mirror pass.
--- Derived from MergeMode's shared constant (61-REVIEW IN-01) so a change there moves this too.
--- The +11/+12 for the engine aura frame and its Cooldown are assumed, not verified in game.
-local CHARGE_OVER_AURA_LEVEL = ns.MERGE_AURA_CONTAINER_LEVEL + 3
-
--- ApplyCooldownSlot does the icon._chargeRaised stamp test inline; ClearCooldownStamps calls this
--- unconditionally with false. The level is only touched when entering a raised state or leaving
--- one, never on an icon that was never raised (61-REVIEW WR-03), and lowering restores exactly
--- the CHARGE_REST_LEVEL CreateTimerIcon set. Assumes the icon's own frame level does not change
--- after CreateTimerIcon.
-local function SetChargeCountRaised(icon, raised)
-	if raised then
-		icon.chargeCount:SetFrameLevel(icon:GetParent():GetFrameLevel() + CHARGE_OVER_AURA_LEVEL)
-	elseif icon._chargeRaised then
-		icon.chargeCount:SetFrameLevel(icon:GetFrameLevel() + CHARGE_REST_LEVEL)
-	end
-	icon._chargeRaised = raised
-end
-
 -- Drop the cooldown stamps a pooled widget carries away from a cooldown slot. Phase 38: a
 -- widget recycled from a cooldown slot to a buff or a placeholder slot must not keep a stale
 -- charge count or an engine-driven sweep.
@@ -1206,40 +852,24 @@ end
 -- the same tracker while it is still running would otherwise find _userCdGrey already true and
 -- never re-apply the grey the branch it landed in has just removed.
 --
--- Phase 41: the stack number goes with them too, because a recycled cooldown slot never had a
--- chance to overwrite it -- see the timer branch's own stack stamp.
---
 -- CALLERS KEEP THEIR `if icon._cdKey then` GUARD; it is deliberately not folded in here. That
 -- test is the steady-path cost -- one nil test per icon per frame, and nothing else -- and
 -- moving it inside would make the steady path a function call instead.
---
--- icon._mergedExpiry is deliberately absent. The timer branch clears it unconditionally a few
--- lines further down, alongside icon.mergedTime:Hide(); the placeholder branch has to clear it
--- inside the guard, because its entry.isMerged sub-branch owns that stamp. Folding the
--- difference in here would either wipe a live merged sweep stamp or leave a stale one.
 local function ClearCooldownStamps(icon)
 	icon._cdKey = nil
 	icon._userCdState = nil
 	icon._userCdGrey = nil
 	icon._cdGen = nil
 	icon.chargeCount:Hide()
-	SetChargeCountRaised(icon, false)
 	icon.cooldown:Clear()
-	icon._stacks = nil
-	-- Phase 43.1: the aura-over-cooldown stamps go with the rest, for the same reason the two
-	-- user-duration ones do -- a widget that comes BACK to a merged cooldown whose buff is still
-	-- up would otherwise find _cdAuraOwned already true and never re-issue the SetCooldown the
-	-- branch it landed in has since cleared. Distinct from icon._mergedExpiry on purpose: that
-	-- stamp belongs to the merged BUFF path and the two must not alias through the shared pool.
-	icon._cdAuraOwned = nil
-	icon._cdAuraExpiry = nil
 end
 
 -- Grey while the spell is on a real cooldown, full colour otherwise.
 --
--- Split out of ApplyCooldownHandle in Phase 43.1 so the aura branch can reach it too: a spell
--- whose aura lands on the TARGET keeps its cooldown grey even while the aura drives the sweep,
--- and that is Blizzard's rule, not a simplification -- CheckCacheCooldownValuesFromAura resets
+-- Split out of ApplyCooldownHandle in Phase 43.1 for the merged aura branch, which Phase 70
+-- deleted; ApplyCooldownHandle is now its only caller. The rule it encoded for that branch is
+-- Blizzard's, kept for reference: a spell whose aura lands on the TARGET keeps its cooldown grey
+-- even while the aura drives the sweep -- CheckCacheCooldownValuesFromAura resets
 -- cooldownDesaturated only `if not self:IsActivelyCast() or self:GetAuraDataUnit() == "player"`
 -- (CooldownViewer.lua:899-901). Touch of the Magi is exactly that shape.
 local function ApplyCooldownGrey(icon, spellID)
@@ -1430,10 +1060,8 @@ end
 -- Nothing here is secret: the start is GetTime() at the cast, the duration is the player's own
 -- number, and the comparison is between two plain numbers.
 local function ApplyUserCooldown(icon, entry, now)
-	-- Not entry.duration directly: a cast whose circumstances earned a different cooldown --
-	-- Shadowmeld used in combat -- left a one-cast override beside its start time, and
-	-- ns:CooldownDuration is the single place the two are reconciled. Still a plain number either
-	-- way, so everything this function says below about comparing numbers holds unchanged.
+	-- Read through ns:CooldownDuration, the one entry point for a cooldown's length (Core.lua). A
+	-- plain number, so everything this function says below about comparing numbers holds.
 	local duration = ns:CooldownDuration(entry.key, entry)
 	if type(duration) ~= "number" or duration <= 0 then
 		return false
@@ -1483,276 +1111,7 @@ local function ApplyUserCooldown(icon, entry, now)
 	return true
 end
 
--- A merged cooldown that is currently applying a buff shows the BUFF's remaining time rather
--- than its own cooldown, and is not greyed while it does.
---
--- This is Blizzard's CheckCacheCooldownValuesFromAura (CooldownViewer.lua:861-906). That pass
--- runs AFTER the spell-cooldown pass and overwrites the start, the duration and the
--- desaturation it cached -- "if the spell results in a self buff, give those values precedence
--- over the spell's cooldown until the buff is gone", in Blizzard's own words at :863. The one
--- exception is an entry flagged HideAura (CanUseAuraForDisplay, CooldownViewerItemData.lua
--- :747-754), and that is already filtered out upstream: ns:RefreshMergeShownSlots does not
--- resolve a timing for such an entry, so expiry is simply absent here.
---
--- Nothing secret is touched. entry.auraExpiry and entry.auraDuration are plain numbers
--- ResolveMergedAuraTiming wrote from an aura it had already proved readable, so the arithmetic
--- below is on TBT's own values. Where auras ARE restricted they never arrive, this returns
--- false, and the icon keeps the cooldown-only behaviour it had before -- a graceful loss of the
--- extra information, not a failure.
---
--- Evaluated every tick rather than on a cooldown-generation change, for the same reason
--- ApplyUserCooldown is: an aura expiring does not move ns.cooldownGeneration, so a gated check
--- would leave the buff's sweep on screen until something unrelated happened to move it.
-local function ApplyMergedAuraCooldown(icon, entry, now)
-	-- One owner per cell. When the engine is drawing merged auras it overlays this icon with the
-	-- real thing, and this icon's job underneath is the COOLDOWN -- so a previously resolved
-	-- expiry, which the shown-slots pass has stopped refreshing, must not be allowed to suppress
-	-- the cooldown handle on the strength of a value nobody is maintaining any more.
-	if ns.mergeAuraGroupsActive then
-		if icon._cdAuraOwned then
-			icon._cdAuraOwned = nil
-			icon._cdAuraExpiry = nil
-			icon._cdGen = nil
-		end
-		return false
-	end
-
-	local expiry, duration = entry.auraExpiry, entry.auraDuration
-	local active = type(expiry) == "number" and type(duration) == "number" and duration > 0 and expiry > now
-
-	if not active then
-		-- Hand the icon back to the handle path, and make sure it actually takes it: the block
-		-- that calls ApplyCooldownHandle only runs on a generation change, and a buff dropping is
-		-- not one. Clearing the generation stamp is what forces the next tick through it.
-		if icon._cdAuraOwned then
-			icon._cdAuraOwned = nil
-			icon._cdAuraExpiry = nil
-			icon._cdGen = nil
-		end
-		return false
-	end
-
-	if not icon._cdAuraOwned or icon._cdAuraExpiry ~= expiry then
-		icon._cdAuraOwned = true
-		icon._cdAuraExpiry = expiry
-		icon.cooldown:SetCooldown(expiry - duration, duration)
-	end
-
-	-- The grey is NOT simply cleared here, and that is Blizzard's rule rather than caution.
-	-- CheckCacheCooldownValuesFromAura resets cooldownDesaturated only `if not
-	-- self:IsActivelyCast() or self:GetAuraDataUnit() == "player"` (CooldownViewer.lua:899-901).
-	-- An aura on the PLAYER means the icon is showing something that is up, so it goes full
-	-- colour. An aura on the TARGET -- a debuff the player cast, like Touch of the Magi -- leaves
-	-- the grey to the spell's own cooldown, so the icon reads "debuff has this long left, and the
-	-- spell is still recharging" at once, which is what the CDM shows there.
-	--
-	-- Reasserted every tick rather than stamped with the sweep above: the aura can be
-	-- re-resolved onto a different unit without its expiry changing, and the desaturation relay
-	-- has its own icon._desat stamp to keep it from writing twice.
-	if entry.auraOnTarget then
-		ApplyCooldownGrey(icon, entry.spellID)
-	elseif icon._desat ~= false then
-		icon._desat = false
-		icon.icon:SetDesaturated(false)
-	end
-
-	return true
-end
-
--- The sweep for an equipped item -- a trinket -- which has no spell to hand a duration handle
--- for. Blizzard's CheckCacheCooldownValuesFromEquippedItem does the same read
--- (CooldownViewer.lua:1016-1046) and runs last, only when no spell source claimed the icon,
--- which is the position this occupies below.
---
--- The one place in the cooldown path that reads NUMBERS out of the game rather than relaying a
--- handle, because there is no item equivalent of GetSpellCooldownDuration: C_Item.GetItemCooldown
--- is SecretArguments = "AllowedWhenUntainted" and so closed to TBT entirely, and the legacy
--- global returns plain values with no duration object to borrow. So every value is screened with
--- issecretvalue before it is compared, and a screened-out read leaves the icon with no sweep
--- rather than taking the render down. Under cooldown restriction that is what will happen, and a
--- trinket icon with no timer is the graceful loss here.
--- What the equipped-item read actually returned, recorded for "/tbt merge". Stamped at the point
--- of the read rather than re-read by the diagnostic, so the printed numbers are exactly the ones
--- that drove the widget -- a second read a moment later would be a different question.
-ns.itemCooldownSeen = {}
-
-local function StampItemCooldown(equipSlot, startTime, duration, enable)
-	local seen = ns.itemCooldownSeen[equipSlot]
-	if not seen then
-		seen = {}
-		ns.itemCooldownSeen[equipSlot] = seen
-	end
-	-- Only ever plain numbers or the "unreadable" marker; a secret is never stored.
-	seen.startTime, seen.duration, seen.enable = startTime, duration, enable
-	seen.at = GetTime()
-end
-
-local function ApplyItemCooldown(icon, equipSlot)
-	-- Returns whether it could ANSWER, not whether a cooldown is running. A clean read saying
-	-- "not on cooldown" is an answer and the caller should stop; a read it could not make is not,
-	-- and the caller should try the spell handle next.
-	if not GetInventoryItemCooldown then
-		return false
-	end
-
-	local ok, startTime, duration, enable = pcall(GetInventoryItemCooldown, "player", equipSlot)
-	if
-		not ok
-		or issecretvalue(startTime)
-		or type(startTime) ~= "number"
-		or issecretvalue(duration)
-		or type(duration) ~= "number"
-	then
-		-- LEAVE whatever is on the widget rather than clearing it. An unreadable read is "I do
-		-- not know", not "there is no cooldown", and clearing on it wiped a sweep that was
-		-- running perfectly well -- the same distinction ApplyChargeCount already makes for an
-		-- unreadable charge struct. A sweep set at the last readable moment keeps animating on
-		-- its own.
-		StampItemCooldown(equipSlot, nil, nil, nil)
-		return false
-	end
-
-	StampItemCooldown(equipSlot, startTime, duration, (not issecretvalue(enable)) and enable or nil)
-
-	-- enable is Blizzard's third return and they branch on it too (cooldownEnabled, set from it
-	-- in CheckCacheCooldownValuesFromEquippedItem). An item whose cooldown is disabled draws
-	-- nothing, whatever the start and duration happen to say.
-	if issecretvalue(enable) or enable == 0 or enable == false then
-		icon.cooldown:Clear()
-		ClearIconDesaturation(icon)
-		return true
-	end
-
-	-- The GREY, which this branch alone was not applying -- the handle path calls
-	-- ApplyCooldownGrey and the CDM relay copies the CDM's own desaturation, so a trinket drawn
-	-- from the item read was the one slot that stayed full colour while on cooldown.
-	--
-	-- Blizzard's rule for an equipped item is simpler than the spell one and is computed right
-	-- here: CheckCacheCooldownValuesFromEquippedItem sets isOnGCD = false and cooldownIsActive =
-	-- endTime > timeNow, so isOnActualCooldown -- which is what desaturation follows -- is just
-	-- "the cooldown has not run out". No global-cooldown exception to carve out, because an item
-	-- is never merely waiting on the GCD.
-	--
-	-- Every value here is a plain number that issecretvalue already cleared above, so this is
-	-- arithmetic on TBT's own reads rather than a relayed secret. icon._desat is cleared to nil
-	-- first because the stamp may only ever hold false (see ClearIconDesaturation).
-	if startTime > 0 and duration > 0 then
-		icon.cooldown:SetCooldown(startTime, duration)
-		icon._desat = nil
-		icon.icon:SetDesaturated((startTime + duration) > GetTime())
-	else
-		icon.cooldown:Clear()
-		ClearIconDesaturation(icon)
-	end
-	return true
-end
-
--- A generic item cooldown -- the CDM's Combat Potion tile -- names no spell in its configuration,
--- and this is how Blizzard finds one anyway: C_Spell.GetLastCategoryCooldownSource(category)
--- returns the most recent spell and item to have started a cooldown in that category, and
--- CooldownViewerItemDataMixin:RefreshSpellCategoryData writes the result back onto its own
--- cooldownInfo.spellID (CooldownViewerItemData.lua:47-57). From there the tile is an ordinary
--- spell cooldown. TBT was clearing the widget instead, which is why the potion showed its buff
--- and then nothing at all.
---
--- Cached per category, because the call is SecretWhenCooldownsRestricted: the spell ID comes back
--- secret in exactly the content where a potion cooldown is most worth seeing. The cache is filled
--- from readable moments and reused otherwise, the same sticky pattern chargeCapable uses, and it
--- is a good fit here -- a player drinks the same potion over and over, so a value learned once is
--- almost always still the right one.
-local categorySpellID = {}
-ns.categorySpellID = categorySpellID
-
-local function ResolveCategorySpellID(category)
-	if type(category) ~= "number" then
-		return nil
-	end
-
-	if C_Spell.GetLastCategoryCooldownSource then
-		local ok, spellID = pcall(C_Spell.GetLastCategoryCooldownSource, category)
-		if ok and not issecretvalue(spellID) and type(spellID) == "number" and spellID > 0 then
-			categorySpellID[category] = spellID
-		end
-	end
-
-	return categorySpellID[category]
-end
-
--- ASK THE CDM. Relay the cooldown straight off the item frame that owns this slot, exactly as
--- RelayMergedBar already does for a merged bar's fill and text.
---
--- This is the right shape and it is tried FIRST, before any per-item resolution, because the CDM
--- item frame has already done all of that work: spell, equipped item, spell category, charges,
--- aura preference, every branch of CacheCooldownValues. Whatever it decided to draw is what the
--- player is meant to see, and re-deriving it per entry is how TBT ended up with three separate
--- code paths and a bug in each.
---
--- Whether it WORKS is a question for the game, not for a source dump. GetCooldownTimes is
--- documented SecretReturnsForAspect = { Cooldown } and SetCooldown is SecretArguments =
--- "AllowedWhenUntainted", which reads as "a tainted addon cannot do this" -- but that was also
--- the reading that said a buff tile has no cooldown, and the game disagreed. So this tries it and
--- reports what happened: every value stays inside the pcall, nothing is compared, stamped or
--- stored, and a raise costs one failed call and falls through to the per-item chain below.
---
--- Units: GetCooldownTimes returns MILLISECONDS and SetCooldown takes seconds
--- (Blizzard_UnitFrame/Mainline/RuneFrame.lua:250-251 says so in as many words).
-ns.mergeRelayState = {}
-
-local function RelayMergedCooldown(icon, entry)
-	local cooldownID = entry.cooldownID
-	if not cooldownID then
-		return false
-	end
-
-	local itemFrame = ns.mergeItemFrames and ns.mergeItemFrames[cooldownID]
-	local source = itemFrame and itemFrame.Cooldown
-	if not source or not source.GetCooldownTimes then
-		ns.mergeRelayState[cooldownID] = "no-frame"
-		return false
-	end
-
-	-- The whole read and write inside one pcall, deliberately: Lua evaluates arguments before the
-	-- call, so splitting them would perform the arithmetic outside the protection.
-	local ok = pcall(function()
-		local startMs, durationMs = source:GetCooldownTimes()
-		icon.cooldown:SetCooldown(startMs / 1000, durationMs / 1000)
-	end)
-
-	ns.mergeRelayState[cooldownID] = ok and "ok" or "blocked"
-	if not ok then
-		return false
-	end
-
-	-- ...and the GREY with it, from the same frame, for the same reason: the CDM has already
-	-- decided. RefreshIconDesaturation sets it to `cooldownDesaturated and not IsExpired()`
-	-- (CooldownViewer.lua:1196-1201), which is every rule about charges, auras, the GCD and
-	-- expiry rolled into one boolean TBT does not have to re-derive.
-	--
-	-- Relayed, never read: IsDesaturated is SecretReturnsForAspect = { Desaturation } and can
-	-- come back secret, while SetDesaturated is SecretArguments = "AllowedWhenTainted" and takes
-	-- it as-is. The value is never compared, stamped or stored -- the same handling the engine
-	-- cooldown handle's IsActive already gets.
-	--
-	-- Separate pcall from the sweep above. RequiresScriptObjectDesaturationAccess can deny the
-	-- read on its own, and losing the grey should not cost the timer that is already relaying
-	-- correctly.
-	local iconTexture = itemFrame.Icon
-	if iconTexture and iconTexture.IsDesaturated then
-		-- Cleared to nil first so ClearIconDesaturation cannot later skip its write on the
-		-- strength of a stale false this line has since overwritten.
-		icon._desat = nil
-		pcall(function()
-			icon.icon:SetDesaturated(iconTexture:IsDesaturated())
-		end)
-	end
-
-	return true
-end
-
--- overAura: true only from the cooldown-slot branch, where an engine aura frame can overlay the
--- cell (61-REVIEW WR-02). The item-backed Tracked Buffs call passes false, so its item count stays
--- under the buff tile as before.
-local function ApplyCooldownSlot(icon, entry, settings, now, overAura)
+local function ApplyCooldownSlot(icon, entry, settings, now)
 	-- Every entry ns:AddTrackedBuff has ever written carries a numeric spellID, so this screen
 	-- should never fire; when it does it yields a blank icon with no sweep, not an error.
 	local spellID = entry.spellID
@@ -1768,24 +1127,11 @@ local function ApplyCooldownSlot(icon, entry, settings, now, overAura)
 	-- constructor is not needed here.
 	icon.proc = entry
 
-	-- 999.17: count above the engine aura frame while it is active; outside the generation block
-	-- because ns.mergeAuraGroupsActive flips without moving ns.cooldownGeneration. Only a merged
-	-- entry has an aura container on its cell, so nothing else is raised.
-	local raised = overAura == true and entry.isMerged == true and ns.mergeAuraGroupsActive == true
-	if icon._chargeRaised ~= raised then
-		SetChargeCountRaised(icon, raised)
-	end
-
 	-- A custom tracker's own duration wins over the game's handle, and is evaluated EVERY tick
 	-- rather than on a generation change: nothing fires an event when a TBT-owned cooldown
 	-- finishes, so the grey has to come off by the clock. Two number comparisons and two stamp
 	-- tests on the steady path, no API call and no allocation.
 	local userOwned = ApplyUserCooldown(icon, entry, now)
-	-- Order is Blizzard's: a typed duration is TBT's own override and outranks everything, then
-	-- the aura, then the cooldown handle. CacheCooldownValues runs charges, then cooldown, then
-	-- aura, with each later pass overwriting the earlier one -- which is the same precedence read
-	-- from the other end (CooldownViewer.lua:1065-1075).
-	local auraOwned = not userOwned and ApplyMergedAuraCooldown(icon, entry, now)
 
 	if icon._cdGen ~= ns.cooldownGeneration or icon._cdKey ~= entry.key then
 		icon._cdGen = ns.cooldownGeneration
@@ -1793,9 +1139,6 @@ local function ApplyCooldownSlot(icon, entry, settings, now, overAura)
 		-- Clear the buff-path stamp so a later real or preview timer landing on this pooled
 		-- widget re-issues its SetCooldown instead of being skipped as unchanged.
 		icon._lastStart = nil
-		-- Phase 41: same clear for the stack stamp -- a cooldown slot never has stacks, and a
-		-- widget that returns to a stacking tracker later must re-issue its SetText.
-		icon._stacks = nil
 		-- Charges first, because ApplyCooldownHandle now asks whether this spell has any: the
 		-- answer lives in the sticky chargeCapable cache that ApplyChargeCount fills, and calling
 		-- it second left the very first generation of a charge spell with no recharge sweep.
@@ -1812,59 +1155,19 @@ local function ApplyCooldownSlot(icon, entry, settings, now, overAura)
 			ApplyChargeCount(icon, spellID)
 		end
 
-		-- Keep the category -> spell cache warm, UNCONDITIONALLY, and not only when something
-		-- needs it. This was a catch-22 that exactly matched the symptom -- a potion cooldown out
-		-- of combat and nothing in it.
-		--
-		-- ResolveCategorySpellID used to be reached only after the CDM relay had failed. Out of
-		-- combat the relay SUCCEEDS, so the lookup never ran and the cache stayed empty; in
-		-- combat the relay is blocked, the lookup finally runs, and
-		-- GetLastCategoryCooldownSource is SecretWhenCooldownsRestricted so it answers with a
-		-- secret and the cache is still empty. The one moment it could have been filled was the
-		-- one moment nothing asked.
-		--
-		-- Filling it here costs one call per category entry per generation change and means the
-		-- answer is already in hand by the time combat makes it unreadable.
-		if entry.spellCategoryID then
-			ResolveCategorySpellID(entry.spellCategoryID)
-		end
-		-- ORDER, and it is evidence rather than preference.
-		--
-		-- The CDM relay is the better source when it answers: the item frame has already settled
-		-- spell, item, category, charges and aura preference, and TBT copies the result. But it
-		-- goes SECRET precisely when a cooldown is running -- "/tbt merge" in combat came back
-		-- relay=blocked on almost every entry, and relay=ok only on the few that had nothing to
-		-- show. A source that works only while there is nothing to draw cannot be the primary.
-		--
-		-- C_Spell.GetSpellCooldownDuration has no secrecy flag at all and hands back a duration
-		-- object rather than a value, so it works in combat and out of it. Where an entry HAS a
-		-- spell, that is the reliable answer and it goes first.
-		--
-		-- The relay keeps the job nothing else can do: an entry with no spellID -- a trinket by
-		-- equipment slot, a potion by category -- where the CDM has resolved something TBT would
-		-- otherwise have to re-derive.
-		if not userOwned and not auraOwned then
-			-- An EQUIPPED ITEM goes first, even when the entry also names a spell. The cooldown
-			-- of a trinket lives on the item; the spell the CDM names is the effect it applies
-			-- and has no cooldown of its own. Blizzard reaches the same place from the other
-			-- direction -- CheckCacheCooldownValuesFromSpellCooldown finds nothing to claim, so
-			-- CheckCacheCooldownValuesFromEquippedItem gets it -- but that test reads values TBT
-			-- cannot, so TBT decides by the shape of the entry instead.
-			if entry.equipSlot and ApplyItemCooldown(icon, entry.equipSlot) then
-				if entry.cooldownID then
-					ns.mergeRelayState[entry.cooldownID] = "item"
-				end
-			elseif spellID then
+		-- Where the entry has a spell, C_Spell.GetSpellCooldownDuration hands back a duration object
+		-- rather than a value, has no secrecy flag, and so works in combat and out of it.
+		if not userOwned then
+			if spellID then
 				-- chargeCapable ALONE, deliberately. It is set from maxCharges > 1 on a real
 				-- C_Spell.GetSpellCharges struct, which is the same thing Blizzard's charge
 				-- branch decides on, so it means what it says.
 				--
-				-- entry.hasCharges -- the CDM's own info.charges flag -- is NOT consulted here
+				-- The CDM's own info.charges flag (once mirrored as entry.hasCharges, removed in
+				-- Phase 70) is NOT consulted here
 				-- and was the cause of the Touch of the Magi regression: it is true for entries
 				-- that have a charge DISPLAY rather than charges, and swapping in a recharge
 				-- handle for a spell that never recharges leaves the icon with no sweep at all.
-				-- The field is still mirrored, because it is the honest answer to "does the CDM
-				-- show charges here" and nothing else needs to re-derive it.
 				--
 				-- The cost of the stricter gate is that a charge spell first seen inside
 				-- restricted content, where GetSpellCharges is secret, shows no recharge until a
@@ -1872,200 +1175,19 @@ local function ApplyCooldownSlot(icon, entry, settings, now, overAura)
 				-- COUNT already has, and it fails by omitting information rather than by
 				-- replacing a working sweep with a blank one.
 				ApplyCooldownHandle(icon, spellID, chargeCapable[spellID] == true)
-				if entry.cooldownID then
-					ns.mergeRelayState[entry.cooldownID] = "handle"
-				end
-			elseif RelayMergedCooldown(icon, entry) then
-				-- Drawn by the CDM's own values, grey included.
 			else
-				-- A generic item cooldown. Resolved to whichever spell last started a cooldown in
-				-- its category, which is what Blizzard's own tile does, and then driven by the
-				-- ordinary duration handle. hasCharges is false: a potion has none, and asking
-				-- would only risk the inactive-handle trap that cost Touch of the Magi its sweep.
-				local categorySpell = ResolveCategorySpellID(entry.spellCategoryID)
-				if categorySpell then
-					ApplyCooldownHandle(icon, categorySpell, false)
-				else
-					-- This is the "nothing owns a sweep here" terminus, and it was the one arm of
-					-- the chain that cleared the cooldown without also clearing the grey. Every
-					-- other arm settles its own desaturation -- ApplyItemCooldown clears it,
-					-- ApplyCooldownHandle goes through ApplyCooldownGrey, the CDM relay copies
-					-- the CDM's own -- so a pooled widget arriving here simply kept whatever the
-					-- last entry to use it had left behind.
-					--
-					-- Reported on retail 2026-09-24: an augment rune has no cooldown on the
-					-- current patch, so entry.duration stays 0, ApplyUserCooldown declines it at
-					-- its first guard, and it falls through to here and renders grey. No
-					-- cooldown means READY, which is full colour.
-					icon.cooldown:Clear()
-					ClearIconDesaturation(icon)
-				end
+				-- The "nothing owns a sweep here" terminus: it must clear the grey as well as the
+				-- sweep, or a pooled widget keeps whatever the last entry to use it left behind.
+				--
+				-- Reported on retail 2026-09-24: an augment rune has no cooldown on the
+				-- current patch, so entry.duration stays 0, ApplyUserCooldown declines it at
+				-- its first guard, and it falls through to here and renders grey. No
+				-- cooldown means READY, which is full colour.
+				icon.cooldown:Clear()
+				ClearIconDesaturation(icon)
 			end
 		end
 	end
-end
-
--- Blizzard's own bar colour (CooldownViewer.xml, the BuffBar item's BarTexture). A merged bar
--- cannot be coloured by remaining fraction the way a TBT-owned one is -- that needs arithmetic
--- on a secret -- so it takes the CDM's flat colour instead, which is what the player was
--- looking at before Merge Mode moved it.
-local MERGED_BAR_COLOR_R, MERGED_BAR_COLOR_G, MERGED_BAR_COLOR_B = 1.0, 0.5, 0.25
-
--- Drive a merged bar from the CDM item frame that owns it. NOTHING READ HERE IS EVER LOOKED AT:
--- every value goes straight from a Blizzard getter into the matching TBT setter, with no
--- comparison, arithmetic, concatenation or branch on any of them. That is the only reason this
--- works at all -- under restriction GetMinMaxValues, GetValue and GetText all return SECRET
--- values (SecretReturnsForAspect BarValue / Text), while SetMinMaxValues, SetValue and
--- FontString:SetText are all SecretArguments = "AllowedWhenTainted" and take them as-is.
---
--- This is why a merged bar could not have a timer until now, and it is worth recording what
--- does NOT work, so nobody re-derives it. TBT cannot compute the fill itself: that means
--- reading the aura APIs, which are secret. It cannot take a duration handle either --
--- Blizzard's BuffBar item drives its bar with SetMinMaxValues/SetValue rather than
--- SetTimerDuration (CooldownViewer.lua:1554-1581), so there is no LuaDurationObject on it to
--- borrow. Relaying the already-computed bar values is what is left, and it is exact.
---
--- The same trick does NOT extend to merged buff ICONS. Every Cooldown getter is
--- SecretReturnsForAspect = { Cooldown } and every Cooldown setter that takes numbers --
--- SetCooldown, SetCooldownDuration, SetCooldownFromExpirationTime -- is
--- SecretArguments = "AllowedWhenUntainted" (FrameAPICooldownDocumentation.lua), so a tainted
--- caller cannot pass the values on. SetCooldownFromDurationObject is the only tainted-safe
--- setter and there is no getter anywhere that returns a duration object for an aura.
---
--- That is a limit on RELAYING a sweep off the CDM's Cooldown, and only on that. It is not a
--- limit on merged buff icons having a sweep at all: they do, by two routes that never read a
--- secret. The engine draws one itself when ns.mergeAuraGroupsActive is true, because the aura
--- path hands Blizzard a Cooldown through SetDurationCooldown and the engine binds the real
--- duration object to it. And TBT issues one from plain numbers whenever MergeMode's
--- ResolveMergedAuraTiming could read the aura -- see the SetCooldown branch in
--- RenderIconContainer, which is where that is written down.
---
--- Per-tick by necessity: Blizzard animates its own bar from OnUpdate, so a relay on a slower
--- cadence would stutter. The cost is one hash lookup and six widget calls per merged bar, and
--- ns.mergeItemFrames is rebuilt event-driven rather than walked here.
-local function RelayMergedBar(bar, slot)
-	local cooldownID = slot.cooldownID
-	local itemFrame = cooldownID and ns.mergeItemFrames and ns.mergeItemFrames[cooldownID]
-	local source = itemFrame and itemFrame.Bar
-	if not source or not source.GetMinMaxValues or not source.GetValue then
-		return false
-	end
-
-	local minValue, maxValue = source:GetMinMaxValues()
-	bar.statusBar:SetMinMaxValues(minValue, maxValue)
-	bar.statusBar:SetValue(source:GetValue())
-
-	-- Cleared so a real TBT timer landing on this pooled widget later re-issues its own
-	-- SetMinMaxValues instead of being skipped as unchanged. The relay cannot use that stamp
-	-- itself: comparing against a secret is exactly what threw in Display.lua:615.
-	bar._lastDuration = nil
-
-	if bar._mergedColor ~= true then
-		bar._mergedColor = true
-		bar.fillTexture:SetVertexColor(MERGED_BAR_COLOR_R, MERGED_BAR_COLOR_G, MERGED_BAR_COLOR_B)
-	end
-
-	local duration = source.Duration
-	if duration and duration.GetText then
-		bar.time:SetText(duration:GetText())
-	else
-		bar.time:SetText("")
-	end
-
-	bar.pip:Show()
-	return true
-end
-
--- The merged-buff-ICON counterpart of RelayMergedBar, and a deliberately smaller promise: it
--- relays the countdown TEXT only, and not the spiral with it.
---
--- Smaller, but it is the FALLBACK rather than the ceiling. A merged buff icon does get a real
--- sweep when the aura's timing is readable: MergeMode's ResolveMergedAuraTiming writes
--- entry.auraExpiry / entry.auraDuration and the SetCooldown branch in RenderIconContainer issues
--- it from those plain numbers, and when ns:RefreshMergeAuraGroups has the engine path running
--- the engine draws the spiral itself off a duration object TBT never sees. This runs when
--- neither is available, which is what restricted content gives: a number and no spiral, rather
--- than nothing at all.
---
--- What is impossible is RELAYING a sweep off the CDM's own Cooldown the way the bar values are
--- relayed, and this is where that is recorded so it does not get retried.
-
--- A Cooldown widget can only be driven by numbers or by a duration object. Every numeric setter
--- -- SetCooldown, SetCooldownDuration, SetCooldownFromExpirationTime -- is
--- SecretArguments = "AllowedWhenUntainted", so a tainted caller cannot pass on the values it
--- reads off the CDM's Cooldown, which are themselves secret (every getter there is
--- SecretReturnsForAspect = { Cooldown }). SetCooldownFromDurationObject is the one
--- tainted-safe setter, and nothing in the API hands out a duration object for an AURA:
--- C_UnitAuras.GetAuraDuration does, but it takes an auraInstanceID, which Blizzard keeps in a
--- CreateSecureAuraInstanceMap (CooldownViewer.lua:1659). Merged ESSENTIAL and UTILITY icons are
--- unaffected -- they are cooldowns, and ApplyCooldownSlot gets a real duration object for those
--- straight from C_Spell.GetSpellCooldownDuration.
---
--- What IS available is the text Blizzard has already rendered into its own countdown
--- FontString, which Cooldown:GetCountdownFontString hands back. FontString:GetText returns a
--- secret under restriction and FontString:SetText is SecretArguments = "AllowedWhenTainted", so
--- the string goes straight across with nothing done to it -- the same relay rule as everywhere
--- else in this file.
--- Make the relayed countdown look like every other TBT buff icon's countdown.
---
--- It was shipped on NumberFontNormal, which is wrong and visibly so -- that is the small
--- bottom-corner font TBT uses for charge and stack counts, not the large centred one a cooldown
--- draws its numbers in. Reported in play-testing on 2026-09-22 as "different number font or size
--- or something".
---
--- The font is COPIED from the source rather than named, and that is what makes it correct
--- rather than a guess that happens to match today. TBT's own buff icons draw their numbers
--- through the Cooldown widget and never call SetCountdownFont, so they use the client's default
--- cooldown countdown font. Blizzard's BuffIcon item template does not set cooldownFont either
--- -- only the Essential and Utility templates do, to GameFontHighlightHugeOutline and
--- GameFontHighlightOutline (CooldownViewer.xml:23, :92) -- so its countdown FontString is
--- drawing in that same default. Copying from it therefore lands on exactly the font TBT's own
--- icons use, at the same 40x40 icon size, with no hardcoded name to drift when Blizzard changes
--- the default.
---
--- Reading TBT's own countdown FontString instead would be the more direct thing to do and does
--- not work: a container holding only merged buff slots never has SetCooldown called on any of
--- its widgets, so icon.cooldown never creates a countdown FontString to copy from.
---
--- Stamped per widget -- the font cannot change under us, and this must not run every frame.
--- GetFont carries no secrecy flag (SimpleFontStringAPIDocumentation.lua:121-131) but its
--- results are type-guarded anyway, per the addon-wide rule; an unreadable font leaves the
--- fallback in place rather than raising inside the render loop.
-local function MatchMergedTimeFont(icon, fontString)
-	if icon._mergedFont or not fontString.GetFont then
-		return
-	end
-
-	local path, height, flags = fontString:GetFont()
-	if issecretvalue(path) or type(path) ~= "string" or issecretvalue(height) or type(height) ~= "number" then
-		return
-	end
-
-	icon._mergedFont = true
-	icon.mergedTime:SetFont(path, height, flags)
-end
-
-local function RelayMergedIconTime(icon, entry, settings)
-	if not settings.timerShown then
-		return false
-	end
-
-	local cooldownID = entry.cooldownID
-	local itemFrame = cooldownID and ns.mergeItemFrames and ns.mergeItemFrames[cooldownID]
-	local source = itemFrame and itemFrame.Cooldown
-	if not source or not source.GetCountdownFontString then
-		return false
-	end
-
-	local fontString = source:GetCountdownFontString()
-	if not fontString or not fontString.GetText then
-		return false
-	end
-
-	MatchMergedTimeFont(icon, fontString)
-	icon.mergedTime:SetText(fontString:GetText())
-	icon.mergedTime:Show()
-	return true
 end
 
 -- Phase 40 (STEAL-03/STEAL-04): the mirrored CDM slots for this container, built by
@@ -2119,6 +1241,11 @@ local function RenderBarContainer(def, container, settings, timers, now)
 	-- Phase 40 (STEAL-03/STEAL-04): the mirror read, shared with RenderIconContainer -- see
 	-- MergedSlotsFor for why it is the SHOWN set and not the configured one.
 	local merged, mergedCount = MergedSlotsFor(def)
+	-- Merge Mode on: Blizzard's bar item frames are placed on merged rows instead of TBT drawing them.
+	local reanchorHere = ns:IsMergeReanchorActive()
+	-- The container's CDM viewer, resolved once per render rather than per merged slot (Phase 69
+	-- review IN-05): the only viewer whose frames may sit on this container's cells.
+	local ownViewer = reanchorHere and (ns.cdmViewers[def.key] or _G[def.cdmViewerGlobal])
 	-- Phase 40 (STEAL-03): a container holding only mirrored CDM bars must still be visible
 	-- under hideWhenInactive.
 	-- Phase 57.2 review WR-03: reminders are icon-only (CreateUserContainer, v10 migration); the
@@ -2128,6 +1255,8 @@ local function RenderBarContainer(def, container, settings, timers, now)
 	local visible = ShouldShow(settings.visibleSetting, hasActiveTimers, settings.hideWhenInactive, barEditing)
 
 	if not visible then
+		-- STEAL-15: returning before ns:AttachMergedItem means this container's merged frames go back
+		-- to the parked viewer in the flush; the render that shows it again re-attaches them.
 		container:Hide()
 		return
 	end
@@ -2206,106 +1335,87 @@ local function RenderBarContainer(def, container, settings, timers, now)
 
 		ApplyBarStyle(bar, barWidth, settings)
 
-		-- Phase 48 (PAND-02, S14): one unconditional call per slot, ahead of the
-		-- timer/merged/placeholder chain below, so a pooled bar reused by a plain TBT timer
-		-- clears the previous slot's highlight the same way bar._stacks / bar._lastDuration
-		-- already are. Gated inline on slot.isMerged (D-05) so a native TBT tracker can never
-		-- light up. Uses the render pass's own `now` parameter; adds no clock read of its own.
-		ApplyPandemicBar(bar, slot.isMerged and ns:IsMergedEntryInPandemic(slot, now))
-
-		-- Phase 48.1 (DISP-02): same placement and same gate as the pandemic call above -- one
-		-- unconditional call per slot, ahead of the branch chain, so a pooled bar reused by a
-		-- plain TBT timer clears the previous slot's border. `and nil` rather than `and false`:
-		-- ApplyDispelBorder's dirty check compares against the stored value, and nil is the
-		-- no-border state everywhere else in this path, so a native tracker must resolve to nil
-		-- and not to a second falsy spelling that would defeat the compare on alternate passes.
-		-- Phase 50 (SC3): fourth argument is the non-secret identity (cooldownID) that lets the
-		-- dirty check tell "same entry, unchanged" from "pooled widget, different entry" without
-		-- ever inspecting the atlas.
-		ApplyDispelBorder(bar, slot.dispelAtlas, slot.isMerged and slot.dispelShown == true, slot.cooldownID)
-
-		-- Phase 22 (D-22/D-31): Unified icon/label resolution — single codepath for
-		-- all four buff types. Active timer (proc) wins; placeholder falls back to
-		-- ns:GetDisplayInfoForKey. Per-widget icon cache (D-16) keyed by spellID
-		-- avoids redundant ns:GetSpellIcon calls — no branching on key type.
-		local resolvedSpellID
-		local resolvedLabel
-		if timer then
-			bar.proc = timer -- store for OnEnter tooltip (D-19)
-			resolvedSpellID = timer.spellID
-			resolvedLabel = timer.label
-		elseif slot.isMerged then
-			-- Phase 40 (STEAL-03/STEAL-04): the mirror entry (built by MergeMode.lua) is
-			-- already the tooltip payload -- gate on this mirror flag, not on slot.spellID,
-			-- because every DB entry also carries a spellID and bypassing ns:GetDisplayInfoForKey for
-			-- those would silently change the Trinket/Pot meta-tracker resolution Phase 27
-			-- exists to protect. Falls through to the placeholder rendering below: empty bar,
-			-- no fill, no timer.
-			--
-			-- This resolves the icon and label only. The bar's fill and countdown come from
-			-- RelayMergedBar in the block below, which drives them straight off the CDM item
-			-- frame that owns this slot.
+		-- Merge Mode on: the row is laid out and styled above, so it is the cell Blizzard's bar
+		-- frame for this cooldownID is placed on; TBT's own bar stays hidden. Such a row needs no
+		-- icon, label, fill or time (Phase 70 review IN-03): writing them every tick onto a bar that
+		-- is hidden straight after was pure per-frame waste. Only the preview placeholder
+		-- (cdmFrameVisible == false, below) needs the content block.
+		--
+		-- STEAL-14: the cell shows only what Blizzard draws. In Edit Mode with the CDM's own Edit
+		-- Mode checkbox off, or with the viewer's Visibility hiding it, Blizzard draws nothing, so
+		-- TBT previews the entry itself (the placeholder filled below). Not attaching sends the
+		-- hidden frame back to the parked viewer, so nothing is drawn twice.
+		-- Gated on the stamp ALONE (Phase 69 review WR-01): the shown-slot pass stamps it false only
+		-- while ns:IsMergePreviewState() holds and the frame is not drawn, and true otherwise, so live
+		-- play never takes the placeholder branch. A second preview predicate here (TBT's own Edit
+		-- Mode flag, the polled settings flag) could only disagree with the one the stamp was made
+		-- under.
+		if reanchorHere and slot.isMerged and slot.cdmFrameVisible ~= false then
 			bar.proc = slot
-			resolvedSpellID = slot.spellID
-			resolvedLabel = slot.label
+			bar:Hide()
+			ns:AttachMergedItem(slot, bar, settings, "bar", ownViewer)
 		else
-			local info = ns:GetDisplayInfoForKey(slot.key)
-			if info and info.spellID then
-				-- D2: a per-widget OWNED table, refilled in place rather than rebuilt. This block is
-				-- reached for every inactive tracker on every 20 Hz tick whenever "hide when inactive"
-				-- is off -- in combat, across an unbounded number of containers since Phase 36 -- and
-				-- allocated one table each time.
+			-- Phase 22 (D-22/D-31): Unified icon/label resolution — single codepath for
+			-- all four buff types. Active timer (proc) wins; placeholder falls back to
+			-- ns:GetDisplayInfoForKey. Per-widget icon cache (D-16) keyed by spellID
+			-- avoids redundant ns:GetSpellIcon calls — no branching on key type.
+			local resolvedSpellID
+			local resolvedLabel
+			if timer then
+				bar.proc = timer -- store for OnEnter tooltip (D-19)
+				resolvedSpellID = timer.spellID
+				resolvedLabel = timer.label
+			elseif slot.isMerged then
+				-- Phase 40 (STEAL-03/STEAL-04): the mirror entry (built by MergeMode.lua) is
+				-- already the tooltip payload -- gate on this mirror flag, not on slot.spellID,
+				-- because every DB entry also carries a spellID and bypassing ns:GetDisplayInfoForKey for
+				-- those would silently change the Trinket/Pot meta-tracker resolution Phase 27
+				-- exists to protect. Falls through to the placeholder rendering below: empty bar,
+				-- no fill, no timer.
 				--
-				-- It has to be a SEPARATE field. bar.proc is sometimes BORROWED: the timer branch above
-				-- stores the live ns.activeTimers table straight into it, and the merged branch stores
-				-- the mirror slot. Wiping and reusing bar.proc itself would wipe a live timer, which
-				-- RacialProviderMixin is still mutating (proc.stacks).
-				--
-				-- All three fields are assigned on EVERY pass. The table outlives the slot that last
-				-- used it, so a field written only on some paths would leak that slot's value into the
-				-- next one's tooltip. ns:ShowBuffTooltip also reads proc.duration when opts.showDuration
-				-- is set; this table has no duration, and any fourth field added later is assigned
-				-- unconditionally or it does not go in here.
-				local p = bar._placeholderProc
-				if not p then
-					p = {}
-					bar._placeholderProc = p
-				end
-				p.spellID, p.label, p.key = info.spellID, info.label, slot.key
-				bar.proc = p
-				resolvedSpellID = info.spellID
-				resolvedLabel = info.label or slot.label
-			else
-				bar.proc = nil
-				resolvedSpellID = nil
+				-- This resolves the icon and label only. The CDM's own bar frame draws the fill and the
+				-- time on this row.
+				bar.proc = slot
+				resolvedSpellID = slot.spellID
 				resolvedLabel = slot.label
-			end
-		end
-
-		ApplyCachedIcon(bar, resolvedSpellID, slot.iconOverride)
-		bar.label:SetText(resolvedLabel or "")
-
-		if timer then
-			-- 49-04/D-6: an indefinite proc (Shadowmeld, Find Treasure) has no natural end --
-			-- expiresAt/duration carry only the 86400s backstop (ns.INDEFINITE_DURATION), so
-			-- drawing a countdown from them would show a lie. Draw it as simply on instead: a
-			-- full bar, no fill animation, no number.
-			if timer.indefinite then
-				-- -1 sentinel: neither nil (the placeholder branch's own sentinel below) nor any
-				-- real duration, so a bar alternating between placeholder and indefinite never
-				-- skips its SetMinMaxValues.
-				if bar._lastDuration ~= -1 then
-					bar._lastDuration = -1
-					bar.statusBar:SetMinMaxValues(0, 1)
-				end
-				bar.statusBar:SetValue(1)
-				bar._mergedColor = nil
-				bar.fillTexture:SetVertexColor(GetBarColor(1))
-
-				bar.pip:Show()
-
-				bar.time:SetText("")
 			else
+				local info = ns:GetDisplayInfoForKey(slot.key)
+				if info and info.spellID then
+					-- D2: a per-widget OWNED table, refilled in place rather than rebuilt. This block is
+					-- reached for every inactive tracker on every 20 Hz tick whenever "hide when inactive"
+					-- is off -- in combat, across an unbounded number of containers since Phase 36 -- and
+					-- allocated one table each time.
+					--
+					-- It has to be a SEPARATE field. bar.proc is sometimes BORROWED: the timer branch above
+					-- stores the live ns.activeTimers table straight into it, and the merged branch stores
+					-- the mirror slot. Wiping and reusing bar.proc itself would wipe a live timer
+					-- the engine still owns.
+					--
+					-- All three fields are assigned on EVERY pass. The table outlives the slot that last
+					-- used it, so a field written only on some paths would leak that slot's value into the
+					-- next one's tooltip. ns:ShowBuffTooltip also reads proc.duration when opts.showDuration
+					-- is set; this table has no duration, and any fourth field added later is assigned
+					-- unconditionally or it does not go in here.
+					local p = bar._placeholderProc
+					if not p then
+						p = {}
+						bar._placeholderProc = p
+					end
+					p.spellID, p.label, p.key = info.spellID, info.label, slot.key
+					bar.proc = p
+					resolvedSpellID = info.spellID
+					resolvedLabel = info.label or slot.label
+				else
+					bar.proc = nil
+					resolvedSpellID = nil
+					resolvedLabel = slot.label
+				end
+			end
+
+			ApplyCachedIcon(bar, resolvedSpellID, slot.iconOverride)
+			bar.label:SetText(resolvedLabel or "")
+
+			if timer then
 				local remaining = timer.expiresAt - now
 				local fraction = remaining / timer.duration
 
@@ -2315,54 +1425,33 @@ local function RenderBarContainer(def, container, settings, timers, now)
 				end
 				bar.statusBar:SetValue(remaining)
 				local r, g, b = GetBarColor(fraction)
-				bar._mergedColor = nil
 				bar.fillTexture:SetVertexColor(r, g, b)
 
 				bar.pip:Show()
 
 				bar.time:SetText(FormatTime(remaining))
-			end
-
-			-- Phase 41 (RACE-02): the bar-side analogue of the icon stack stamp above, driving
-			-- bar.stacks (Blizzard's CooldownViewerBuffBarItemTemplate `Applications`
-			-- FontString, see CreateTimerBar's comment). timer.stacks is TBT's own cast-derived
-			-- integer, never a game value, so this needs no issecretvalue, no
-			-- ns:CanReadTable and no pcall.
-			if bar._stacks ~= timer.stacks then
-				bar._stacks = timer.stacks
-				if timer.stacks ~= nil then
-					bar.stacks:SetText(timer.stacks)
-					bar.stacks:Show()
-				else
-					bar.stacks:Hide()
+			else
+				-- Placeholder: empty bar, no fill, no timer
+				if bar._lastDuration ~= nil then
+					bar._lastDuration = nil
+					bar.statusBar:SetMinMaxValues(0, 1)
 				end
+				bar.statusBar:SetValue(0)
+				bar.pip:Hide()
+				bar.time:SetText("")
 			end
-		elseif slot.isMerged and RelayMergedBar(bar, slot) then
-			-- Driven entirely by RelayMergedBar. A merged bar carries no stack count of its own
-			-- -- Blizzard draws applications on its item frame's own Applications FontString,
-			-- which is not mirrored -- so the stale-stack clear below applies here too.
-			if bar._stacks ~= nil then
-				bar._stacks = nil
-				bar.stacks:Hide()
-			end
-		else
-			-- Placeholder: empty bar, no fill, no timer
-			if bar._lastDuration ~= nil then
-				bar._lastDuration = nil
-				bar.statusBar:SetMinMaxValues(0, 1)
-			end
-			bar.statusBar:SetValue(0)
-			bar.pip:Hide()
-			bar.time:SetText("")
 
-			-- Phase 41: a placeholder bar never keeps a stale stack number.
-			if bar._stacks ~= nil then
-				bar._stacks = nil
-				bar.stacks:Hide()
+			if reanchorHere and slot.isMerged then
+				-- The preview placeholder (cdmFrameVisible == false): the live merged row took the
+				-- attach branch above.
+				bar:Show()
+			elseif slot.isMerged then
+				-- Fail-closed: a merged row is never drawn by TBT outside the preview placeholder above.
+				bar:Hide()
+			else
+				bar:Show()
 			end
 		end
-
-		bar:Show()
 	end
 
 	-- Size container in parent (unscaled) space.
@@ -2376,20 +1465,30 @@ local function RenderBarContainer(def, container, settings, timers, now)
 	-- Hide unused bars
 	for i = n + 1, #pool do
 		pool[i]:Hide()
-		-- Phase 48 code review WR-01: hiding the bar hides its FX child VISUALLY, but
-		-- AnimateWhileShownTemplate starts and stops its AnimationGroup from the FX frame's OWN
-		-- Show/Hide, not an ancestor's -- so a trailing bar that once showed a highlight would
-		-- keep that animation looping, invisible, until the pooled frame was reused. Cheap
-		-- (ApplyPandemicBar returns immediately when the frame has no FX yet), and it makes this
-		-- loop symmetric with the icon path's own clear.
-		ApplyPandemicBar(pool[i], false)
-		-- Phase 48.1: this one IS covered by pool[i]:Hide(), since the border is a true child of
-		-- the bar and carries no animation to keep running. Cleared anyway, so the pooled widget's
-		-- _dispelShown and _dispelKey match what it is actually showing -- otherwise a bar hidden
-		-- while bordered and later reused for an unbordered slot would dirty-check its way out of
-		-- the Hide it needs.
-		ApplyDispelBorder(pool[i], nil, false)
 	end
+end
+
+-- TBT's own icon-and-name placeholder for a merged entry whose Blizzard frame is not drawn while
+-- previewing (STEAL-14). The entry, built by MergeMode.lua's mirror refresh, is already the
+-- tooltip payload: it carries spellID and label directly, the same trick ApplyCooldownSlot uses.
+--
+-- It draws no sweep, countdown or charge count: Blizzard's own frame draws all three once it is
+-- shown.
+local function ShowMergedPlaceholderIcon(icon, entry, settings)
+	-- Phase 38: same pooled-widget reset as the timer branch -- see ClearCooldownStamps.
+	if icon._cdKey then
+		ClearCooldownStamps(icon)
+	end
+	if icon._lastStart then
+		icon._lastStart = nil
+		icon.cooldown:Clear()
+	end
+
+	icon.proc = entry
+	ApplyCachedIcon(icon, entry.spellID, entry.iconOverride)
+	ClearIconDesaturation(icon)
+	ApplyIconStyle(icon, settings)
+	icon:Show()
 end
 
 local function RenderIconContainer(def, container, settings, timers, now)
@@ -2406,28 +1505,24 @@ local function RenderIconContainer(def, container, settings, timers, now)
 	-- ns:UpdateDisplay, never from a per-tick pairs() walk on this (usually hidden) path.
 	-- Phase 40 (STEAL-03): a container holding only mirrored CDM items must still be visible
 	-- under hideWhenInactive, or a merge-mode-only container never shows.
-	-- Phase 40: a container the engine is drawing merged auras into counts as active regardless
-	-- of what TBT itself has in it. Those aura frames are children of this container, so hiding
-	-- it hides them -- and TBT cannot ask how many are visible, because reading an engine aura
-	-- frame is denied while auras are secret. That is what emptied the Tracked Buffs container
-	-- when the aura groups first shipped: TBT stopped publishing merged slots to Display (the
-	-- engine owns them now), mergedCount fell to zero, hideWhenInactive hid the container, and
-	-- the engine frames went with it. An empty container draws nothing, so leaving it shown is
-	-- free.
-	local engineDrawsHere = ns.mergeAuraGroupsActive
-		and def.cdmCategoryName == "TrackedBuff"
-		and ns.db.mergeMode == true
+	-- Tracked Buffs publishes its whole configured set as merged slots, so mergedCount alone keeps
+	-- a container holding merged entries shown.
+	-- Merge Mode on: Blizzard's item frames are placed on merged cells instead of TBT drawing them.
+	local reanchorHere = ns:IsMergeReanchorActive()
+	-- Resolved once per render, as in RenderBarContainer (Phase 69 review IN-05).
+	local ownViewer = reanchorHere and (ns.cdmViewers[def.key] or _G[def.cdmViewerGlobal])
 	-- Phase 57.2 (REM-03): a reminder whose buff is missing must keep its container shown
 	-- under hideWhenInactive, exactly like a cooldown slot does above.
 	local hasActiveIcons = #timers > 0
 		or (cooldownSlotCounts[def.key] or 0) > 0
 		or mergedCount > 0
-		or engineDrawsHere
 		or ns:ReminderShowsIn(def.key)
 	local iconEditing = ns.editModeActive
 	local iconVisible = ShouldShow(settings.visibleSetting, hasActiveIcons, settings.hideWhenInactive, iconEditing)
 
 	if not iconVisible then
+		-- STEAL-15: returning before ns:AttachMergedItem means this container's merged frames go back
+		-- to the parked viewer in the flush; the render that shows it again re-attaches them.
 		container:Hide()
 		-- A hidden container has no clickable area. One table read per tick, no pool walk.
 		ClearContainerClickStamps(def.key, pool)
@@ -2479,7 +1574,7 @@ local function RenderIconContainer(def, container, settings, timers, now)
 	if centered then
 		for i = 1, #slots do
 			local entry = slots[i]
-			if SlotDraws(entry, activeByKey[entry.key], settings, iconEditing, engineDrawsHere) then
+			if SlotDraws(entry, activeByKey[entry.key], settings, iconEditing) then
 				drawnCount = drawnCount + 1
 			end
 		end
@@ -2497,7 +1592,7 @@ local function RenderIconContainer(def, container, settings, timers, now)
 		if centered then
 			-- A slot that draws nothing takes no cell at all, which is what makes the run close
 			-- up and re-centre. Placed before the branch chain so the chain itself is untouched.
-			if SlotDraws(entry, timer, settings, iconEditing, engineDrawsHere) then
+			if SlotDraws(entry, timer, settings, iconEditing) then
 				drawnIndex = drawnIndex + 1
 				anchor, offsetMajor, offsetMinor =
 					CenteredSlotPlacement(drawnIndex, drawnCount, capacity, step, perRow, orientation)
@@ -2511,61 +1606,31 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			icon:SetPoint(anchor, container, anchor, offsetMajor, offsetMinor)
 		end
 
-		-- Phase 48 (PAND-01, S14): resolved once, before the branch chain below, so it is
-		-- correct across all four of that chain's outcomes at once -- engine-drawn merged buff,
-		-- item-backed merged buff, merged placeholder, and a live TBT timer landing on the same
-		-- pooled widget. Because the FX is container-parented, a slot that stops being merged
-		-- must still reach this call with false, which it does unconditionally per slot -- a
-		-- non-merged entry always resolves to false (D-05), no second branch needed. Uses the
-		-- render pass's own `now` parameter; adds no clock read of its own.
-		ApplyPandemicIcon(icon, entry.isMerged and ns:IsMergedEntryInPandemic(entry, now), settings)
-
-		-- Phase 48.1 (DISP-01): resolved here for the same reason the pandemic call above is --
-		-- once, before the branch chain, so it is correct across all four of that chain's
-		-- outcomes at once. Unlike the pandemic FX this border IS a true child of the pooled
-		-- icon, so an engine-drawn merged aura that hides the icon hides its border too, which is
-		-- correct: the engine's own frame carries Blizzard's border in that case.
-		-- Phase 50 (SC3): fourth argument is the non-secret identity (cooldownID) that lets the
-		-- dirty check tell "same entry, unchanged" from "pooled widget, different entry" without
-		-- ever inspecting the atlas.
-		ApplyDispelBorder(icon, entry.dispelAtlas, entry.isMerged and entry.dispelShown == true, entry.cooldownID)
-
-		if engineDrawsHere and entry.isMerged then
-			-- PLACED, not drawn. The engine draws this aura and drives its sweep; TBT decides
-			-- only where it goes, and hands that cell over here. Its own pooled icon stays hidden
-			-- so nothing is drawn twice.
+		if reanchorHere and entry.isMerged then
+			-- Merge Mode on: Blizzard's own item frame is moved onto this cell.
+			-- The pooled icon is styled (it carries the container's scale) but stays hidden; it is
+			-- only the cell the CDM frame is anchored to and sized from.
 			--
-			-- The entry is still walked rather than dropped from the list, because that is what
-			-- sizes the container for it. Dropping them is what collapsed the container to the
-			-- width of TBT's own trackers once: a container hangs off a corner or an edge (BOTTOM,
-			-- by Blizzard default), so a narrower one re-centres on its anchor and takes every
-			-- offset measured from it with it.
-			if anchor then
-				ns:PlaceMergeAura(entry, container, anchor, offsetMajor, offsetMinor, settings.iconScale)
-			end
-
-			-- An ITEM-backed tracked buff -- a trinket or a potion -- keeps its own icon
-			-- underneath, showing the item's cooldown, and lets the engine's aura frame cover it
-			-- while the buff is up. Exactly the overlay the cooldown containers use.
+			-- Accepted (Phase 68 review IN-01): in a Centered container a merged buff the CDM does not
+			-- show yet takes no cell, so its cell has no points above. Blizzard shows the frame the
+			-- moment the aura lands, but it has no rect until the shown-slot pass stamps cdmShown and
+			-- the next render anchors the cell -- one frame plus up to UPDATE_INTERVAL late, each time
+			-- the buff is applied. Once the cell is anchored the frame follows it.
 			--
-			-- This was left out because CooldownViewerBuffIconItemMixin:RefreshCooldownInfo
-			-- drives its sweep purely from GetCooldownValues -- aura, totem or edit-mode timing
-			-- and nothing else -- so a buff tile looked like it could not show a cooldown at all.
-			-- The live game says otherwise, reported 2026-09-22, and the game is the authority:
-			-- the local wow-ui-source dump is 12.1.0 build 69273 from 2026-08-11 and the client
-			-- has moved since. Read it for intent, never for proof of absence.
-			--
-			-- Scoped to item-backed entries on purpose. An ordinary tracked buff is a pure aura
-			-- and must still go quiet when it drops; only a trinket or a potion has a second
-			-- thing to say.
-			if entry.equipSlot or entry.spellCategoryID then
-				ApplyCooldownSlot(icon, entry, settings, now, false)
-				icon.mergedTime:Hide()
-				icon._mergedExpiry = nil
-				icon:Show()
+			-- STEAL-14: while previewing, an entry whose Blizzard frame is not drawn gets TBT's own
+			-- placeholder instead and is not attached; see the bar path's comment for the reasoning.
+			if entry.cdmFrameVisible == false then
+				ShowMergedPlaceholderIcon(icon, entry, settings)
 			else
+				ApplyIconStyle(icon, settings)
 				icon:Hide()
+				ns:AttachMergedItem(entry, icon, settings, "icon", ownViewer)
 			end
+		elseif entry.isMerged then
+			-- Fail-closed: unreachable while merged entries exist only with Merge Mode on, because the
+			-- re-anchor branch above takes every one of them. If that ever breaks, a merged entry is
+			-- hidden here rather than drawn by TBT.
+			icon:Hide()
 		elseif timer then
 			-- Phase 38: drop the stamps a cooldown slot left on this pooled widget -- see
 			-- ClearCooldownStamps. One nil test per icon per frame in the common case.
@@ -2588,41 +1653,11 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			-- Buff icons are never greyed; only a cooldown slot desaturates. Cleared here so a
 			-- pooled widget that last drew a cooldown does not keep its grey.
 			ClearIconDesaturation(icon)
-			-- A TBT-owned timer draws its own numbers through the Cooldown widget, so a pooled
-			-- widget that last drew a merged slot must drop the relayed text and its sweep stamp.
-			icon.mergedTime:Hide()
-			icon._mergedExpiry = nil
 			ApplyIconStyle(icon, settings)
 
-			-- 49-04/D-6: an indefinite proc (Shadowmeld, Find Treasure) has no natural end, so a
-			-- radial sweep drawn from its 86400s backstop duration would show a lie. SetCooldown(0,
-			-- 0) is the clear-the-sweep idiom, present on both flavours -- Cooldown:Clear() buys
-			-- nothing here and is one more symbol to be confident about. The -1 sentinel is neither
-			-- nil nor any real startedAt, keeping the write out of the per-frame path once applied.
-			if timer.indefinite then
-				if icon._lastStart ~= -1 then
-					icon._lastStart = -1
-					icon.cooldown:SetCooldown(0, 0)
-				end
-			elseif icon._lastStart ~= timer.startedAt then
+			if icon._lastStart ~= timer.startedAt then
 				icon._lastStart = timer.startedAt
 				icon.cooldown:SetCooldown(timer.startedAt, timer.duration)
-			end
-
-			-- Phase 41 (RACE-02): reuses Phase 38's icon.chargeCount widget rather than a
-			-- second one -- see CreateTimerIcon's comment for why it already sits where
-			-- Blizzard puts an Applications count. timer.stacks is TBT's own cast-derived
-			-- integer (RacialProviderMixin decrements it on a qualifying cast), never a game
-			-- value, so unlike ApplyChargeCount above this needs no issecretvalue, no
-			-- ns:CanReadTable and no pcall.
-			if icon._stacks ~= timer.stacks then
-				icon._stacks = timer.stacks
-				if timer.stacks ~= nil then
-					icon.chargeCount.Current:SetText(timer.stacks)
-					icon.chargeCount:Show()
-				else
-					icon.chargeCount:Hide()
-				end
 			end
 
 			icon:Show()
@@ -2638,26 +1673,9 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			-- Phase 47: a tracked item entry reaches here too, and needs no branch body change
 			-- -- ApplyCooldownSlot is already generic on entry.key/entry.duration, and its own
 			-- generation-gated block branches ApplyChargeCount vs ApplyItemCount internally.
-			-- entry.isMerged is always false for an item entry, so the merge-aura call below
-			-- is already a no-op for it and needs no guard.
-			ApplyCooldownSlot(icon, entry, settings, now, true)
-			icon.mergedTime:Hide()
-			icon._mergedExpiry = nil
+			ApplyCooldownSlot(icon, entry, settings, now)
 			icon:Show()
-
-			-- Phase 43.1: OVERLAY, not replace. Unlike the Tracked Buffs branch above, the icon
-			-- stays shown and keeps drawing the spell's cooldown; the engine's aura frame is
-			-- placed on the same cell, above it, and covers it for exactly as long as the aura is
-			-- up. Between them that is Blizzard's "show the buff's time, then the cooldown"
-			-- without TBT reading either value -- which matters because reading is what does not
-			-- work: mid-combat on retail every merged slot resolves its aura to nothing.
-			--
-			-- Same size as the icon (both 40), so the cover is exact. An entry whose spell has no
-			-- aura never gets a frame and the cooldown simply shows through.
-			if entry.isMerged and anchor then
-				ns:PlaceMergeAura(entry, container, anchor, offsetMajor, offsetMinor, settings.iconScale)
-			end
-		elseif gate == true or entry.isMerged or not settings.hideWhenInactive or ns.configOpen or iconEditing then
+		elseif gate == true or not settings.hideWhenInactive or ns.configOpen or iconEditing then
 			-- Phase 57.2 (REM-03): a reminder is this placeholder -- full colour, no sweep, no
 			-- timer -- drawn even under hideWhenInactive via `gate == true` (its buff is missing).
 			--
@@ -2665,70 +1683,26 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			-- ClearCooldownStamps.
 			if icon._cdKey then
 				ClearCooldownStamps(icon)
-				-- Cleared with the widget it stamps, or a merged slot landing on this pooled icon
-				-- would think its sweep was still set and never re-issue it. Out of the helper
-				-- because the timer branch clears this stamp unconditionally instead.
-				icon._mergedExpiry = nil
 			end
 
-			-- Placeholder: resolve icon via ns:GetDisplayInfoForKey, unless this is a Phase 40
-			-- mirrored slot, whose entry (built by MergeMode.lua's mirror refresh) is already
-			-- the tooltip payload -- it carries spellID and label directly, same trick
-			-- ApplyCooldownSlot already uses ("The DB entry itself is the tooltip payload").
-			-- Per-item shown state IS mirrored now -- a slot that reaches this loop is one the
-			-- CDM currently has on screen, filtered in ns:RefreshMergeShownSlots. There is
-			-- still no countdown: that value lives on the same item frames but is not mirrored,
-			-- because nothing consumes it yet.
-			local resolvedSpellID
-			if entry.isMerged then
-				icon.proc = entry
-				resolvedSpellID = entry.spellID
-
-				-- A real sweep whenever MergeMode could read the aura's timing (see
-				-- ResolveMergedAuraTiming). These are plain numbers by the time they reach here --
-				-- that function refuses to store anything else -- so this is the ordinary
-				-- SetCooldown path, stamped on the expiry so a re-render does not restart the
-				-- animation every frame.
-				--
-				-- When the sweep is up the Cooldown widget draws its own numbers, so the relayed
-				-- text is hidden to avoid printing the countdown twice. The relay stays as the
-				-- fallback for when the aura is unreadable, which is what restricted content
-				-- gives: a number and no spiral, rather than nothing at all.
-				if entry.auraExpiry and entry.auraDuration then
-					if icon._mergedExpiry ~= entry.auraExpiry then
-						icon._mergedExpiry = entry.auraExpiry
-						icon.cooldown:SetCooldown(entry.auraExpiry - entry.auraDuration, entry.auraDuration)
-					end
-					icon.mergedTime:Hide()
-				else
-					if icon._mergedExpiry ~= nil then
-						icon._mergedExpiry = nil
-						icon.cooldown:Clear()
-					end
-					if not RelayMergedIconTime(icon, entry, settings) then
-						icon.mergedTime:Hide()
-					end
+			-- Placeholder: resolve icon via ns:GetDisplayInfoForKey. A mirrored slot never reaches
+			-- here: the re-anchor branch or the fail-closed arm above catches it first.
+			local info = ns:GetDisplayInfoForKey(entry.key)
+			local resolvedSpellID = info and info.spellID or nil
+			if info and info.spellID then
+				-- D2: the bar path's reused per-widget table, for the same reason and with the same
+				-- two rules -- see RenderBarContainer's placeholder branch. A separate field because
+				-- icon.proc is sometimes a borrowed live timer or a borrowed DB entry, and all three
+				-- fields on every pass because the table outlives the slot that last filled it.
+				local p = icon._placeholderProc
+				if not p then
+					p = {}
+					icon._placeholderProc = p
 				end
+				p.spellID, p.label, p.key = info.spellID, info.label, entry.key
+				icon.proc = p
 			else
-				icon.mergedTime:Hide()
-				icon._mergedExpiry = nil
-				local info = ns:GetDisplayInfoForKey(entry.key)
-				resolvedSpellID = info and info.spellID or nil
-				if info and info.spellID then
-					-- D2: the bar path's reused per-widget table, for the same reason and with the same
-					-- two rules -- see RenderBarContainer's placeholder branch. A separate field because
-					-- icon.proc is sometimes a borrowed live timer or a borrowed DB entry, and all three
-					-- fields on every pass because the table outlives the slot that last filled it.
-					local p = icon._placeholderProc
-					if not p then
-						p = {}
-						icon._placeholderProc = p
-					end
-					p.spellID, p.label, p.key = info.spellID, info.label, entry.key
-					icon.proc = p
-				else
-					icon.proc = nil
-				end
+				icon.proc = nil
 			end
 
 			ApplyCachedIcon(icon, resolvedSpellID, entry.iconOverride)
@@ -2738,13 +1712,6 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			if icon._lastStart then
 				icon._lastStart = nil
 				icon.cooldown:Clear()
-			end
-
-			-- Phase 41: a slot with no live timer never keeps a stack number. One comparison
-			-- per placeholder icon per frame, matching the icon._cdKey guard style above.
-			if icon._stacks ~= nil then
-				icon._stacks = nil
-				icon.chargeCount:Hide()
 			end
 
 			icon:Show()
@@ -2792,17 +1759,6 @@ local function RenderIconContainer(def, container, settings, timers, now)
 		if ClearClickStamp(pool[i]) then
 			ns:MarkReminderClicksDirty()
 		end
-		-- Phase 48: pool[i]:Hide() does NOT hide the pandemic FX -- it hangs off the
-		-- container, not the icon (see EnsurePandemicIconFX's comment) -- so without this
-		-- explicit clear a shrinking container would leave a highlight floating over an empty
-		-- cell. The bar path's FX IS a true child of bar, so it needs no clear to stay out of
-		-- sight -- but it carries one anyway (WR-01), because the animation group stops on the
-		-- FX frame's own Hide, not an ancestor's.
-		ApplyPandemicIcon(pool[i], false, settings)
-		-- Phase 48.1: same reasoning as the bar pool's clear -- pool[i]:Hide() already takes the
-		-- border off screen with its parent, but the stored _dispelShown has to be cleared with it
-		-- or the dirty check will skip the Hide when this widget is reused unbordered.
-		ApplyDispelBorder(pool[i], nil, false)
 	end
 
 	-- Size the icon container to fit its visible children (inter-item padding only).
@@ -2851,25 +1807,8 @@ local function RenderIconContainer(def, container, settings, timers, now)
 	end
 end
 
-function ns:UpdateDisplay()
-	local timers = ns:GetActiveTimers()
-	local now = GetTime()
-
-	-- Phase 38 (CD-04): once per tick, before the container loop -- not once per container.
-	-- On an unchanged ns.trackerGeneration this is a single integer compare and a return.
-	RefreshCooldownSlotCounts()
-
-	-- Group timers by container. The per-key lists are built once at load and only
-	-- wiped here. A section naming no registered container falls back to the bar
-	-- container, reproducing the pre-Phase-35 "buffs to icons, everything else to
-	-- bars" split for any stale or missing section value.
-	for _, def in ipairs(ns.CONTAINERS) do
-		wipe(timersByContainer[def.key])
-	end
-	for _, timer in ipairs(timers) do
-		table.insert(timersByContainer[timer.section] or timersByContainer.bars, timer)
-	end
-
+-- One render pass over every container, from ns:UpdateDisplay (under xpcall, see there).
+local function RenderContainers(now)
 	for _, def in ipairs(ns.CONTAINERS) do
 		local container = ns.containers and ns.containers[def.key]
 		local settings = cachedSettings[def.key]
@@ -2878,6 +1817,8 @@ function ns:UpdateDisplay()
 			-- rendered and move on, so one unconfigured container cannot stop the rest.
 			-- Deletion unregisters the def before releasing its pool (Core.lua), so a nil
 			-- pool here is defence in depth rather than the expected case.
+			-- STEAL-15: nothing is attached for this container, so its merged frames go back to the
+			-- parked viewer in the flush.
 			local pool = pools[def.key]
 			if pool then
 				for i = 1, #pool do
@@ -2894,4 +1835,44 @@ function ns:UpdateDisplay()
 			RenderIconContainer(def, container, settings, timersByContainer[def.key], now)
 		end
 	end
+end
+
+-- Hands a render error to the game's error handler (BugSack etc.) at the point of the raise, so
+-- the report keeps the original stack -- the same report an uncaught raise produced before.
+local function ReportRenderError(err)
+	return geterrorhandler()(err)
+end
+
+function ns:UpdateDisplay()
+	local timers = ns:GetActiveTimers()
+	local now = GetTime()
+
+	-- Merge Mode: this render's attaches rebuild the cooldownID -> cell map whole (STEAL-13).
+	ns:BeginMergedPlacement()
+
+	-- Phase 38 (CD-04): once per tick, before the container loop -- not once per container.
+	-- On an unchanged ns.trackerGeneration this is a single integer compare and a return.
+	RefreshCooldownSlotCounts()
+
+	-- Group timers by container. The per-key lists are built once at load and only
+	-- wiped here. A section naming no registered container falls back to the bar
+	-- container, reproducing the pre-Phase-35 "buffs to icons, everything else to
+	-- bars" split for any stale or missing section value.
+	for _, def in ipairs(ns.CONTAINERS) do
+		wipe(timersByContainer[def.key])
+	end
+	for _, timer in ipairs(timers) do
+		table.insert(timersByContainer[timer.section] or timersByContainer.bars, timer)
+	end
+
+	-- Phase 68 review IN-04: the container loop runs under xpcall so a raise in any render function
+	-- still reaches the Merge Mode flush below -- otherwise a repeating raise would leave Blizzard's
+	-- frames unplaced, and unreleased after Merge Mode off. The error behaviour is unchanged: the
+	-- handler reports the error with its original stack, and the containers after the failing one
+	-- are skipped exactly as before. No closure: the function and its handler are file-locals.
+	xpcall(RenderContainers, ReportRenderError, now)
+
+	-- Merge Mode: moves Blizzard's CDM frames onto the cells this render just laid out. After the
+	-- loop, so every cell is placed and styled first; a single boolean test when nothing changed.
+	ns:FlushMergedPlacement()
 end

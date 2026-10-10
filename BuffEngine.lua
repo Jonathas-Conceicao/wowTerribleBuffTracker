@@ -66,23 +66,16 @@ end
 -- Per-key display data (icon, label, duration, spellID) comes from ns:GetDisplayInfoForKey;
 -- description text is CDMTab-local (META_DESCRIPTIONS in CDMTab.lua).
 ns.SUGGESTED_KEYS = { ns.META_KEY.LUST, ns.META_KEY.TRINKET, ns.META_KEY.POT }
--- RACE-10: the racial buff tiles no longer live in this static list -- a per-racial key is
--- dynamic (one per spellID, not a fixed meta string), so it cannot sit in a plain array. The
--- Buffs tab's racial offers now come from ns:RacialSuggestions() (49-03), and the Cooldowns tab's
--- racial offers from ns:RacialCooldownKeys() (Providers.lua) -- both resolved per character. The
--- Forever gate that used to live here -- "retail's Cooldown Manager already carries racials, so
--- offering TBT's own would duplicate them" -- now lives inside ns:RacialSuggestions() instead,
--- since that is the one place both offer paths read through.
 
--- Hoisted to module scope (was function-local inside ns:InitBuffEngine) because schema v7's,
--- v8's, v9's, v10's and v11's migrations -- ns:MigrateRacialKeys, ns:MigrateKindKeys,
--- ns:MigrateDropDetailedFlag, ns:MigrateBuffReminders and ns:MigrateReminderAlternatives, below --
--- run OUTSIDE that function's chain: once from their own call sites inside ns:InitBuffEngine,
--- and again from Core.lua's PLAYER_ENTERING_WORLD branch, neither of which could read a local
--- declared inside ns:InitBuffEngine. Schema v11 (ns:MigrateReminderAlternatives, RALT-02, Phase 57.5) is now the
--- newest block in the chain and the one that writes this constant -- v6, v7, v8, v9 and v10 keep
--- their own literals instead (see each block's own comment for why).
-local CURRENT_SCHEMA_VERSION = 11
+-- Hoisted to module scope (was function-local inside ns:InitBuffEngine) because the schema
+-- migrations -- ns:MigrateRacialKeys, ns:MigrateKindKeys, ns:MigrateDropDetailedFlag,
+-- ns:MigrateBuffReminders, ns:MigrateReminderAlternatives and ns:MigrateDropRacials, below -- run
+-- OUTSIDE that function's chain, and could not read a local declared inside ns:InitBuffEngine.
+-- Schema v12 (ns:MigrateDropRacials, MIG-03, Phase 67) is now the newest block in the chain and the
+-- one that writes this constant -- v6 through v11 keep their own literals instead (see each
+-- block's own comment for why). The migrations run once, from ns:InitBuffEngine: the old
+-- world-entry retry existed only because v7 needed a readable race, and v7 no longer reads one.
+local CURRENT_SCHEMA_VERSION = 12
 
 function ns:InitBuffEngine()
 	-- v4 (CONT-01/CONT-03, Phase 35): renames the Tracked Buffs Edit Mode position key,
@@ -211,27 +204,24 @@ function ns:InitBuffEngine()
 		-- literal rather than the constant: `ns.db.schemaVersion = 6` states where THIS
 		-- migration ends, a fact about the chain that must not move just because the current
 		-- version does. Schema v7 (ns:MigrateRacialKeys), v8 (ns:MigrateKindKeys), v9
-		-- (ns:MigrateDropDetailedFlag), v10 (ns:MigrateBuffReminders) and v11
-		-- (ns:MigrateReminderAlternatives, all below) are the newer migrations now; v11 is the one that
-		-- writes CURRENT_SCHEMA_VERSION.
+		-- (ns:MigrateDropDetailedFlag), v10 (ns:MigrateBuffReminders), v11
+		-- (ns:MigrateReminderAlternatives) and v12 (ns:MigrateDropRacials, all below) are the newer
+		-- migrations now; v12 is the one that writes CURRENT_SCHEMA_VERSION.
 		ns.db.schemaVersion = 6
 	end
 
-	-- Schema v7 (49-03): re-keys the old two-slot "racial"/"racial2" entries onto
-	-- racial:<spellID>. Called here, AFTER the migration chain above and BEFORE the
-	-- ns:PreallocateProc loop below, so a freshly re-keyed entry gets its buffers in the same
-	-- pass. Called a second time from Core.lua's PLAYER_ENTERING_WORLD branch -- see that call
-	-- site for why ADDON_LOADED alone is not enough.
+	-- Schema v7 (49-03): drops the legacy "racial"/"racial2" slots (Phase 67). Runs before v8.
 	ns:MigrateRacialKeys()
-	-- Schema v8 (NAME-01/NAME-02, Phase 53): must follow v7 on the same trigger -- it re-keys
-	-- onto ns.KIND and cannot classify a stray "racial"/"racial2" slot v7 has not yet resolved.
+	-- Schema v8 (NAME-01/NAME-02, Phase 53): must follow v7 -- it re-keys onto ns.KIND.
 	ns:MigrateKindKeys()
-	-- Schema v9 (Phase 57.1): must follow a completed v8 on the same trigger.
+	-- Schema v9 (Phase 57.1): must follow a completed v8.
 	ns:MigrateDropDetailedFlag()
-	-- Schema v10 (Phase 57.2): must follow a completed v9 on the same trigger.
+	-- Schema v10 (Phase 57.2): must follow a completed v9.
 	ns:MigrateBuffReminders()
-	-- Schema v11 (Phase 57.5): must follow a completed v10 on the same trigger.
+	-- Schema v11 (Phase 57.5): must follow a completed v10.
 	ns:MigrateReminderAlternatives()
+	-- Schema v12 (Phase 67, MIG-03): must follow a completed v11.
+	ns:MigrateDropRacials()
 
 	-- Pre-allocate a proc buffer for every tracker already in the database, so the first cast of
 	-- a session costs nothing either. Runs after the migrations above, which is the point: a
@@ -246,30 +236,10 @@ function ns:InitBuffEngine()
 	ns:RebuildCastIndex()
 end
 
--- Schema v7 (49-03): re-keys the old two-slot "racial"/"racial2" tracker entries onto
--- "racial:<spellID>" keys, resolving the owning race through ns:RacialDefsRaw.
---
--- This migration sits OUTSIDE ns:InitBuffEngine's if-chain because it is the first one that
--- needs a GAME value -- UnitRace("player") -- rather than only data already sitting in the
--- record. Every earlier migration transforms what the entry already carries; a "racial"/
--- "racial2" record carries NO spellID of its own, because the old two-slot model derived one
--- fresh from UnitRace every session, so the new key cannot be computed from the old record
--- alone -- it has to ask ns:RacialDefsRaw which spellID that slot resolves to for the CURRENT
--- character, right now.
---
--- Idempotent and safe to call any number of times: a no-op once schemaVersion has reached 7, and
--- a raceID that is not yet readable defers entirely rather than guessing -- collapsing "this race
--- has no racial in that slot" with "UnitRace was unreadable" would delete a placement at an
--- unlucky ADDON_LOADED, which is exactly what D-4's "Migration is required" clause exists to
--- prevent. That is why it is called twice: once from ns:InitBuffEngine above, and again from
--- Core.lua's PLAYER_ENTERING_WORLD, since UnitRace("player") is not guaranteed readable at
--- ADDON_LOADED and the only other entry point would be the next login.
---
--- Pinned to the LITERAL 7, not CURRENT_SCHEMA_VERSION (NAME-01/NAME-02, Phase 53): this is now an
--- EARLIER block in the chain, so by its own historical rule (see the v6 block above) it keeps a
--- literal rather than the constant -- bumping CURRENT_SCHEMA_VERSION to 8 must never let a v7
--- database skip straight to 8 without schema v8 (ns:MigrateKindKeys, below) actually re-keying
--- it. Idempotent up to 7; v8 runs after it, on the same two triggers.
+-- Schema v7 (49-03): drops the pre-v7 two-slot "racial"/"racial2" tracker entries. Phase 67
+-- removed racials, so those records address nothing: they are dropped, not re-keyed, and the race
+-- is never read. Pinned to the LITERAL 7 (an EARLIER block in the chain; the v6 block above states
+-- the rule). Spec: scripts/migrate-dryrun.js migrateV7.
 function ns:MigrateRacialKeys()
 	if not ns.db or not ns.db.trackedBuffs then
 		return
@@ -278,81 +248,18 @@ function ns:MigrateRacialKeys()
 		return
 	end
 
-	-- Nothing race-dependent to migrate: stamp 7 now, without reading the race (WR-02). Deferring
-	-- here would also hold back schema v8, which is gated on v7 -- and the Phase 53 runtime reads
-	-- only v8 kinds, so a deferred v8 leaves every tracker unstarted and unresolvable.
-	if ns.db.trackedBuffs.racial == nil and ns.db.trackedBuffs.racial2 == nil then
-		ns.db.schemaVersion = 7
-		return
-	end
-
-	local defs, raceID = ns:RacialDefsRaw()
-	-- raceID nil means UnitRace("player") was not readable this call -- defer entirely, without
-	-- touching a single entry or bumping the schema version. Do NOT treat an empty defs as "no
-	-- racials for this race" unless raceID came back as a real number; an empty table alone
-	-- cannot carry that distinction (see ns:RacialDefsRaw's own header comment).
-	if raceID == nil then
-		return
-	end
-
-	-- At most two keys, both known up front -- this loop never iterates ns.db.trackedBuffs
-	-- itself, so the v5->v6 block's "collected before mutating" concern does not apply here.
-	local rekeyed = false
-	local oldSlotKeys = { "racial", "racial2" }
-	for slot, oldKey in ipairs(oldSlotKeys) do
-		local entry = ns.db.trackedBuffs[oldKey]
-		if entry then
-			ns.db.trackedBuffs[oldKey] = nil
-			local def = defs[slot]
-			if def then
-				-- Frozen literal, not a namespaced constant (Phase 53 removes the old one) --
-				-- this block must keep producing exactly what it always produced; schema v8
-				-- re-keys "racial:<spellID>" onto "metaSkill:<spellID>" afterwards.
-				local newKey = "racial:" .. def.spellID
-				if not ns.db.trackedBuffs[newKey] then
-					-- entry.section and entry.layoutOrder are the placement D-4 requires be
-					-- preserved -- deliberately left untouched below.
-					entry.key = newKey
-					entry.spellID = def.spellID
-					entry.duration = def.duration
-					entry.label = def.fallbackLabel or entry.label
-					ns.db.trackedBuffs[newKey] = entry
-					ns:PreallocateProc(newKey)
-					rekeyed = true
-				end
-				-- else: a "racial:<spellID>" record already exists for this slot (T-49-08) --
-				-- the old record is dropped rather than clobbering it.
-			end
-			-- else: this race has no racial in that slot under the new model (e.g. a
-			-- one-racial race's stale "racial2"). Under the old two-slot model that slot
-			-- resolved to false and rendered as a greyed unsupported placeholder; RACE-10
-			-- deletes that placeholder (D-7), so the record addresses nothing on any
-			-- character. This is the one case where data is removed, and it is removed only
-			-- once raceID is known to be real.
-		end
-	end
-
+	ns.db.trackedBuffs.racial = nil
+	ns.db.trackedBuffs.racial2 = nil
 	ns.db.schemaVersion = 7
-
-	if rekeyed then
-		if ns.MarkTrackersDirty then
-			ns:MarkTrackersDirty()
-		end
-		if ns.UpdateDisplay then
-			ns:UpdateDisplay()
-		end
-	end
 end
 
 -- Schema v8 (NAME-01/NAME-02, Phase 53): re-keys every tracker onto the canonical "<kind>:<id>"
 -- scheme (Core.lua's ns.KIND), stamps entry.trackerType with the canonical kind, and backfills
 -- entry.spellID/entry.itemID where they were only implicit in the old key shape.
 --
--- Runs only after schema v7 has completed -- a stray "racial"/"racial2" slot v7 has not yet
--- resolved carries no spellID of its own, so v8 has no way to classify it. Reads
--- ns.db.schemaVersion FRESH on every call (not a `ver` captured earlier), matching
--- ns:MigrateRacialKeys' own re-entrant design: called once from ns:InitBuffEngine, again from
--- Core.lua's PLAYER_ENTERING_WORLD retry for whichever of v7/v8 deferred.
+-- Runs only after schema v7 has completed. Reads ns.db.schemaVersion FRESH on every call (not a
+-- `ver` captured earlier), matching ns:MigrateRacialKeys' own design: called once from
+-- ns:InitBuffEngine.
 --
 -- Move the record, never rebuild it (the v6 precedent): every key is collected into a snapshot
 -- array BEFORE any key is deleted or written, because mutating ns.db.trackedBuffs while iterating
@@ -361,10 +268,11 @@ end
 -- Classification (spec: scripts/migrate-dryrun.js migrateV8, reconciled against this code in
 -- plan 53-05):
 --   numeric key, trackerType nil/"buff"  -> userBuff:<key>
---   numeric key, trackerType "cooldown"  -> metaSkillCd:<key> / userCd:<key> (defensive only --
---                                           v6 should already have re-keyed this to "cd:<id>")
---   "cd:<N>"                             -> metaSkillCd:<N> / userCd:<N>, decided by RACIAL_SPELLS
---                                           membership for ANY race, never the current character's
+--   numeric key, trackerType "cooldown"  -> userCd:<key> (defensive only -- v6 should already
+--                                           have re-keyed this to "cd:<id>")
+--   "cd:<N>"                             -> userCd:<N>
+--   either cooldown shape, N in the frozen LEGACY_RACIAL_CD list below -> DROPPED (MIG-03: a
+--                                           v0.4.x racial cooldown tile is removed, never kept)
 --   "item:<N>"                           -> metaItem:<N>
 --   "racial:<N>"                         -> metaSkill:<N>
 --   "lust" / "trinket" / "pot"           -> ns.META_KEY.LUST / .TRINKET / .POT
@@ -376,7 +284,7 @@ end
 -- rather than the constant -- bumping CURRENT_SCHEMA_VERSION to 9 must never let a completed v8
 -- database re-run this block, or skip straight to 9 without schema v9
 -- (ns:MigrateDropDetailedFlag, below) actually running. v9 is now the block that writes the
--- constant; v9 runs after this one, on the same two triggers.
+-- constant; v9 runs after this one.
 function ns:MigrateKindKeys()
 	if not ns.db or not ns.db.trackedBuffs then
 		return
@@ -386,8 +294,7 @@ function ns:MigrateKindKeys()
 		return
 	end
 	if ver < 7 then
-		-- v7 has not completed (typically UnitRace unreadable at ADDON_LOADED) -- the
-		-- PLAYER_ENTERING_WORLD retry runs both, in order.
+		-- Kept as a chain-order guard: v7 no longer defers, so this is not reached in practice.
 		return
 	end
 
@@ -396,6 +303,29 @@ function ns:MigrateKindKeys()
 	local COOLDOWN_PATTERN = "^cd:(%d+)$"
 	local ITEM_PATTERN = "^item:(%d+)$"
 	local RACIAL_PATTERN = "^racial:(%d+)$"
+	-- Frozen (Phase 67 review WR-01): every spellID the v0.4.0-v0.5.1 racial catalogue offered as a
+	-- racial cooldown tile, i.e. every legacy cooldown key the old v8 classified as racial. History,
+	-- not a catalogue -- this list must never grow. Mirrored in scripts/migrate-dryrun.js.
+	local LEGACY_RACIAL_CD = {
+		[20600] = true,
+		[1259718] = true,
+		[20572] = true,
+		[1299026] = true,
+		[20594] = true,
+		[20580] = true,
+		[1259799] = true,
+		[20577] = true,
+		[7744] = true,
+		[20549] = true,
+		[20552] = true,
+		[1259817] = true,
+		[20589] = true,
+		[20554] = true,
+		[1260270] = true,
+		[1259416] = true,
+		[1259705] = true,
+		[1259686] = true,
+	}
 
 	-- Collected before mutating: adding and removing keys while iterating the table being
 	-- iterated is undefined in Lua (the v6 block's own precedent).
@@ -408,6 +338,8 @@ function ns:MigrateKindKeys()
 	for _, oldKey in ipairs(oldKeys) do
 		local entry = ns.db.trackedBuffs[oldKey]
 		local newKey, kind, id
+		-- Set for a legacy racial cooldown: the record is removed, not re-keyed (WR-01).
+		local dropRacial = false
 
 		if type(oldKey) == "number" then
 			local trackerType = entry.trackerType
@@ -416,18 +348,26 @@ function ns:MigrateKindKeys()
 				id = oldKey
 				newKey = ns:TrackerKey(kind, id)
 			elseif trackerType == "cooldown" then
-				kind = ns:CooldownKindFor(oldKey)
-				id = oldKey
-				newKey = ns:TrackerKey(kind, id)
+				if LEGACY_RACIAL_CD[oldKey] then
+					dropRacial = true
+				else
+					kind = ns.KIND.USER_CD
+					id = oldKey
+					newKey = ns:TrackerKey(kind, id)
+				end
 			end
 			-- anything else (an already-numeric key with an unrecognised trackerType) is left
 			-- exactly as it is -- newKey stays nil.
 		elseif type(oldKey) == "string" then
 			local n = oldKey:match(COOLDOWN_PATTERN)
 			if n then
-				id = tonumber(n)
-				kind = ns:CooldownKindFor(id)
-				newKey = ns:TrackerKey(kind, id)
+				if LEGACY_RACIAL_CD[tonumber(n)] then
+					dropRacial = true
+				else
+					id = tonumber(n)
+					kind = ns.KIND.USER_CD
+					newKey = ns:TrackerKey(kind, id)
+				end
 			else
 				n = oldKey:match(ITEM_PATTERN)
 				if n then
@@ -463,9 +403,15 @@ function ns:MigrateKindKeys()
 			-- anything else (an unrecognised string key) is left exactly as it is.
 		end
 
-		-- IN-01: an unclassified key is left in place (never deleted), but the runtime can no
-		-- longer resolve it -- say so once, since v8 runs once per database.
-		if newKey == nil then
+		-- A legacy racial cooldown is dropped silently, like v12 (67-CONTEXT); its runtime state is
+		-- empty at ADDON_LOADED, the only caller. IN-01: an unclassified key is left in place (never
+		-- deleted), but the runtime can no longer resolve it -- say so once, since v8 runs once per
+		-- database.
+		if dropRacial then
+			ns.db.trackedBuffs[oldKey] = nil
+			ns:ClearTrackerRuntimeState(oldKey)
+			moved = true
+		elseif newKey == nil then
 			print("|cff00ccffTerribleBuffTracker|r: could not migrate tracker " .. tostring(oldKey) .. ".")
 		end
 
@@ -474,14 +420,12 @@ function ns:MigrateKindKeys()
 				if ns.db.trackedBuffs[newKey] == nil then
 					ns.db.trackedBuffs[oldKey] = nil
 					ns.db.trackedBuffs[newKey] = entry
-					-- Runtime-only slots follow the record to its new key. Empty at
-					-- ADDON_LOADED, but not necessarily at the PLAYER_ENTERING_WORLD retry --
-					-- a stale slot at oldKey must not linger under a key nothing reads anymore.
+					-- Runtime-only slots follow the record to its new key. Empty at ADDON_LOADED,
+					-- but a stale slot at oldKey must not linger under a key nothing reads anymore.
 					ns:ReleaseProc(oldKey)
 					ns:PreallocateProc(newKey)
 					ns.activeTimers[oldKey] = nil
 					ns.cooldownStarts[oldKey] = nil
-					ns.cooldownOverrides[oldKey] = nil
 					moved = true
 				else
 					-- T-49-08 precedent: drop rather than clobber. Unreachable for a real
@@ -497,12 +441,7 @@ function ns:MigrateKindKeys()
 				if
 					id ~= nil
 					and entry.spellID == nil
-					and (
-						kind == ns.KIND.USER_BUFF
-						or kind == ns.KIND.USER_CD
-						or kind == ns.KIND.META_SKILL
-						or kind == ns.KIND.META_SKILL_CD
-					)
+					and (kind == ns.KIND.USER_BUFF or kind == ns.KIND.USER_CD or kind == ns.KIND.META_SKILL)
 				then
 					entry.spellID = id
 				end
@@ -537,9 +476,8 @@ end
 --
 -- Spec: scripts/migrate-dryrun.js migrateV9, reconciled against this code in plan 57.1-01.
 -- Runs only after schema v8 has completed -- reads ns.db.schemaVersion FRESH on every call (not a
--- `ver` captured earlier), matching ns:MigrateKindKeys' own re-entrant design: called once from
--- ns:InitBuffEngine, again from Core.lua's PLAYER_ENTERING_WORLD retry for whichever of v8/v9
--- deferred. Assigning fields of the entry tables during `pairs` is safe here -- no key of
+-- `ver` captured earlier), matching ns:MigrateKindKeys' own design: called once from
+-- ns:InitBuffEngine. Assigning fields of the entry tables during `pairs` is safe here -- no key of
 -- ns.db.trackedBuffs is added or removed, only value tables are mutated in place.
 --
 -- Pinned to the LITERAL 9, not CURRENT_SCHEMA_VERSION (Phase 57.2): this is now an EARLIER block
@@ -547,7 +485,7 @@ end
 -- rather than the constant -- bumping CURRENT_SCHEMA_VERSION to 10 must never let a completed v9
 -- database re-run this block, or skip straight to 10 without schema v10
 -- (ns:MigrateBuffReminders, below) actually running. v10 is now the block that writes the
--- constant; v10 runs after this one, on the same two triggers.
+-- constant; v10 runs after this one.
 function ns:MigrateDropDetailedFlag()
 	if not ns.db or not ns.db.trackedBuffs then
 		return
@@ -557,8 +495,7 @@ function ns:MigrateDropDetailedFlag()
 		return
 	end
 	if ver < 8 then
-		-- v8 has not completed (typically UnitRace unreadable at ADDON_LOADED, deferring v7/v8
-		-- in turn) -- the PLAYER_ENTERING_WORLD retry runs v7, v8 and v9 in order.
+		-- Kept as a chain-order guard: the chain runs in order from ns:InitBuffEngine.
 		return
 	end
 
@@ -593,9 +530,9 @@ end
 -- refused by the add path anyway.
 --
 -- Spec: scripts/migrate-dryrun.js migrateV10 (selftest case I), reconciled against this code in
--- plan 57.2-01 and again in 57.2-05 (kept fields). Re-entrant like v7-v9: reads
+-- plan 57.2-01 and again in 57.2-05 (kept fields). Like v7-v9: reads
 -- ns.db.schemaVersion FRESH on every call, runs only after v9 has completed, and is called once
--- from ns:InitBuffEngine and again from Core.lua's PLAYER_ENTERING_WORLD retry. Migrants are
+-- from ns:InitBuffEngine. Migrants are
 -- collected before re-keying: adding or removing keys of the table being walked by `pairs` is
 -- undefined in Lua.
 --
@@ -604,7 +541,7 @@ end
 -- rather than the constant -- bumping CURRENT_SCHEMA_VERSION to 11 must never let a completed v10
 -- database re-run this block, or skip straight to 11 without schema v11
 -- (ns:MigrateReminderAlternatives, below) actually running. v11 is now the block that writes the
--- constant; v11 runs after this one, on the same two triggers.
+-- constant; v11 runs after this one.
 function ns:MigrateBuffReminders()
 	if not ns.db or not ns.db.trackedBuffs then
 		return
@@ -614,8 +551,7 @@ function ns:MigrateBuffReminders()
 		return
 	end
 	if ver < 9 then
-		-- v9 has not completed (v7/v8 deferred behind an unreadable race) -- the
-		-- PLAYER_ENTERING_WORLD retry runs v7, v8, v9 and v10 in order.
+		-- Kept as a chain-order guard: the chain runs in order from ns:InitBuffEngine.
 		return
 	end
 
@@ -705,21 +641,26 @@ end
 -- applies the same filter to the same (malformed, hand-edited) tables.
 --
 -- Spec: scripts/migrate-dryrun.js migrateV11 (selftest cases K, with its malformed sub-case, and
--- L), reconciled against this code in plan 57.5-01. Re-entrant like v7-v10: reads ns.db.schemaVersion FRESH on every call, runs only
--- after v10 has completed, and is called once from ns:InitBuffEngine and again from Core.lua's
--- PLAYER_ENTERING_WORLD retry. Only field values of the entry tables change during `pairs`; no key
--- of ns.db.trackedBuffs is added or removed. No redraw: no key moves and no section changes.
+-- L), reconciled against this code in plan 57.5-01. Like v7-v10: reads ns.db.schemaVersion FRESH on
+-- every call, runs only after v10 has completed, and is called once from ns:InitBuffEngine. Only
+-- field values of the entry tables change during `pairs`; no key of ns.db.trackedBuffs is added or
+-- removed. No redraw: no key moves and no section changes.
+--
+-- Pinned to the LITERAL 11 (Phase 67): this is now an EARLIER block in the chain, so by its own
+-- historical rule (see the v6-v10 blocks above) it keeps a literal rather than the constant --
+-- bumping CURRENT_SCHEMA_VERSION to 12 must never let a completed v11 database re-run this block,
+-- or skip straight to 12 without schema v12 (ns:MigrateDropRacials, below) actually running. v12 is
+-- now the block that writes the constant; v12 runs after this one.
 function ns:MigrateReminderAlternatives()
 	if not ns.db or not ns.db.trackedBuffs then
 		return
 	end
 	local ver = ns.db.schemaVersion or 0
-	if ver >= CURRENT_SCHEMA_VERSION then
+	if ver >= 11 then
 		return
 	end
 	if ver < 10 then
-		-- v10 has not completed (v7/v8 deferred behind an unreadable race) -- the
-		-- PLAYER_ENTERING_WORLD retry runs v7, v8, v9, v10 and v11 in order.
+		-- Kept as a chain-order guard: the chain runs in order from ns:InitBuffEngine.
 		return
 	end
 
@@ -763,8 +704,63 @@ function ns:MigrateReminderAlternatives()
 		end
 	end
 
+	ns.db.schemaVersion = 11
+	ns:RebuildCastIndex()
+end
+
+-- Schema v12 (MIG-03, Phase 67): removes every saved racial tracker. Racial trackers are identified
+-- by key shape only, never by a catalogue: `metaSkill:<digits>` racial buffs, `metaSkillCd:<digits>`
+-- racial cooldowns, and the legacy `racial`/`racial2` slots. `metaSkill:lust` has no numeric id and
+-- is kept. Silent (user decision): no chat message. Every other tracker keeps its section,
+-- layoutOrder and fields.
+--
+-- Spec: scripts/migrate-dryrun.js migrateV12 (selftest cases D and M). Reads ns.db.schemaVersion
+-- FRESH on every call, runs only after v11 has completed, and is called once from
+-- ns:InitBuffEngine. Matching keys are collected before deleting: removing keys of the table being
+-- walked by `pairs` is undefined in Lua. The patterns are function-local frozen literals (not
+-- ns.KIND), since the metaSkillCd kind is deleted from the addon.
+function ns:MigrateDropRacials()
+	if not ns.db or not ns.db.trackedBuffs then
+		return
+	end
+	local ver = ns.db.schemaVersion or 0
+	if ver >= CURRENT_SCHEMA_VERSION then
+		return
+	end
+	if ver < 11 then
+		-- Kept as a chain-order guard: the chain runs in order from ns:InitBuffEngine.
+		return
+	end
+
+	local BUFF_PATTERN = "^metaSkill:%d+$"
+	local COOLDOWN_PATTERN = "^metaSkillCd:%d+$"
+
+	local drop = {}
+	for key in pairs(ns.db.trackedBuffs) do
+		if
+			type(key) == "string"
+			and (key:match(BUFF_PATTERN) or key:match(COOLDOWN_PATTERN) or key == "racial" or key == "racial2")
+		then
+			drop[#drop + 1] = key
+		end
+	end
+
+	for _, key in ipairs(drop) do
+		ns.db.trackedBuffs[key] = nil
+		ns:ClearTrackerRuntimeState(key)
+	end
+
 	ns.db.schemaVersion = CURRENT_SCHEMA_VERSION
 	ns:RebuildCastIndex()
+
+	if #drop > 0 then
+		if ns.MarkTrackersDirty then
+			ns:MarkTrackersDirty()
+		end
+		if ns.UpdateDisplay then
+			ns:UpdateDisplay()
+		end
+	end
 end
 
 function ns:GetSpellIcon(spellID)
@@ -829,22 +825,11 @@ local aliveBuffsPool = {}
 -- A caller that starts holding one across frames has to stop using this.
 local displayInfoPool = {}
 
--- 49-04/D-6: the backstop written into an indefinite proc's duration/expiresAt, NOT a claim about
--- how long the buff actually lasts. proc.indefinite is the real signal every render path and the
--- expiry sweep below branch on; this constant only exists so that code which does arithmetic on
--- duration/expiresAt without knowing about the flag still produces a sane number -- one in-game
--- day, far longer than any session -- instead of nil-arithmetic or a negative remaining.
-ns.INDEFINITE_DURATION = 86400
-
--- Hands back the slot's proc table, wiped. The wipe is load-bearing rather than hygiene: a racial
--- proc carries "stacks" and (today) no "aliveBuffs", every other proc carries "aliveBuffs" and no
--- "stacks", and a provider that stopped setting a field would otherwise inherit the previous
--- cast's value for it. This is a warning about a stale field leaking through an unwiped table, NOT
--- a prohibition on ever setting "aliveBuffs" on a racial proc -- the wipe on every acquire makes it
--- safe for a racial proc built this session to set aliveBuffs deliberately, which is exactly what
--- 49-04 does for Shadowmeld, Find Treasure and Plainsrunning. Keys never cross providers --
--- "metaSkill:<spellID>", "metaSkill:lust", "metaItem:trinket", "metaItem:pot", "userBuff:<id>"
--- and "userCd:<id>" are all disjoint -- so this guards against future edits, not present ones.
+-- Hands back the slot's proc table, wiped. The wipe is load-bearing rather than hygiene: a field
+-- one provider set on a proc would otherwise leak into the next cast's proc for the same slot.
+-- Keys never cross providers -- "metaSkill:lust", "metaItem:trinket", "metaItem:pot",
+-- "userBuff:<id>", "userReminder:<id>" and "metaReminder:<id>" are all disjoint -- so this guards
+-- against future edits, not present ones.
 function ns:AcquireProc(key)
 	local proc = procPool[key]
 	if proc then
@@ -984,10 +969,7 @@ function ns:GetActiveTimers()
 	-- (one flag, one coalesced C_Timer, no allocation): when a readable read still finds the set
 	-- present (an alternative outlasting the timer), the reminder hides again.
 	for key, proc in pairs(ns.activeTimers) do
-		-- 49-04/D-6: an indefinite proc's expiresAt is only the 86400s backstop, not a real
-		-- deadline -- it is ended by ns:ScanActiveTimersForCancellation (aura-loss) or
-		-- ns:EndTimer (combat entry), never by this lazy-expiry sweep.
-		if not proc.indefinite and proc.expiresAt <= now then
+		if proc.expiresAt <= now then
 			ns.activeTimers[key] = nil
 			if ns.reminderAuraID[key] then
 				ns.auraState[key] = false
@@ -1015,8 +997,8 @@ function ns:GetActiveTimers()
 end
 
 -- Readable word for chat -- "buff" for a userBuff tracker, "cooldown" for every other kind
--- (userCd or metaSkillCd). 53-CONTEXT discretion: a metaSkillCd tracker still reads as a
--- "cooldown" to the player, never the internal kind string. Phase 57.2: "reminder" for any kind
+-- (userCd). 53-CONTEXT discretion: a tracker reads as a "cooldown" to the player, never the
+-- internal kind string. Phase 57.2: "reminder" for any kind
 -- in ns.REMINDER_KINDS.
 function ns:TrackerKindWord(kind)
 	if ns.REMINDER_KINDS[kind] then
@@ -1045,8 +1027,8 @@ end
 
 -- True only for a userBuff, userCd or userReminder tracker -- the user-made kinds the edit dialog
 -- can open (Phase 54; userReminder since Phase 57.2, so right-click Edit works on a reminder
--- tile). Every built-in kind, including a metaSkillCd racial cooldown, gets no Edit entry: its
--- duration comes from the racial table, not from the player (54-CONTEXT "Entry point"). Names
+-- tile). Every built-in kind gets no Edit entry: its data comes from a built-in table or the
+-- item, not from the player (54-CONTEXT "Entry point"). Names
 -- USER_REMINDER directly rather than ns.REMINDER_KINDS on purpose: the built-in
 -- ns.KIND.META_REMINDER (Phase 57.4) is a reminder but is not editable -- its data comes from the
 -- class-buff table. Read off the entry's own kind field, never inferred from the key's shape.
@@ -1062,8 +1044,8 @@ end
 -- The key of an existing tracker already occupying spellID's slot within kind's namespace, or
 -- nil. This is the dialog-path rule (Add and Update both refuse a same-slot duplicate). A
 -- built-in tracker never blocks a user one (user decision 2026-09-29): a userCd conflicts only
--- with another userCd, a metaSkillCd only with another metaSkillCd, and a userBuff/reminder never
--- with a metaSkill racial buff or Lust -- each lives in its own namespace.
+-- with another userCd, and a userBuff/reminder never with Lust -- each lives in its own
+-- namespace.
 --
 -- exceptKey lets an unchanged ID never conflict with itself.
 function ns:FindTrackerConflict(kind, spellID, exceptKey)
@@ -1102,18 +1084,13 @@ function ns:FindTrackerConflict(kind, spellID, exceptKey)
 			or checkCandidate(ns:TrackerKey(ns.KIND.USER_BUFF, spellID))
 	end
 
-	if kind == ns.KIND.META_SKILL_CD then
-		return checkCandidate(ns.metaCooldownKeyBySpell and ns.metaCooldownKeyBySpell[spellID])
-			or checkCandidate(ns:TrackerKey(ns.KIND.META_SKILL_CD, spellID))
-	end
-
 	return checkCandidate(ns.cooldownKeyBySpell and ns.cooldownKeyBySpell[spellID])
 		or checkCandidate(ns:TrackerKey(ns.KIND.USER_CD, spellID))
 end
 
 -- The single list of runtime state keyed by a tracker key -- everything ns:RemoveTrackedBuff
 -- clears, and everything an ID-changing ns:UpdateTrackedBuff must clear for the OLD key before
--- moving the entry. Clearing ns.cooldownStarts/ns.cooldownOverrides here (which
+-- moving the entry. Clearing ns.cooldownStarts here (which
 -- ns:RemoveTrackedBuff missed before this phase) is the found-bug fix: a removed-then-re-added
 -- cooldown no longer inherits a running cooldown.
 function ns:ClearTrackerRuntimeState(key)
@@ -1129,7 +1106,6 @@ function ns:EndTrackerRuntime(key)
 	ns.activeTimers[key] = nil
 	ns.previewTimers[key] = nil
 	ns.cooldownStarts[key] = nil
-	ns.cooldownOverrides[key] = nil
 	-- Phase 57 DTRK-03: the cached aura state is runtime too, and must not outlive the tracker
 	-- (a removed key, or one whose ID changed under an edit) any more than the timers above do.
 	ns.auraState[key] = nil
@@ -1161,7 +1137,7 @@ local ENGINE_OWNED = {
 -- opts (Plan 37-02, extended NAME-01/NAME-02 Phase 53, extended EDIT-02/EDIT-04 Phase 54; all
 -- fields optional, three-argument callers remain valid):
 --   opts.trackerType   ns.KIND.USER_CD mints a user cooldown tracker, whatever the spell is (a
---                        racial or a trinket's spell included): typed input is always a user
+--                        trinket's spell included): typed input is always a user
 --                        kind, and only the Suggested tiles create built-in trackers (user
 --                        decision 2026-09-29). A spell ID already tracked by the same user kind
 --                        is REFUSED (a built-in tracker for it never is, 2026-09-29) and
@@ -1299,8 +1275,8 @@ function ns:RemoveTrackedBuff(key)
 	local label = entry.label or tostring(key)
 	local id = entry.spellID or entry.itemID
 	ns.db.trackedBuffs[key] = nil
-	-- Clears activeTimers/previewTimers/cooldownStarts/cooldownOverrides and the proc pools for
-	-- key in one place (54-CONTEXT found bug: this used to skip cooldownStarts/cooldownOverrides,
+	-- Clears activeTimers/previewTimers/cooldownStarts and the proc pools for
+	-- key in one place (54-CONTEXT found bug: this used to skip cooldownStarts,
 	-- so a removed-then-re-added cooldown tracker inherited a running cooldown).
 	ns:ClearTrackerRuntimeState(key)
 
@@ -1358,7 +1334,7 @@ function ns:UpdateTrackedBuff(oldKey, spellID, duration, fields, fieldKeys)
 		return false, "Invalid duration"
 	end
 
-	-- The tracker keeps its own kind -- an edited userCd stays userCd even for a racial spellID,
+	-- The tracker keeps its own kind -- an edited userCd stays userCd even for a trinket's spellID,
 	-- so it stays editable (switching buff/cooldown is out of scope, 54-CONTEXT). Adding does the
 	-- same since 2026-09-29: typed input is always a user kind.
 	local kind = entry.trackerType
@@ -1482,19 +1458,6 @@ function ns:SetBuffSection(spellID, section)
 	end
 end
 
--- RACE-03: the early-expiry path. BuffEngine keeps ownership of timer lifecycle; providers call
--- in, exactly as UserSpellProviderMixin:OnTrigger already calls ns:MarkCooldownsDirty. Clears the
--- real proc only when one was actually present. Does NOT touch ns.previewTimers.
-function ns:EndTimer(key)
-	if not ns.activeTimers[key] then
-		return
-	end
-	ns.activeTimers[key] = nil
-	if ns.UpdateDisplay then
-		ns:UpdateDisplay()
-	end
-end
-
 -- Phase 57 DTRK-05: the lifecycle side of a cross-spell rule. The cast path (Providers.lua
 -- UserSpellProviderMixin:OnTrigger) reaches this only on an ns.endKeysBySpell index hit, and
 -- passes endKeys unchanged -- the loop below is the only place that walks it.
@@ -1532,7 +1495,6 @@ function ns:ApplyEndOnCast(endKeys, startingCdKey, startingBuffKey)
 				elseif e.trackerType == ns.KIND.USER_CD then
 					if ns.cooldownStarts[k] ~= nil then
 						ns.cooldownStarts[k] = nil
-						ns.cooldownOverrides[k] = nil
 						endedCooldown = true
 					end
 				end
@@ -1563,7 +1525,7 @@ function ns:StartAllPreviewTimers()
 		-- with no type branch needed.
 		--
 		-- Phase 57.3 (LOAD-03): a tracker that is not loaded (Load set to Never, or a When
-		-- known spell this character does not know -- an orc holding a troll's racial) never
+		-- known spell this character does not know) never
 		-- previews. One cached table read, ns:IsTrackerLoaded.
 		--
 		-- A reminder previews with its duration like a buff (user request, 2026-09-30): since the
@@ -1583,12 +1545,11 @@ function ns:StartAllPreviewTimers()
 			local live = (real and real.expiresAt > now) or ns:IsCooldownRunning(key, entry, now)
 			if not live then
 				local info = ns:GetDisplayInfoForKey(key)
-				-- RACE-10/49-03: an indefinite racial (Shadowmeld, Find Treasure,
-				-- Plainsrunning) reports no duration at all, and `now + nil` would raise. A
-				-- tracker with no meaningful duration has no demo sweep to show, so it
-				-- previews as the ordinary placeholder the render path already draws for an
-				-- entry with no proc. This guard is also what makes 49-04's indefinite work
-				-- safe to land on top.
+				-- A reminder saved with no duration (Blood Pact) or an item tile reports no
+				-- positive duration, and `now + nil` would raise. A tracker with no
+				-- meaningful duration has no demo sweep to show, so it previews as the
+				-- ordinary placeholder the render path already draws for an entry with no
+				-- proc.
 				if info and type(info.duration) == "number" and info.duration > 0 then
 					ns.previewTimers[key] = {
 						key = key,
@@ -1599,10 +1560,6 @@ function ns:StartAllPreviewTimers()
 						label = info.label,
 						section = entry.section,
 						layoutOrder = entry.layoutOrder,
-						-- Phase 41: unconditional field copy, no type branch -- nil for every
-						-- provider except Racial, so no existing preview behaviour changes and a
-						-- supported racial previews at its full stack count.
-						stacks = info.stacks,
 						-- NO aliveBuffs (previews not in ns.activeTimers), NO icon (Display derives it D-33)
 					}
 				end
@@ -1699,7 +1656,7 @@ end
 -- Display draws the reminder through its live-timer branch: the buff's own remaining time, as
 -- a sweep and countdown, on a clickable reminder. The timer's duration is the aura's real one
 -- whenever ns:RefreshAuraStates could read it (57.2-05 sync), the typed one otherwise. An
--- indefinite or duration-less timer has no end to lead, so it keeps the reminder hidden.
+-- duration-less timer has no end to lead, so it keeps the reminder hidden.
 -- Allocation-free: no aura read, two hash lookups, one GetTime only while a timer runs.
 local REMINDER_LEAD_FRACTION = 0.1
 local REMINDER_LEAD_MIN = 1
@@ -1709,7 +1666,7 @@ local REMINDER_LEAD_MIN = 1
 -- icon carries its sweep and countdown) ask, so the two cannot disagree.
 function ns:ReminderInLead(timer, now)
 	local duration = timer.duration
-	if timer.indefinite or not duration or duration <= 0 then
+	if not duration or duration <= 0 then
 		return false
 	end
 	local lead = duration * REMINDER_LEAD_FRACTION

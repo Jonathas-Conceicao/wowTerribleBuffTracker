@@ -16,8 +16,9 @@ WoW Midnight addon (version 12.0 and up) for tracking buff/cooldown timers manua
 ## Architecture
 - `Core.lua` — namespace, init, event routing, slash commands
 - `BuffEngine.lua` — timer management, tracked buff config
-- `Providers.lua` — SpellProvider registry and event dispatch (Trinket, Pot, Lust, racial and class-buff meta trackers, user spells)
-- `MergeMode.lua` — Merge Mode: mirrors the player's CDM configuration through C_CooldownViewer only and parks Blizzard's viewers off-screen, never touching a CDM frame
+- `Providers.lua` — SpellProvider registry and event dispatch (Trinket, Pot, Lust and class-buff meta trackers, user spells)
+- `MergeMode.lua` — Merge Mode: mirrors the player's CDM configuration through C_CooldownViewer and the viewers' item-frame pools (read only), parks Blizzard's viewers off-screen, and publishes the shown slots the render lays out; it calls no Blizzard mixin method, writes no field on a CDM frame and parents nothing into one
+- `MergeReanchor.lua` — Merge Mode's placement engine: moves Blizzard's own CDM item frames onto TBT's hidden cells and styles them with plain C setters only, with one Layout post-hook per viewer; never uses SetParent, a field write or a mixin call, and hands every frame back when Merge Mode is off
 - `EditModeFrames.lua` — Edit Mode containers, drag handles, position persistence, settings popup
 - `Config.lua` — TBT's own settings panel under Options > AddOns (`/tbt`), shown standalone where the Settings API is missing
 - `Display.lua` — visual timer bars and buff icons

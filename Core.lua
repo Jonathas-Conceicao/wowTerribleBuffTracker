@@ -113,9 +113,9 @@ ns.CONTAINERS = {
 -- The category a tracker belongs to, derived from what it is rather than stored alongside it.
 -- Phase 38 made "cooldowns are icons, never bars" a locked decision, and Phase 47 widened it to
 -- item trackers -- both render icon-only through ApplyCooldownSlot. Phase 53 (NAME-01/NAME-02)
--- folds both cases into ns:IsCooldownSlotEntry: a userCd or metaSkillCd tracker, or a metaItem
+-- folds both cases into ns:IsCooldownSlotEntry: a userCd tracker, or a metaItem
 -- tracker backed by a numeric itemID (a bag item, not trinket/pot), files under "spells";
--- everything else -- plain buffs, meta skill buffs, racials -- is a buff. It reads only the
+-- everything else -- plain buffs and Lust -- is a buff. It reads only the
 -- canonical kinds, so it is correct only once schema v8 (ns:MigrateKindKeys) has stamped them: a
 -- pre-v8 "cooldown"/"item" entry answers "buffs" until v8 runs. Phase 57.2 (REM-02): a reminder
 -- (ns:IsReminderEntry, any kind in ns.REMINDER_KINDS) files under "reminders", tested first.
@@ -474,14 +474,13 @@ ns.activeTimers = {}
 -- fires roughly once per GCD in combat, while the tracker set only changes on a user edit.
 -- Folding both into one counter would force Display.lua to pay the expensive rebuild at the
 -- cheap counter's rate.
--- Tracker kind scheme (NAME-01/NAME-02, Phase 53). Eight canonical kinds, one table that mints and
+-- Tracker kind scheme (NAME-01/NAME-02, Phase 53). Seven canonical kinds, one table that mints and
 -- parses every saved key -- no other file may write a key literal or a "^prefix:" pattern.
 --
 --   userBuff     -- a user-made buff tracker
 --   userCd       -- a user-made cooldown tracker
 --   userReminder -- a user-made buff reminder: shows only while its aura is missing (Phase 57.2)
---   metaSkill    -- a built-in skill, buff side: Lust and every racial buff
---   metaSkillCd  -- a built-in skill cooldown tile: racial cooldowns
+--   metaSkill    -- a built-in skill buff: Lust
 --   metaReminder -- a built-in reminder (Phase 57.4): a class buff from the Providers.lua table,
 --                   behaving exactly like a user reminder.
 --   metaItem     -- a built-in item: trinket, pot, and a bag consumable tracked by itemID.
@@ -491,15 +490,14 @@ ns.activeTimers = {}
 --
 -- Every saved key has the shape "<kind>:<id>" -- ns:TrackerKey(kind, id) mints them, and the only
 -- other concatenations are Providers.lua's few sites that prepend the precomputed
--- ns.KEY_PREFIX entries (META_SKILL_PREFIX/META_ITEM_PREFIX) directly. The legacy "cd:"/"item:"/"racial:" prefixes this scheme replaces survive ONLY
--- as frozen literals inside BuffEngine.lua's old migration blocks (v6, v7) -- nowhere else may a
--- string pattern name one.
+-- ns.KEY_PREFIX entries (META_ITEM_PREFIX) directly. The legacy pre-v8 prefixes and the key shapes
+-- schema v12 drops survive ONLY as frozen literals inside BuffEngine.lua's migration blocks --
+-- nowhere else may a string pattern name one.
 ns.KIND = {
 	USER_BUFF = "userBuff",
 	USER_CD = "userCd",
 	USER_REMINDER = "userReminder",
 	META_SKILL = "metaSkill",
-	META_SKILL_CD = "metaSkillCd",
 	META_REMINDER = "metaReminder",
 	META_ITEM = "metaItem",
 	USER_ITEM = "userItem",
@@ -522,7 +520,7 @@ for _, kind in pairs(ns.KIND) do
 end
 
 -- Mints a canonical key. Every other file calls this instead of building a "<kind>:<id>" string
--- itself, except Providers.lua's META_SKILL_PREFIX/META_ITEM_PREFIX sites, which prepend the same
+-- itself, except Providers.lua's META_ITEM_PREFIX sites, which prepend the same
 -- ns.KEY_PREFIX entry this function reads.
 function ns:TrackerKey(kind, id)
 	return ns.KEY_PREFIX[kind] .. id
@@ -559,27 +557,14 @@ function ns:KeyNumericID(key, kind)
 	return id and tonumber(id) or nil
 end
 
--- The numeric spell ID a cooldown key names, or nil for anything else -- a buff key, a meta item
--- key, or a malformed string. Callers that want "the spell this key is about" regardless of
--- namespace should read entry.spellID instead.
-function ns:CooldownKeySpellID(key)
-	return ns:KeyNumericID(key, ns.KIND.USER_CD) or ns:KeyNumericID(key, ns.KIND.META_SKILL_CD)
-end
-
 -- The numeric item ID a metaItem key names, or nil for anything else -- including the two
 -- non-numeric metaItem ids, "metaItem:trinket" and "metaItem:pot".
 function ns:ItemKeyItemID(key)
 	return ns:KeyNumericID(key, ns.KIND.META_ITEM)
 end
 
--- The numeric spell ID a metaSkill key names, or nil for anything else -- including
--- "metaSkill:lust", which has no numeric id.
-function ns:RacialKeySpellID(key)
-	return ns:KeyNumericID(key, ns.KIND.META_SKILL)
-end
-
--- The numeric spell ID any spell-shaped key names -- userBuff, userCd, userReminder, metaSkill,
--- metaSkillCd or metaReminder -- or nil for a metaItem key, a meta id with no number, or a malformed
+-- The numeric spell ID any spell-shaped key names -- userBuff, userCd, userReminder
+-- or metaReminder -- or nil for a metaItem key, a meta id with no number, or a malformed
 -- string. Icon and tooltip fallbacks that only know "this key is about some spell" go through here
 -- instead of picking one kind and missing the others. The metaReminder kind (Phase 57.4) parses
 -- here too, so an untracked Suggested class-buff tile's key resolves to its spell.
@@ -587,30 +572,16 @@ function ns:SpellKeySpellID(key)
 	return ns:KeyNumericID(key, ns.KIND.USER_BUFF)
 		or ns:KeyNumericID(key, ns.KIND.USER_CD)
 		or ns:KeyNumericID(key, ns.KIND.USER_REMINDER)
-		or ns:KeyNumericID(key, ns.KIND.META_SKILL)
-		or ns:KeyNumericID(key, ns.KIND.META_SKILL_CD)
 		or ns:KeyNumericID(key, ns.KIND.META_REMINDER)
 end
 
--- The v8 migration's kind guess for a legacy "cd:<id>" key, which the dialog and the Suggested
--- racial tile both wrote before the kind scheme existed: a racial spellID becomes metaSkillCd.
--- Migration-only since 2026-09-29 -- ns:AddTrackedBuff no longer calls it, because typed input
--- is always a user kind (user decision). ns:IsRacialSpellID is Providers.lua's (plan 53-03);
--- Core.lua only consumes it, since the TOC loads this file first.
-function ns:CooldownKindFor(spellID)
-	if ns:IsRacialSpellID(spellID) then
-		return ns.KIND.META_SKILL_CD
-	end
-	return ns.KIND.USER_CD
-end
-
 -- True for any entry that renders as a cooldown slot (icon-only, ApplyCooldownSlot) rather than a
--- buff -- a user cooldown, a racial cooldown tile, or a bag item with a numeric itemID. Nil-safe.
+-- buff -- a user cooldown, or a bag item with a numeric itemID. Nil-safe.
 function ns:IsCooldownSlotEntry(entry)
 	if not entry then
 		return false
 	end
-	if entry.trackerType == ns.KIND.USER_CD or entry.trackerType == ns.KIND.META_SKILL_CD then
+	if entry.trackerType == ns.KIND.USER_CD then
 		return true
 	end
 	return entry.trackerType == ns.KIND.META_ITEM and type(entry.itemID) == "number"
@@ -654,12 +625,10 @@ end
 -- never saved.
 ns.LOAD = { KNOWN = "known", ALWAYS = "always", NEVER = "never" }
 
--- Built-in kinds carry a fixed load the user cannot edit (LOAD-02, both clients): racial buffs and
--- racial cooldowns and class-buff reminders (metaReminder, Phase 57.4) load when known; trinket,
--- pot, bag items and the reserved userItem kind always.
+-- Built-in kinds carry a fixed load the user cannot edit (LOAD-02, both clients): class-buff
+-- reminders (metaReminder, Phase 57.4) load when known; trinket, pot, bag items and the reserved
+-- userItem kind always. Lust is answered by the key check in ns:TrackerLoad.
 local FIXED_LOAD = {
-	[ns.KIND.META_SKILL] = ns.LOAD.KNOWN,
-	[ns.KIND.META_SKILL_CD] = ns.LOAD.KNOWN,
 	[ns.KIND.META_REMINDER] = ns.LOAD.KNOWN,
 	[ns.KIND.META_ITEM] = ns.LOAD.ALWAYS,
 	[ns.KIND.USER_ITEM] = ns.LOAD.ALWAYS,
@@ -756,30 +725,10 @@ ns.CAST_AURA_GRACE = 0.5
 -- game finished while the player was logged out, and there is no way to check.
 ns.cooldownStarts = {}
 
--- A ONE-CAST duration override for a cooldown tracker, keyed exactly as ns.cooldownStarts is and
--- written at the same instant, by the same dispatcher.
---
--- It exists because a handful of abilities have a cooldown that depends on the circumstances of
--- the cast rather than on the ability: night elf Shadowmeld is ten seconds out of combat and two
--- minutes when used in combat as a threat drop. entry.duration cannot carry that -- it is one
--- persisted number, it is what the player sees and may have typed themselves, and rewriting it per
--- cast would make a user-visible setting flicker between two values.
---
--- Lifetime is deliberately one cast: whoever starts the cooldown writes this key on EVERY start,
--- to the override or to nil, so a cast under ordinary conditions erases a previous cast's
--- exception rather than inheriting it. Never persisted, for the same reason ns.cooldownStarts is
--- not -- a cooldown does not survive a logout in any form TBT could honestly reconstruct.
-ns.cooldownOverrides = {}
-
--- The duration this cooldown tracker is running on RIGHT NOW: the current cast's override when it
--- has one, otherwise the tracker's own persisted duration. Every consumer of a cooldown's length
--- goes through here, so "how long is this cooldown" has exactly one answer -- the same reason
--- ns:IsCooldownRunning below exists at all.
+-- The duration this cooldown tracker runs on: the tracker's own persisted duration. Kept as the
+-- one entry point so every consumer of a cooldown's length asks the same question -- the same
+-- reason ns:IsCooldownRunning below exists at all.
 function ns:CooldownDuration(key, entry)
-	local override = ns.cooldownOverrides[key]
-	if type(override) == "number" and override > 0 then
-		return override
-	end
 	return entry and entry.duration
 end
 
@@ -836,11 +785,8 @@ local buildVersionIsNumber = not issecretvalue(buildInterfaceVersion) and type(b
 -- each consumer honest about WHY it cares rather than borrowing a flag that means something else.
 local isForeverBuild = buildVersionIsNumber and buildInterfaceVersion >= 16000 and buildInterfaceVersion < 20000
 ns.CLIENT_HAS_SPELL_RANKS = isForeverBuild
--- Retail Midnight ships racials in the Cooldown Manager already, so TBT's racial meta-tracker
--- would be a worse duplicate of something the player can simply add to a CDM category -- and with
--- Merge Mode on, it would sit in the same container as the CDM's own copy. It is offered on
--- Forever alone (user decision, 2026-09-23). Phase 64: the same answer is read per class-buff row
--- (Providers.lua MetaReminderRow's client tag) -- still the same one range comparison.
+-- Read per class-buff row (Providers.lua MetaReminderRow's client tag, Phase 64) -- one range
+-- comparison.
 ns.CLIENT_IS_FOREVER = isForeverBuild
 
 -- Dedupes while appending id to list. Drops id silently (no insert) unless it survives the
@@ -1088,11 +1034,6 @@ ns.rankIndexCooldown = {}
 -- must start both.
 ns.rankIndexReminder = {}
 
--- The same map for BUILT-IN cooldown trackers (ns.KIND.META_SKILL_CD). A built-in never stops the
--- user from tracking the same spell (user decision 2026-09-29), so a userCd and a metaSkillCd for
--- one spell coexist and one cast must start both -- each needs its own namespace.
-ns.rankIndexMetaCooldown = {}
-
 -- Phase 57.4: the same map for BUILT-IN reminders (ns.KIND.META_REMINDER). A built-in never blocks
 -- or shadows a user tracker for the same spell (user rule 2026-09-29), so a userReminder and a
 -- metaReminder for one spell coexist and one cast starts both.
@@ -1108,10 +1049,6 @@ ns.cooldownKeyBySpell = {}
 -- Phase 57.2-05: reminders get their own namespace, because a spell may be tracked as a buff AND
 -- as a reminder, and a cast must resolve to both.
 ns.reminderKeyBySpell = {}
--- ns.cooldownKeyBySpell indexes USER_CD only; built-in racial cooldowns (META_SKILL_CD) get their
--- own namespace, because a built-in never blocks or shadows a user tracker for the same spell
--- (user decision 2026-09-29) and a cast must resolve to both.
-ns.metaCooldownKeyBySpell = {}
 -- Phase 57.4: built-in reminders (META_REMINDER) get their own namespace too. A built-in never
 -- blocks or shadows a user tracker for the same spell (user rule 2026-09-29), so a userReminder
 -- and a metaReminder for one spell coexist and one cast starts both.
@@ -1188,11 +1125,8 @@ ns.satisfiedByWatch = {}
 
 -- Phase 57.3 (LOAD-04): spellID -> the last readable "is it known" answer. An unreadable read
 -- (secret, missing API, error) holds this rather than flipping a tracker. Never wiped; bounded by
--- the tracked spell IDs and the racial list.
+-- the tracked spell IDs and the class-buff list.
 ns.spellKnownHeld = {}
--- Review IN-02: the same, for answers computed with noRanks (the racials), so an unreadable read
--- never falls back to an answer the other path computed with a different candidate set.
-ns.spellKnownHeldNoRanks = {}
 
 -- One guarded known-spell question: the caller passes the function, so no API is named here.
 -- true / false for a readable boolean; nil for a missing function, an error, a secret or any
@@ -1213,7 +1147,7 @@ end
 
 -- Does this character know spellID? true, false, or nil (unreadable). Counts the spell, its base
 -- spell and its override spell (a known retail talent override counts), and on Forever any rank of
--- its family unless noRanks. Any readable true is known; a readable false is remembered; nothing
+-- its family. Any readable true is known; a readable false is remembered; nothing
 -- readable is nil. Rebuild-time only -- never per frame or per cast. The four known-spell
 -- functions are resolved here and named nowhere else in the addon. Walks the candidate IDs in one
 -- loop (1 = the spell, 2 = base, 3 = override, then the cached rank family) with no table built.
@@ -1225,7 +1159,7 @@ end
 -- Both strict functions exist on retail and on the Forever beta (BigWigsMods/WoWUI forever-beta:
 -- SpellBookDocumentation.lua, Deprecated_SpellBook.lua); the presence functions are asked only on a
 -- client that has neither strict one. Forever's rank family is still walked with the strict pair.
-function ns:SpellKnownState(spellID, noRanks)
+function ns:SpellKnownState(spellID)
 	if issecretvalue(spellID) or type(spellID) ~= "number" or spellID <= 0 then
 		return nil
 	end
@@ -1253,7 +1187,7 @@ function ns:SpellKnownState(spellID, noRanks)
 		else
 			if family == nil then
 				family = false
-				if ns.CLIENT_HAS_SPELL_RANKS and not noRanks then
+				if ns.CLIENT_HAS_SPELL_RANKS then
 					family = ns:CastRuleFamily(spellID) or false
 				end
 			end
@@ -1288,18 +1222,17 @@ end
 -- The known answer a rebuild uses: fallback before the first world entry (the spellbook is not
 -- ready, and nothing runs before it anyway), otherwise the fresh readable answer (remembered), else
 -- the held one, else fallback. Trackers pass true (fail open: never silently hide); the Suggested
--- racial list passes false (never offer a spell nobody could read).
-function ns:ResolveSpellKnown(spellID, fallback, noRanks)
+-- class-buff list passes false (never offer a spell nobody could read).
+function ns:ResolveSpellKnown(spellID, fallback)
 	if not ns.knownReady then
 		return fallback
 	end
-	local heldTable = noRanks and ns.spellKnownHeldNoRanks or ns.spellKnownHeld
-	local state = ns:SpellKnownState(spellID, noRanks)
+	local state = ns:SpellKnownState(spellID)
 	if state ~= nil then
-		heldTable[spellID] = state
+		ns.spellKnownHeld[spellID] = state
 		return state
 	end
-	local held = heldTable[spellID]
+	local held = ns.spellKnownHeld[spellID]
 	if held ~= nil then
 		return held
 	end
@@ -1309,13 +1242,6 @@ end
 -- Swapped with ns.trackerLoaded on every rebuild, so the rebuild allocates nothing and a removed
 -- key simply vanishes.
 local loadScratch = {}
-
--- Review IN-03: the built-in racial kinds. A racial has one rank, so its known check skips the
--- Forever rank-family scan (the spellbook walk), exactly as the Suggested racial list does.
-local SINGLE_RANK_KINDS = {
-	[ns.KIND.META_SKILL] = true,
-	[ns.KIND.META_SKILL_CD] = true,
-}
 
 -- Phase 57.3 (LOAD-03/LOAD-04): rebuilds ns.trackerLoaded from ns.db.trackedBuffs. Called first
 -- thing in ns:RebuildCastIndex, so every existing rebuild site (add, edit, remove, migrations,
@@ -1349,7 +1275,6 @@ function ns:RebuildTrackerLoad()
 		elseif type(entry.spellID) ~= "number" then
 			loaded = true
 		else
-			local noRanks = SINGLE_RANK_KINDS[entry.trackerType] == true
 			-- Phase 57.4: a metaReminder asks its table row's known spell, which is the buff itself
 			-- except for Blood Pact, whose row names Summon Imp (the imp's spell is not in the
 			-- player spellbook, and the pet book is empty exactly while the reminder must show).
@@ -1357,7 +1282,7 @@ function ns:RebuildTrackerLoad()
 			if entry.trackerType == ns.KIND.META_REMINDER and ns.MetaReminderKnownID then
 				knownID = ns:MetaReminderKnownID(entry.spellID)
 			end
-			loaded = ns:ResolveSpellKnown(knownID, true, noRanks) == true
+			loaded = ns:ResolveSpellKnown(knownID, true) == true
 			-- Review WR-01: a When known tracker that was loaded stays loaded until combat ends. A
 			-- temporary grant ending (or a transient false read) mid-fight must not wipe a timer or
 			-- cooldown that is still running; PLAYER_REGEN_ENABLED re-runs the refresh. Loading is
@@ -1377,11 +1302,6 @@ function ns:RebuildTrackerLoad()
 		end
 	end
 	loadScratch = prev
-
-	-- Providers.lua: the known and the tracked-and-loaded racial lists follow the final state.
-	if ns.RebuildRacialLoadLists then
-		ns:RebuildRacialLoadLists()
-	end
 
 	-- Review IN-01: the rank indexes and the aura watch follow the load state too, and only
 	-- ns:RebuildRankIndex rebuilds them. A flip reached from a RebuildCastIndex-only caller (a CDM
@@ -1427,11 +1347,11 @@ function ns:RequestLoadRefresh()
 	C_Timer.After(0, RunLoadRefresh)
 end
 
--- Rebuilds the five cast-index maps above from ns.db.trackedBuffs. A spellID claimed by two
+-- Rebuilds the four cast-index maps above from ns.db.trackedBuffs. A spellID claimed by two
 -- entries in the same namespace is corrupt data, not a normal state -- the lower tostring(key)
--- tie-break only exists to make that case deterministic rather than a coin flip. A userCd and a
--- metaSkillCd for the same spell are NOT a collision: they live in separate namespaces, and so do
--- a userReminder and a metaReminder (Phase 57.4).
+-- tie-break only exists to make that case deterministic rather than a coin flip. A userReminder
+-- and a metaReminder for the same spell are NOT a collision: they live in separate namespaces
+-- (Phase 57.4).
 -- Phase 57.3 (LOAD-03): the load state is rebuilt first, and a tracker that is not loaded is
 -- left out of every cast index.
 function ns:RebuildCastIndex()
@@ -1441,7 +1361,6 @@ function ns:RebuildCastIndex()
 	ns:RebuildTrackerLoad()
 	wipe(ns.buffKeyBySpell)
 	wipe(ns.cooldownKeyBySpell)
-	wipe(ns.metaCooldownKeyBySpell)
 	wipe(ns.reminderKeyBySpell)
 	wipe(ns.metaReminderKeyBySpell)
 	for key, entry in pairs(ns.db.trackedBuffs) do
@@ -1462,8 +1381,6 @@ function ns:RebuildCastIndex()
 				index = ns.reminderKeyBySpell
 			elseif entry.trackerType == ns.KIND.USER_CD then
 				index = ns.cooldownKeyBySpell
-			elseif entry.trackerType == ns.KIND.META_SKILL_CD then
-				index = ns.metaCooldownKeyBySpell
 			end
 			if index then
 				local existing = index[spellID]
@@ -1755,8 +1672,7 @@ function ns:RebuildRankIndex()
 	wipe(rebuildOwners)
 	for k, entry in pairs(ns.db.trackedBuffs) do
 		-- No key equals a spellID anymore, so ownership is read off entry.trackerType/spellID
-		-- instead of the key shape the old (type(k) == "number" or ns:CooldownKeySpellID(k))
-		-- test relied on. Phase 57.2-05: a reminder is buff-like, so a Forever "Cover all ranks"
+		-- instead of the key shape the old cooldown-key-parse test relied on. Phase 57.2-05: a reminder is buff-like, so a Forever "Cover all ranks"
 		-- reminder gets its family for both its aura watch and its own cast namespace
 		-- (ns.rankIndexReminder): a rank cast starts the reminder's timer like a buff's.
 		-- Phase 57.3 (LOAD-03): an unloaded tracker owns no rank family (the load state is
@@ -1765,11 +1681,7 @@ function ns:RebuildRankIndex()
 			entry.coverAllRanks
 			and type(entry.spellID) == "number"
 			and ns:IsTrackerLoaded(k)
-			and (
-				ns:IsBuffLikeEntry(entry)
-				or entry.trackerType == ns.KIND.USER_CD
-				or entry.trackerType == ns.KIND.META_SKILL_CD
-			)
+			and (ns:IsBuffLikeEntry(entry) or entry.trackerType == ns.KIND.USER_CD)
 		then
 			table.insert(rebuildOwners, k)
 		end
@@ -1783,7 +1695,6 @@ function ns:RebuildRankIndex()
 	if #rebuildOwners == 0 then
 		wipe(ns.rankIndex)
 		wipe(ns.rankIndexCooldown)
-		wipe(ns.rankIndexMetaCooldown)
 		wipe(ns.rankIndexReminder)
 		wipe(ns.rankIndexMetaReminder)
 		wipe(ns.rankFamilies)
@@ -1822,7 +1733,6 @@ function ns:RebuildRankIndex()
 	ns.detailedRankFamilies = {}
 
 	wipe(ns.rankIndexCooldown)
-	wipe(ns.rankIndexMetaCooldown)
 	wipe(ns.rankIndexReminder)
 	wipe(ns.rankIndexMetaReminder)
 
@@ -1852,10 +1762,9 @@ function ns:RebuildRankIndex()
 				ns.detailedRankFamilies[ownerKey] = combined
 			end
 			-- One index per namespace. A single map could not answer them all, and a spell may
-			-- legitimately be covered as a buff, a reminder, a user cooldown AND a built-in
-			-- cooldown at once. Phase 57.2-05: a reminder writes its own pair, so a rank cast
-			-- resolves to it like a buff's; a built-in cooldown likewise (2026-09-29), and a
-			-- built-in reminder (Phase 57.4) picks its own pair before the user reminder one.
+			-- legitimately be covered as a buff, a reminder and a user cooldown at once.
+			-- Phase 57.2-05: a reminder writes its own pair, so a rank cast resolves to it like a
+			-- buff's, and a built-in reminder (Phase 57.4) picks its own pair before the user reminder one.
 			local index, byKeyIndex
 			if ownerEntry.trackerType == ns.KIND.META_REMINDER then
 				index, byKeyIndex = ns.rankIndexMetaReminder, ns.metaReminderKeyBySpell
@@ -1863,8 +1772,6 @@ function ns:RebuildRankIndex()
 				index, byKeyIndex = ns.rankIndexReminder, ns.reminderKeyBySpell
 			elseif ownerEntry.trackerType == ns.KIND.USER_CD then
 				index, byKeyIndex = ns.rankIndexCooldown, ns.cooldownKeyBySpell
-			elseif ownerEntry.trackerType == ns.KIND.META_SKILL_CD then
-				index, byKeyIndex = ns.rankIndexMetaCooldown, ns.metaCooldownKeyBySpell
 			else
 				index, byKeyIndex = ns.rankIndex, ns.buffKeyBySpell
 			end
@@ -1896,11 +1803,6 @@ eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
--- 49-04/D-1/D-2: the combat-entry edge. A plain RegisterEvent, not TryRegisterEvent -- this event
--- name is long-standing on both clients (MergeMode.lua's own PLAYER_REGEN_DISABLED comment records
--- it as "certain to exist on both clients"), and the pcall wrapper below is reserved for names
--- that might not be.
-eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 -- RANK-01: the only two events that can change what the players spellbook contains.
 -- BuffEngine.lua adds its own ns:RebuildRankIndex() call sites on tracker add/remove
@@ -2046,24 +1948,6 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		)
 		self:UnregisterEvent("ADDON_LOADED")
 	elseif event == "PLAYER_ENTERING_WORLD" then
-		-- 49-03: second, guaranteed-readable attempt at schema v7's racial re-key.
-		-- ADDON_LOADED (where ns:InitBuffEngine already called this once) is not a
-		-- guaranteed-readable moment for UnitRace("player"), and the cost of the extra call is
-		-- one comparison once the version has been bumped. Without this, a character whose race
-		-- was unreadable at load would defer forever -- the only other entry point is the next
-		-- ADDON_LOADED -- and losing a placement is exactly what D-4's "Migration is required"
-		-- clause exists to prevent.
-		ns:MigrateRacialKeys()
-		-- Schema v8 (NAME-01/NAME-02, Phase 53): must follow a completed v7 on the same trigger --
-		-- it re-keys onto ns.KIND and cannot classify a stray "racial"/"racial2" slot v7 has not
-		-- yet resolved. A one-comparison no-op once ns.db.schemaVersion is already 8.
-		ns:MigrateKindKeys()
-		-- Schema v9 (Phase 57.1): must follow a completed v8 on the same trigger.
-		ns:MigrateDropDetailedFlag()
-		-- Schema v10 (Phase 57.2): must follow a completed v9 on the same trigger.
-		ns:MigrateBuffReminders()
-		-- Schema v11 (Phase 57.5): must follow a completed v10 on the same trigger.
-		ns:MigrateReminderAlternatives()
 		-- Phase 57 DTRK-05: the spellbook is populated here for the first time, so any Forever
 		-- rank family cached from ADDON_LOADED (seed/base/override IDs only) is stale. Wipe
 		-- before the rebuild below so it recomputes from the real spellbook.
@@ -2143,12 +2027,6 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		if not issecretvalue(state) and state == inactive then
 			ns:RefreshAuraStates()
 		end
-	elseif event == "PLAYER_REGEN_DISABLED" then
-		-- 49-04/D-1/D-2: the combat-entry edge, and the only signal available while aura reads
-		-- are secret in combat. Shadowmeld and Plainsrunning both end here rather than waiting
-		-- for a cancellation scan that cannot see the drop once combat starts. Kept to this one
-		-- call so the combat-entry edge stays cheap.
-		ns:EndCombatClearedRacials()
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		ns:ClearSecretGateLog()
 		-- Phase 57.3 review WR-01: a When known unload held back during combat applies now.
@@ -2162,8 +2040,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		-- 49/D-1: leaving combat is the first moment an aura read can succeed again, and until
 		-- now nothing re-checked here -- ns:ScanActiveTimersForCancellation ran ONLY from
 		-- UNIT_AURA (BuffEngine.lua). A proc whose aura ended mid-combat therefore survived until
-		-- the next unrelated aura event, and an INDEFINITE one had no expiry to fall back on, so
-		-- it lingered indefinitely. Reported from the Alliance gate pass, 2026-09-25.
+		-- the next unrelated aura event. Reported from the Alliance gate pass, 2026-09-25.
 		--
 		-- Safe to call unconditionally: the scan skips any proc without an aliveBuffs list, and
 		-- never concludes "absent" from an unreadable read -- so the worst case here is that it
@@ -2259,16 +2136,6 @@ SlashCmdList["TERRIBLEBUFFTRACKER"] = function(msg)
 		ns.debugLogging = not ns.debugLogging
 		local state = ns.debugLogging and "|cff00ff00ON|r" or "|cffff6600OFF|r"
 		print("|cff00ccffTBT|r: Debug logging " .. state)
-		if ns.debugLogging then
-			-- Both resolved through ns, NOT called as file-locals. This handler sits hundreds of
-			-- lines ABOVE where they are defined, and a Lua local is an upvalue only to functions
-			-- declared after it -- so a local called from here is nil at call time. See
-			-- ns:LogPlayerRace for what that cost.
-			ns:LogPlayerRace()
-			-- Snapshot the buffs already up, so the first racial cast after this reports only
-			-- itself. See ns:BaselinePlayerAuras.
-			ns:BaselinePlayerAuras()
-		end
 	else
 		-- "/tbt" now opens TBT's OWN settings panel rather than Blizzard's Cooldown Manager
 		-- window. The CDM tabs are still where trackers are filed into containers; everything
@@ -2730,250 +2597,6 @@ local function LogItemUse(itemID)
 	print(line)
 end
 
--- Phase 49 racial-collection tooling (RACE-07). The workflow it serves, user's own description:
--- log into a character of each race, turn debug on, use both racials, send the log. For that to
--- produce a usable table the cast line is not enough -- a racial's CAST spell ID and the spell ID
--- of the AURA it applies are frequently different numbers, and RACIAL_SPELLS needs both.
---
--- So: after a player cast, look at the player's buffs and report only the ones that were not there
--- before. A cast that applies nothing (Shoot, Frostbolt) prints nothing extra, which matters --
--- the collection log is read by a human, and a buff dump on every cast would bury the one line
--- that carries the answer.
---
--- Out of combat only, by the user's own scoping of the exercise: aura reads are plain there
--- (ShouldAurasBeSecret() is false), so no per-field secret handling is needed. The combat gate and
--- the pcall stay anyway, at one line each, because GetAuraDataByIndex is RequiresUnitAuraAccess and
--- RAISES rather than degrading when called tainted while auras are secret (MergeMode.lua:544-556,
--- measured 2026-09-22). An accidental in-combat keypress must cost nothing; losing the whole log to
--- a raise is a worse outcome than skipping one line.
-local knownPlayerAuras = {}
-local seenThisScan = {}
--- spellID -> aura duration in seconds, filled by the same scan that fills the name table. Parallel
--- rather than packed into one table of tables: the scan runs on a debug path but still per cast,
--- and RACIAL_SPELLS wants a bare number anyway.
-local scanDurations = {}
-local newAuraNames, newAuraIDs, newAuraDurations = {}, {}, {}
--- spellID -> true for every cast already reported as applying no aura. Session-long and never
--- cleared: its whole job is to make the NO AURA line fire exactly once per spell, so clearing it
--- would reintroduce the spam it exists to prevent. Bounded by the number of distinct spells cast
--- while debug logging is on, which is a debug-only path.
-local noAuraLogged = {}
-
--- Fills `out` with spellID -> name for the player's current buffs. Returns false when no route
--- answered, which is NOT the same as "no buffs" and must not be treated as an empty set.
-local function CollectPlayerBuffs(out)
-	wipe(out)
-	wipe(scanDurations)
-
-	-- Three routes, most-proven first, none assumed present: this file ships to both flavours from
-	-- one source and the enumerator is exactly the kind of API that differs between them.
-	-- GetUnitAuras leads because tools/TBTProbe already exercised it against Forever, so it is the
-	-- one route known to exist there; the index walk is the retail-documented fallback; UnitAura is
-	-- the classic-era global, which CLAUDE.md records as ABSENT on Forever but costs one type test.
-	if C_UnitAuras and C_UnitAuras.GetUnitAuras then
-		local ok = pcall(function()
-			local auras = C_UnitAuras.GetUnitAuras("player", "HELPFUL", 40)
-			if type(auras) ~= "table" then
-				return
-			end
-			for i = 1, #auras do
-				local aura = auras[i]
-				if type(aura) == "table" then
-					local id = SafeNumber(aura.spellId)
-					if id then
-						out[id] = SafeString(aura.name) or "?"
-						scanDurations[id] = SafeNumber(aura.duration)
-					end
-				end
-			end
-		end)
-		if ok and next(out) then
-			return true
-		end
-	end
-
-	if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
-		local ok = pcall(function()
-			for i = 1, 40 do
-				local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
-				if not aura then
-					break
-				end
-				local id = SafeNumber(aura.spellId)
-				if id then
-					out[id] = SafeString(aura.name) or "?"
-					scanDurations[id] = SafeNumber(aura.duration)
-				end
-			end
-		end)
-		if ok and next(out) then
-			return true
-		end
-	end
-
-	if type(UnitAura) == "function" then
-		local ok = pcall(function()
-			for i = 1, 40 do
-				-- Classic return order: name, icon, count, debuffType, duration, expirationTime,
-				-- source, isStealable, nameplateShowPersonal, spellId.
-				local name, _, _, _, duration, _, _, _, _, id = UnitAura("player", i, "HELPFUL")
-				if not name then
-					break
-				end
-				id = SafeNumber(id)
-				if id then
-					out[id] = SafeString(name) or "?"
-					scanDurations[id] = SafeNumber(duration)
-				end
-			end
-		end)
-		if ok and next(out) then
-			return true
-		end
-	end
-
-	return false
-end
-
--- The cast's own cooldown length, read 0.35s after the cast when the cooldown is already running,
--- so `duration` is the full value RACIAL_SPELLS wants rather than a remaining time.
---
--- Two shapes to handle: retail's C_Spell.GetSpellCooldown returns a SpellCooldownInfo table, the
--- classic-era global returns start, duration, enabled as three values. Both are tried and both are
--- pcall'd, because this ships to both flavours from one source.
---
--- The GCD is the trap. A racial off the global cooldown reads back ~1.5s here, which would be
--- recorded as a 1.5 second cooldown and be silently wrong in the table. Anything at or under 1.6s
--- is reported as "gcd?" rather than as a number, so it reads as a question in the log instead of
--- an answer.
-local function ReadCastCooldown(spellID)
-	local duration
-
-	if C_Spell and C_Spell.GetSpellCooldown then
-		local ok, info = pcall(C_Spell.GetSpellCooldown, spellID)
-		if ok and type(info) == "table" then
-			duration = SafeNumber(info.duration)
-		end
-	end
-
-	if not duration and type(GetSpellCooldown) == "function" then
-		local ok, _, d = pcall(GetSpellCooldown, spellID)
-		if ok then
-			duration = SafeNumber(d)
-		end
-	end
-
-	if not duration or duration <= 0 then
-		return nil, false
-	end
-	-- Second return: "this is a REAL cooldown, not the global". The caller needs the distinction
-	-- because it decides whether a no-aura cast is worth a line at all -- printing every
-	-- GCD-length reading would put a line under every Frostbolt and bury the collection data.
-	if duration <= 1.6 then
-		return "gcd?", false
-	end
-	return string.format("%.0f", duration), true
-end
-
--- Prints the buffs gained since the previous scan, if any, and re-baselines. Called on a short
--- delay after a cast because an aura is not reliably applied by the time UNIT_SPELLCAST_SUCCEEDED
--- fires -- reading in the same frame is what would make a racial look like it applies nothing.
-local function LogNewPlayerAuras(castSpellID)
-	if not ns.debugLogging or InCombatLockdown() then
-		return
-	end
-	if not CollectPlayerBuffs(seenThisScan) then
-		return
-	end
-
-	wipe(newAuraNames)
-	wipe(newAuraIDs)
-	wipe(newAuraDurations)
-	for id, name in pairs(seenThisScan) do
-		if not knownPlayerAuras[id] then
-			newAuraIDs[#newAuraIDs + 1] = id
-			newAuraNames[id] = name
-			-- Captured now, not read later: scanDurations is wiped by the next scan.
-			newAuraDurations[id] = scanDurations[id]
-		end
-	end
-
-	-- Re-baseline whether or not anything is printed, and to the scan just taken rather than by
-	-- merging into it: a buff that EXPIRED has to leave the baseline too, or casting the same
-	-- racial twice in one session would report nothing the second time.
-	wipe(knownPlayerAuras)
-	for id, name in pairs(seenThisScan) do
-		knownPlayerAuras[id] = name
-	end
-
-	-- Read once, here, because BOTH branches below need it.
-	local cd, cdIsReal = ReadCastCooldown(castSpellID)
-
-	if #newAuraIDs == 0 then
-		-- A cast that applied no aura still matters when it has a real cooldown, and this is
-		-- exactly the cooldown-only racial: War Stomp, Will of the Forsaken. Both came back with
-		-- NOTHING on their first collection pass, because the cooldown used to print only as part
-		-- of the AURA GAINED line -- so the one field those racials do have was the one field the
-		-- log dropped.
-		--
-		-- Once per distinct spell per session, which is the rule that makes this both complete and
-		-- quiet.
-		--
-		-- The first attempt gated this on a REAL cooldown reading, to keep every Frostbolt and
-		-- Shoot out of the log. That silenced the very case it was written for: human's Will to
-		-- Survive applies no aura AND reports no readable cooldown at 0.35s, so it printed nothing
-		-- at all (2026-09-24) -- indistinguishable, to whoever is reading the log, from the tool
-		-- being broken. A collection tool must never go silent about a cast the user deliberately
-		-- made.
-		--
-		-- Deduping by spellID bounds the noise without dropping anything: a spammed Frostbolt costs
-		-- one line for the whole session, and every racial is guaranteed its line whatever its
-		-- cooldown reads. The cooldown prints as whatever came back -- a number, "gcd?", or
-		-- "none" -- because all three are real answers, and "none" is the one the old gate threw
-		-- away.
-		if not noAuraLogged[castSpellID] then
-			noAuraLogged[castSpellID] = true
-			print(
-				"|cff00ccffTBT Debug|r: |cffffcc00NO AURA|r after "
-					.. (SpellName(castSpellID) or ("spellID " .. tostring(castSpellID)))
-					.. " — cooldown "
-					.. (cd and (cd .. (cdIsReal and "s" or "")) or "none")
-			)
-		end
-		return
-	end
-
-	table.sort(newAuraIDs)
-	local line = "|cff00ccffTBT Debug|r: |cffffcc00AURA GAINED|r after "
-		.. (SpellName(castSpellID) or ("spellID " .. tostring(castSpellID)))
-		.. " —"
-	for i = 1, #newAuraIDs do
-		local id = newAuraIDs[i]
-		line = line .. " " .. newAuraNames[id] .. " auraID " .. id
-
-		-- duration=0 is what the game reports for a permanent aura, and it is a real answer rather
-		-- than a missing one, so it is printed as "permanent" instead of as 0 or omitted.
-		local dur = newAuraDurations[id]
-		if dur and dur > 0 then
-			line = line .. " duration " .. string.format("%.4g", dur) .. "s"
-		elseif dur == 0 then
-			line = line .. " duration permanent"
-		end
-
-		if i < #newAuraIDs then
-			line = line .. ","
-		end
-	end
-
-	-- One cooldown for the cast, appended once rather than per aura: it belongs to the spell, not
-	-- to any buff it happened to apply. Read above, before the no-aura branch, which needs it too.
-	if cd then
-		line = line .. " | cooldown " .. cd .. (cd == "gcd?" and "" or "s")
-	end
-
-	print(line)
-end
-
 -- Called from the UNIT_SPELLCAST_SUCCEEDED handler above. Returns nothing; the
 -- spellID is already screened there as the one ID this addon may trust.
 function ns:LogPlayerCast(spellID)
@@ -2996,66 +2619,6 @@ function ns:LogPlayerCast(spellID)
 	end
 
 	print("|cff00ccffTBT Debug|r: |cff40ff40SPELL|r " .. (SpellName(spellID) or "?") .. " — spellID " .. spellID)
-
-	-- 0.35s, not 0: the aura is not reliably applied in the frame UNIT_SPELLCAST_SUCCEEDED fires,
-	-- and a same-frame read is what would make a racial look like it applies nothing at all. Long
-	-- enough for a travel-time-free self-buff to land, short enough that the AURA GAINED line stays
-	-- adjacent to its SPELL line in the log the user copies out.
-	if C_Timer and C_Timer.After then
-		C_Timer.After(0.35, function()
-			LogNewPlayerAuras(spellID)
-		end)
-	end
-end
-
--- The character's race, printed once as the collection log's header line.
---
--- RACIAL_SPELLS is keyed by the NUMERIC raceID (Providers.lua:772) and nothing else in the log
--- carries it. Survivable while collection covered races whose IDs are common knowledge; not
--- survivable once a Forever-only race appeared (Skyborn, 2026-09-24), whose row cannot be written
--- at all because its ID exists nowhere outside the client.
---
--- All three UnitRace returns: the localised name identifies the race to whoever reads the log, and
--- the token is the stable non-localised identifier if a row ever needs matching by name.
---
--- ON ns, NOT A FILE-LOCAL, and this one was learned the hard way rather than copied. The first
--- version of this inlined the print into the "/tbt debug" handler and called the file-locals
--- SafeString and SafeNumber from there. Both are declared hundreds of lines BELOW that handler, a
--- Lua local is an upvalue only to functions declared after it, so both were nil at call time and
--- every "/tbt debug" raised "attempt to call a nil value" (reported 2026-09-24, Core.lua:1074).
---
--- Providers.lua:886 documents this exact trap on ns:RacialCooldownSeed and says the project had
--- produced it FOUR times already. This was the fifth, written a few hours after reading that
--- comment. Resolving through ns happens at call time, so declaration order stops mattering.
---
--- It failed loudly, which was luck rather than design: the raise aborted the rest of the branch, so
--- ns:BaselinePlayerAuras never ran either and every collection log since carried no baseline.
-function ns:LogPlayerRace()
-	local raceName, raceFile, raceID = UnitRace("player")
-	print(
-		"|cff00ccffTBT Debug|r: |cffffcc00RACE|r "
-			.. (SafeString(raceName) or "?")
-			.. " ("
-			.. (SafeString(raceFile) or "?")
-			.. ") raceID "
-			.. (SafeNumber(raceID) and tostring(raceID) or "?")
-	)
-end
-
--- Baselines the buff set the moment debug logging is switched on, so the first racial used after
--- "/tbt debug" reports just itself rather than every buff the character was already carrying.
--- Without this the first AURA GAINED line of a session is a wall of food, flasks and raid buffs
--- with the one useful ID buried in it.
-function ns:BaselinePlayerAuras()
-	if InCombatLockdown() then
-		return
-	end
-	if CollectPlayerBuffs(seenThisScan) then
-		wipe(knownPlayerAuras)
-		for id, name in pairs(seenThisScan) do
-			knownPlayerAuras[id] = name
-		end
-	end
 end
 
 -- The four ways an item use starts. hooksecurefunc is post-call and additive, so

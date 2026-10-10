@@ -10,9 +10,57 @@ Players can see countdown timers for buffs/cooldowns that the game no longer sur
 
 ## Next Milestone
 
-Not defined yet — start it with `/gsd-new-milestone`. Phase numbering continues at 67. Open
-candidates are in the ROADMAP Backlog (999.5, 999.8, 999.10, 999.11, 999.15, 999.16, 999.19,
-999.20) and `RACE-06`.
+Not defined yet — start it with `/gsd-new-milestone`. Phase numbering continues at 73. Open
+candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27).
+
+<details>
+<summary>v0.5.2 Improved Merge Mode and small fixes — SHIPPED 2026-10-10</summary>
+
+6 phases (67-72), 17 plans, 18/18 requirements, verified in game on Midnight retail (including raid
+and M+) and the WoW Forever beta on 2026-10-10 in one testing pass. Squash-merge to `main`, release
+and tag by the user. Archives: [`milestones/v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md) and
+[`milestones/v0.5.2-REQUIREMENTS.md`](milestones/v0.5.2-REQUIREMENTS.md).
+
+</details>
+
+<details>
+<summary>v0.5.2 milestone goal, as set at kickoff</summary>
+
+**Goal:** Merge Mode stops redrawing the CDM and instead places Blizzard's own CDM item frames into
+TBT's layout, deleting the redraw machinery and the bugs that lived in it. Racials are removed from
+TBT, because Forever's recent release supports them natively.
+
+**Phases start at 67.** Numbering continues from v0.5.1's Phase 66 and never restarts. Branch:
+`milestone/v0.5.2-improved-merge-mode`, cut from `topic/dev` on 2026-10-10. It already carries the
+re-anchor prototype (`3bc4ad6`). Research skipped: `.planning/research/MERGE-REANCHOR-POC.md` and
+backlog 999.26 are the settled design.
+
+**Target features (set by the user at kickoff, 2026-10-10):**
+
+- **Merge Mode by moving Blizzard's frames (backlog 999.26).** The prototype becomes the only Merge
+  Mode path. TBT keeps its mirror and layout; for each merged slot it hides its own widget and
+  anchors Blizzard's item frame onto it with `SetPoint`/`SetScale` (`SetWidth` for bars) only — no
+  `SetParent`, no field writes, no mixin calls — plus one `hooksecurefunc` on each viewer's `Layout`.
+  The old redraw path is deleted, not kept as a fallback, and the `/tbt reanchor` toggle goes with
+  it. The POC's open issues are fixed: reordering in the CDM settings window corrupts the preview,
+  Edit Mode is missing merged bars, and a hidden TBT container still shows the moved frames. A frame
+  is re-placed only when its slot changes or Blizzard re-lays out its viewer.
+- **Merge Mode bugs 999.21-999.24, closed by deleting their code paths** and re-checked in game:
+  stale charges after a spec change, Freezing with another Frost Mage in the group, another mage's
+  Touch of the Magi, and mind control. 999.24's requirement carries over: the whole path is reviewed
+  so that **nothing can paint one thing over every cell**.
+- **999.25 (Centered) treated as obsolete** by user decision — it was tied to 999.24 — and re-checked
+  in testing on the new path.
+- **Remove racials entirely.** Forever's recent release has full native racial support and TBT has
+  no retail racials, so the whole feature goes: the racial catalogue, the racial meta-tracker, the
+  Suggested tiles and the racial tracker kinds, plus a saved-data migration that drops saved racial
+  trackers. Closes 999.8, 999.10 and `RACE-06`.
+- **Closed without code:** 999.5 (GCD grey) — no longer seen, considered fixed with the rework and
+  re-checked in testing; 999.20 — recorded in error on 2026-09-30, custom buffs have always shown
+  their countdown number.
+- **Cleanup phase**, then **one human testing pass**: retail including M+, and Forever.
+
+</details>
 
 <details>
 <summary>v0.5.1 Clickable Reminders and new icons — SHIPPED 2026-10-01</summary>
@@ -315,6 +363,11 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 - TBT's own faction-themed tab and side-tab icons from `Media/Textures` (BLP built from `Media/Source` PNGs by `scripts/png2blp.js`), deployed by install and shipped by the packager — v0.5.1 Phases 62-63 (TAB-08..10, INST-10, DIST-13)
 - Clickable reminders: out of combat, left-clicking a shown reminder casts its cast spell through a secure overlay on UIParent, per-container "Click to Cast", an editable Cast spell ID (empty = no click); reminders show in the last 10% (min 1s) of their buff with its real remaining time — v0.5.1 Phase 63 (CLICK-01..06, REM-05)
 - Retail class-buff reminder suggestions for every class, rows tagged per client, ally buffs cast on the target — v0.5.1 Phase 64 (MREM-04/05)
+- Racials removed from TBT on every client — catalogue, provider, tracker kinds, Suggested tiles and stack display gone; saved racial trackers (v0.4.x racial cooldown tiles included) dropped silently by schema v12, proven by `migrate-dryrun.js` — v0.5.2 Phase 67 (RACE-11, RACE-12, MIG-03)
+- Merge Mode moves Blizzard's own CDM item frames onto TBT's cells, styled with plain C setters only plus one `Layout` post-hook per viewer; TBT's container settings drive them, re-placed only when a slot, size or viewer layout changes, handed back on Merge Mode off without `/reload` — v0.5.2 Phase 68 (STEAL-10..12, STEAL-16..18)
+- CDM settings-window reorders reach TBT's preview at once, Edit Mode shows a placeholder for a merged entry Blizzard is not drawing, and a hidden TBT container hides its moved frames — v0.5.2 Phase 69 (STEAL-13..15)
+- The Merge Mode redraw path and `/tbt reanchor` deleted; Merge Mode reads no auras; 999.21-999.25 closed on the new path, with a whole-path review that nothing paints one thing over every cell — v0.5.2 Phase 70 (STEAL-19..23)
+- No cooldown icon stays grey through the GCD on either client (999.5 closed) — v0.5.2 Phase 72 (VER-12)
 
 ### Active
 
@@ -323,10 +376,9 @@ No milestone in progress. Earlier milestones' requirements are archived under
 
 Still open in the backlog:
 
-- **`RACE-06`** — every retail racial as its own specified special case.
-- **999.5** — a cooldown icon can stay grey through the GCD; pending a repro.
-- **999.8, 999.10, 999.11, 999.15, 999.16** — see the ROADMAP Backlog.
-- **999.19, 999.20** — stack count and remaining duration on custom trackers' buff icons.
+- **999.11, 999.15, 999.16** — see the ROADMAP Backlog.
+- **999.19** — stack count on custom trackers' buff icons (61-HUMAN-UAT #2 waits on it).
+- **999.27** — custom cooldown trackers keep a stale charge count after a spec change.
 
 ## Current State
 
@@ -334,8 +386,9 @@ Still open in the backlog:
 
 **Planning drift note:** v0.2.5 (12.1 compatibility) and v0.2.6 (CDM tab placement) were both developed, tagged and released outside the GSD workflow, so they have no phase artifacts under `.planning/phases/`. They are recorded in `CHANGELOG.md`, `MILESTONES.md` and the Validated list above; that is the whole of their planning record — no phases are reconstructed retroactively.
 
-**v0.5.1 Clickable Reminders and new icons shipped 2026-10-01** — 6 phases (61-66), 12 plans, 16/16 requirements, verified in game on both flavours including retail M+, squash-merged to `main`; the user writes the CHANGELOG entry and tags the release. See [`milestones/v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md).
+**v0.5.2 Improved Merge Mode and small fixes shipped 2026-10-10** — 6 phases (67-72), 17 plans, 18/18 requirements, verified in game on both flavours including retail raid and M+; the user squash-merges to `main`, writes the CHANGELOG entry and tags the release. See [`milestones/v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md).
 
+**Earlier —** v0.5.1 Clickable Reminders and new icons shipped 2026-10-01 — 6 phases (61-66), 12 plans, 16/16 requirements, verified in game on both flavours including retail M+, squash-merged to `main`. See [`milestones/v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md).
 **Earlier —** v0.5.0 Elaborate tracking shipped 2026-09-29 — 13 phases (53-60, including 57.1-57.5 inserted), 42 plans, 33/33 requirements, verified in game on both flavours including retail M+, squash-merged to `main` and tagged `v0.5.0`. See [`milestones/v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md).
 **Earlier —** v0.4.1 Generic Item Tracking and Forever Racials shipped 2026-09-26 — 8 phases (46-52), 18 plans, 22/22 requirements, verified in game on both flavours, squash-merged to `main` and tagged `v0.4.1`. See [`milestones/v0.4.1-ROADMAP.md`](milestones/v0.4.1-ROADMAP.md).
 
@@ -411,7 +464,9 @@ client-side bug — see Context.
 | Migrate to a single TOC, one zip for everything (v0.4.0) | The WoWUI community FAQ states Forever is classed as `mainline` intentionally, so `_Mainline.toc` loads there too — which made the two-TOC split rest on a contradicted assumption and put two loadable TOCs in every dev Forever folder. One TOC deletes the bug class. One zip is what a single TOC naturally implies | Decided 2026-09-20 by the user, reversing the locked two-flavour-zip decision. **Blocking gate:** `_Mainline.toc` loading on Forever is unverified. Confirm it in-game with `_Camelot.toc` still in place as rollback before deleting anything |
 | Four base containers mirroring Blizzard's CDM, names pinned and undeletable | Preserves the grouping the player already configured in the CDM, and gives stolen items an unambiguous destination. Two containers could not express four categories | Decided 2026-09-20. Existing `TBTBarContainer` → Tracked Bars, `TBTBuffContainer` → Tracked Buffs; the two cooldown containers start at defaults |
 | Steal mode is all-or-nothing across all four CDM categories | A per-category toggle multiplies the states TBT has to render and reason about for no clear user gain in the first cut | Decided 2026-09-20. Optional feature, off by default; when on, **all** Blizzard CDM containers are hidden |
-| TBT keeps its own containers; never inject into Blizzard's | Measured 2026-09-20: five injection variants, including one using zero Blizzard Lua, all tainted the CDM until `/reload`. Calling any Blizzard CDM mixin method leaves the frame tainted afterwards, and taint is sticky across combats | Locked. See `.planning/research/TEST-PLAN-CDM-INJECTION-AND-COOLDOWNS.md` |
+| TBT keeps its own containers; never inject into Blizzard's | Measured 2026-09-20: five injection variants, including one using zero Blizzard Lua, all tainted the CDM until `/reload`. Calling any Blizzard CDM mixin method leaves the frame tainted afterwards, and taint is sticky across combats | Locked. See `.planning/research/TEST-PLAN-CDM-INJECTION-AND-COOLDOWNS.md`. Narrowed, not reversed, by the decision below: joining Blizzard's container stays forbidden |
+| Merge Mode moves Blizzard's own CDM frames onto TBT's cells instead of redrawing them (v0.5.2) | The redraw path needed aura reads, engine aura overlays, bar relays and pandemic/dispel/charge reads, each a workaround for secret values and the source of 999.21-999.24. Moving the frames — `SetPoint`/`SetScale` only, never `SetParent`, one `Layout` post-hook per viewer — passed a retail raid boss with no taint and looks exactly like the CDM | Decided 2026-10-10 by the user after the POC (`.planning/research/MERGE-REANCHOR-POC.md`). The old path is deleted, not kept as a fallback. ✓ Good — shipped v0.5.2 (Phases 68-70), widened to every plain C setter the container settings need, no taint through a retail raid and M+ |
+| Remove the racial feature entirely (v0.5.2) | Forever's recent release supports racials natively and TBT never built retail racials (`RACE-06`), so the feature no longer earns its code. Saved racial trackers are migrated away rather than left orphaned | Decided 2026-10-10 by the user. Supersedes the racial rows above; closes 999.8, 999.10 and `RACE-06`. ✓ Shipped v0.5.2 (Phase 67, schema v12) |
 | "Cover all ranks" shown by flavour version, not by data | User decision 2026-09-20, taken after being offered the data-driven alternative (show the checkbox only when the spell resolves to a multi-rank family, which would need no flavour check). The user wants the control unconditionally present on Forever and unconditionally absent on retail — not appearing dynamically, not disabled-but-visible | Narrows the v0.3 no-flavour-branch constraint. This is the one sanctioned runtime flavour check; it does not license a second one |
 | Racial meta-tracker ships with Eureka! only | Every racial is an individually-specified special case and the user supplies each spec. Shipping one proven case now keeps v0.4.0 from blocking on a full catalog | Decided 2026-09-20. All other racials appear marked *not yet supported* with an explanatory tooltip; the next minor milestone completes the catalog. Widened 2026-09-23: troll (Berserking) and orc (Blood Fury + a second racial) shipped as well, verified on Forever; racial cooldown tiles added. The next minor milestone still completes the catalogue. |
 | Built-in class-buff reminder rows are tagged per client (Forever, retail, or both) | Several retail spell IDs exist on Forever with another meaning (6673 Battle Shout rank 1, 465 Devotion Aura rank 1, 21562 Prayer of Fortitude), so "is the spell known" alone would offer retail rows on Forever. The tag reads the existing `ns.CLIENT_IS_FOREVER`, the one sanctioned interface-range comparison, so no second comparison is added | Decided 2026-09-30 by the user (Phase 64). Licenses reading that one answer per row; still no second flavour check anywhere |
@@ -436,4 +491,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-01 after the v0.5.1 milestone*
+*Last updated: 2026-10-10 after the v0.5.2 milestone*

@@ -1,5 +1,31 @@
 # Milestones
 
+## v0.5.2 Improved Merge Mode and small fixes (Shipped: 2026-10-10)
+
+**Scope:** Merge Mode moves Blizzard's own CDM item frames into TBT's layout instead of redrawing them (999.26), the redraw path is deleted rather than kept as a fallback, and the Merge Mode bugs that lived in it (999.21-999.25) are re-checked on the new path. Racials are removed from TBT entirely, because Forever's recent release supports them natively.
+**Phases:** 6 (67-72), 17 plans; Phase 72 a single testing pass with no plans (retail including raid and M+, then Forever)
+**Timeline:** 1 day (2026-10-10; backlog 999.21-999.25 recorded 2026-10-04), 118 commits, 10 source/script files changed (+1690 / -5062), `MergeReanchor.lua` added
+**Verified on:** WoW Forever beta and Midnight retail including raid and M+, 2026-10-10 — Phase 72; results recorded in the 67-70 `HUMAN-UAT.md` files, all passed
+**Requirements:** 18 / 18 closed, all verified in game in Phase 72; STEAL-12 widened on 2026-10-10 by user decision so every TBT container setting reaches the moved frames
+**Known deferred items at close:** Divine Spirit (27841), added as a Forever priest reminder suggestion during Phase 72, ships unverified in game — no leveled priest was available. 61-HUMAN-UAT #2 still waits on backlog 999.19. Backlog 999.11, 999.15, 999.16, 999.19 and 999.27 stay open. See `milestones/v0.5.2-ROADMAP.md`
+
+### Key accomplishments
+
+- **Merge Mode moves Blizzard's own frames.** Each merged CDM entry is Blizzard's own item frame, placed on its TBT cell and styled with plain C setters only (position, scale, size, alpha, mouse, shown state, countdown and swipe), plus one `Layout` post-hook per viewer. No `SetParent`, no field write, no mixin call. Cooldowns, charges, glows, pandemic and dispel borders are Blizzard's own, and no taint was seen through combat, Edit Mode, a spec change, a raid or M+.
+- **TBT's container settings drive the moved frames.** Order, direction, Centered, padding, scale and bar width apply to them, and resizing the CDM no longer changes them. A frame is re-placed only when its slot or size changes or its viewer re-lays out.
+- **The prototype's open issues are fixed.** A reorder or category move in the CDM settings window updates TBT's preview at once. Edit Mode shows a TBT placeholder for any merged entry whose frame Blizzard is not drawing, bars included. A hidden TBT container hides the frames placed in it. Turning Merge Mode off hands every frame back and restores the viewers, without `/reload`.
+- **About 2,800 lines of redraw path deleted.** The engine aura containers, merged aura timing reads, bar and time relays, merged pandemic, dispel and charge-count paths and `/tbt reanchor` are gone. Their removal closes 999.21-999.25, and a written whole-path review (`70-MERGE-PATH-REVIEW.md`) finds no way to paint one thing over every cell. Merge Mode reads no auras.
+- **Racials removed.** No racial catalogue, provider, tracker kind, Suggested tile or stack display remains. Schema v12 drops saved racial trackers without a message, proven against a real SavedVariables file by `migrate-dryrun.js`. Closes 999.8, 999.10 and `RACE-06`.
+- **Cleanup.** The dead `ns:EndTimer` is removed, the per-id forget and the item-frame collectors are unified, hot paths are reviewed with a verdict each, and CLAUDE.md lists `MergeReanchor.lua`.
+
+### Bugs found in this milestone's own work
+
+- **In Edit Mode and the CDM settings window, preview frames were never placed** (68 review CR-01). Placement walked `ns.mergeItemFrames`, which is empty in preview. Fixed in `46ed589` by recording intent only and flushing once per render through a walk of Blizzard's pools, which reaches hidden frames too.
+- **v0.4.x racial cooldown tiles would have survived the upgrade as user cooldowns** (67 review WR-01). Phase 67's v8 step classified every `cd:<N>` as `userCd`, so v12 never saw them. Fixed in `c5c7e2b` with a frozen list of the 18 legacy racial cooldown IDs, mirrored in the dry-run.
+- **A frame released after a Layout went back onto its stale captured anchor**, overriding Blizzard's fresh layout (69 review WR-02, `2b26963`). In the same review, a forced placement inside the mirror rebuild broke the "render before place" rule (WR-03, `ac3f8c1`).
+- **The whole-path review wrongly called a potion constant unused** (70 review WR-01). `ns.SPELL_CATEGORY_COMBAT_POTION` still feeds the Pot meta-tracker's unresolved icon, so deleting it in cleanup would have broken that tile. The notes were corrected in `ca2c14b`, and the constant stays.
+- **A load-time cleanup of the prototype's `/tbt reanchor` flag was shipping for a flag no released save holds.** The flag only ever existed in the unreleased prototype. The clear, its dry-run mirror and its selftest case were removed during the Phase 72 pass (`b8a6683`).
+
 ## v0.5.1 Clickable Reminders and new icons (Shipped: 2026-10-01)
 
 **Scope:** Click a reminder to cast its spell out of combat, give TBT's tabs icons of their own, offer retail class-buff reminders, and first fix two bugs in the code this work touches (Edit Mode taint, Merge Mode charge count).

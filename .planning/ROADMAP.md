@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [x] **v0.5.2 Improved Merge Mode and small fixes** — Phases 67-72 (shipped 2026-10-10) — [archive](milestones/v0.5.2-ROADMAP.md)
 - [x] **v0.5.1 Clickable Reminders and new icons** — Phases 61-66 (shipped 2026-10-01) — [archive](milestones/v0.5.1-ROADMAP.md)
 - [x] **v0.5.0 Elaborate tracking** — Phases 53-60 (shipped 2026-09-29) — [archive](milestones/v0.5.0-ROADMAP.md)
 - [x] **v0.4.1 Generic Item Tracking and Forever Racials** — Phases 46-52 (shipped 2026-09-26) — [archive](milestones/v0.4.1-ROADMAP.md)
@@ -13,6 +14,21 @@
 - [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
+
+<details>
+<summary>✅ v0.5.2 Improved Merge Mode and small fixes (Phases 67-72) — SHIPPED 2026-10-10</summary>
+
+Full detail archived at [`milestones/v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md); requirements
+at [`milestones/v0.5.2-REQUIREMENTS.md`](milestones/v0.5.2-REQUIREMENTS.md).
+
+- [x] Phase 67: Remove Racials (5/5 plans) — racials gone on every client, schema v12 drops saved ones
+- [x] Phase 68: Merge Mode by Re-anchoring (2/2 plans) — Blizzard's own CDM frames placed on TBT's cells
+- [x] Phase 69: Re-anchoring Open Issues (3/3 plans) — settings-window reorder, Edit Mode placeholder, hidden containers
+- [x] Phase 70: Remove the Redraw Path & Close the Merge Mode Bugs (5/5 plans) — whole-path paint-over review
+- [x] Phase 71: Cleanup (2/2 plans)
+- [x] Phase 72: Human Testing (testing pass) — passed 2026-10-10
+
+</details>
 
 <details>
 <summary>✅ v0.5.1 Clickable Reminders and new icons (Phases 61-66) — SHIPPED 2026-10-01</summary>
@@ -261,13 +277,13 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 
 ## Phase Details
 
-*Every phase through v0.5.1 (Phases 1-66) is archived under `.planning/milestones/`. The most recent
-is [`v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md), which carries the full detail for Phases
-61-66; [`v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md) covers Phases 53-60.*
+*Every phase through v0.5.2 (Phases 1-72) is archived under `.planning/milestones/`. The most recent
+is [`v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md), which carries the full detail for Phases
+67-72; [`v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md) covers Phases 61-66.*
 
 ## Progress
 
-**Execution order:** v0.5.1 complete; the next milestone starts with `/gsd-new-milestone`
+**Execution order:** v0.5.2 complete; the next milestone starts with `/gsd-new-milestone`
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -313,6 +329,12 @@ is [`v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md), which carries the full d
 | 64. Retail Class-Buff Reminder Suggestions | v0.5.1 | 2/2 | Complete — review fixed (1 CR + 1 WR + 1 IN); UAT passed in Phase 66 | 2026-09-30 |
 | 65. Cleanup | v0.5.1 | 3/3 | Complete — review fixed (1 WR); UAT passed in Phase 66 | 2026-10-01 |
 | 66. Human Testing | v0.5.1 | — | Complete — PASSED on Forever and retail incl. M+, user sign-off; run sheet `66-HUMAN-TESTING.md` | 2026-10-01 |
+| 67. Remove Racials | v0.5.2 | 5/5 | Complete — review fixed (1 WR + 4 IN); UAT passed in Phase 72 | 2026-10-10 |
+| 68. Merge Mode by Re-anchoring | v0.5.2 | 2/2 | Complete — review fixed over two passes (1 CR + 5 WR + 6 IN); UAT passed in Phase 72 | 2026-10-10 |
+| 69. Re-anchoring Open Issues | v0.5.2 | 3/3 | Complete — review fixed (3 WR + 5 IN); UAT passed in Phase 72 | 2026-10-10 |
+| 70. Remove the Redraw Path & Close the Merge Mode Bugs | v0.5.2 | 5/5 | Complete — review fixed (2 WR + 6 IN); UAT passed in Phase 72 | 2026-10-10 |
+| 71. Cleanup | v0.5.2 | 2/2 | Complete — review fixed (2 WR, comments only); checks passed in Phase 72 | 2026-10-10 |
+| 72. Human Testing | v0.5.2 | — | Complete — PASSED on retail (raid and M+) and Forever; results in the 67-70 HUMAN-UAT files | 2026-10-10 |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*
@@ -323,10 +345,10 @@ roadmap creation and never updated as phases landed. Rebuilt 2026-09-23 from the
 
 ## Backlog
 
-**999.5 — Cooldown icon can stay grey through the GCD.** Carried out of v0.4.0 by user decision on
+**999.5 — Cooldown icon can stay grey through the GCD.** **Closed 2026-10-10 (v0.5.2, VER-12): not seen in a long time and not seen in the Phase 72 pass on either client. If it comes back, open a new entry.** Carried out of v0.4.0 by user decision on
 2026-09-23. The bug may already be fixed, but it was never consistently reproducible, so it stays
 open pending more testing rather than being closed on a guess. Tracked at
-`.planning/todos/2026-09-22-cooldown-icon-can-stay-grey-through-the-gcd.md`.
+`.planning/todos/done/2026-09-22-cooldown-icon-can-stay-grey-through-the-gcd.md`.
 
 **999.6 — Bag-driven consumables tracker (Forever).** Intake 2026-09-23, reshaped 2026-09-24 after
 two in-game probe runs on Forever 1.60.1 (`/tbtp consum`, `tools/TBTProbe/Probe.lua`).
@@ -441,7 +463,7 @@ arithmetically from their known durations is a separate question, not part of th
 - **No test suite exists.** No build manifest, no `luacheck`, no automated regression gate. Every
   claim in v0.4.0 rests on in-game observation.
 
-**999.8 — Show the AURA's icon where a racial's aura ID differs from its cast ID.** Intake
+**999.8 — Show the AURA's icon where a racial's aura ID differs from its cast ID.** **Closed by v0.5.2 (Phase 67): racials removed from TBT.** Intake
 2026-09-25, from a standing user allowance: *"in cases where aura and skill id doesn't match we're
 fully fine with showing the aura icon instead of skill."*
 
@@ -502,7 +524,7 @@ setting `selectedSystem` directly or calling a different mixin taints the same f
 mechanism. Cost: Blizzard's yellow highlight may linger alongside TBT's while both are selected.
 Cosmetic, and only visible inside Edit Mode.
 
-**999.10 — Shadowmeld's cooldown starts when the buff ENDS, not when the skill is used.** Reported by
+**999.10 — Shadowmeld's cooldown starts when the buff ENDS, not when the skill is used.** **Closed by v0.5.2 (Phase 67): racials removed from TBT.** Reported by
 the user 2026-09-25 from in-game observation: *"the game fires the CD only when the skill is
 canceled, and we are firing when it's used."*
 
@@ -669,12 +691,135 @@ count is an aura read (`applications`), secret for a tainted caller in combat, s
 the same readable-only rule as every other aura-driven behaviour, or come from the CDM where the
 spell is also merged (999.16). This gap made 61-HUMAN-UAT #2 untestable; it was skipped, not failed.
 
-**999.20 — Custom trackers show the remaining duration on the buff icon itself.** Intake
+**999.20 — Custom trackers show the remaining duration on the buff icon itself.** **Closed 2026-10-10: recorded in error — custom buff icons have always shown their countdown.** Intake
 2026-09-30, user request, found during the v0.5.1 in-game review. A custom buff tracker's icon does
 not show its remaining duration on the icon itself. Not yet diagnosed: the live-timer branch drives
 the icon's Cooldown widget (`icon.cooldown:SetCooldown`), so start from how that widget's countdown
 numbers and the container's "Show Timer" setting are applied. Reminders in their lead window
 (REM-05) do show their countdown, so compare that path.
+
+**999.21 — Merge Mode keeps a stale charge count after a spec change.** **Promoted into v0.5.2 (Phase 70, STEAL-20).** Reported by the user,
+2026-10-03, on retail. After swapping Arcane → Frost, the Frost Orb cell showed **2 charges** while
+the spell actually had none, and stayed wrong until `/reload`. Not yet diagnosed. Suspects in
+`Display.lua`: `chargeCapable` is sticky per spellID and is never cleared on a spec or talent
+change, and `ApplyChargeCount` leaves the previous text untouched whenever `GetSpellCharges` is
+unreadable or returns nothing — and it runs only on a `_cdGen` change. So a respec can leave the
+old count up with nothing ever overwriting it. Likely fix: drop `chargeCapable` and re-apply the
+count on `PLAYER_SPECIALIZATION_CHANGED` / `TRAIT_CONFIG_UPDATED` / `SPELLS_CHANGED`, and hide it
+(rather than keep the old text) when the spell no longer has charges.
+
+**999.22 — Merge Mode: "Freezing" stacks on top of other cells in the centered display.** **Promoted into v0.5.2 (Phase 70, STEAL-21).**
+Reported by the user, 2026-10-03, on retail (Frost Mage). The Freezing cell was drawn over other
+skills in the centered (essential) viewer instead of taking its own slot. Not yet diagnosed. Two
+hypotheses from the user: Freezing is a never-secret aura, so it takes a readable path the secret
+ones never reach; or another Frost Mage in the group was applying Freezing to the same target.
+The second ties into 999.23: `MergeMode.lua`'s target-aura lookup matches **any** caster's aura.
+Start from how the aura overlay (`ns.mergeAuraGroupsActive`) positions its frame against the
+cell it belongs to.
+
+**999.23 — Merge Mode: Touch of the Magi shows as up when another mage applied it.** **Promoted into v0.5.2 (Phase 70, STEAL-21).** Reported by
+the user, 2026-10-03, on retail. The player's Touch of the Magi cell lit up when a different mage
+put it on the player's target. Needs a "cast by the player" filter. Likely cause in
+`MergeMode.lua`: the readable target lookup calls
+`C_UnitAuras.GetAuraDataBySpellName("target", spellName, filter)` with `TARGET_AURA_FILTERS =
+{ "HARMFUL", "HELPFUL" }` — no `PLAYER` flag — so another caster's copy matches. The
+`AURA_UNITS` candidate filter already sets `isFromPlayerOrPlayerPet` for the target; this direct
+read path does not. Probably also behind 999.22.
+
+**Note for 999.22 + 999.23 (user, 2026-10-03):** re-tested in a different raid comp with **no other
+Frost Mage** — the Freezing overlap did **not** happen. So the overlap is most likely the same bug as
+999.23: another mage's aura matching the player's entry. TBT never wants to track another player's
+debuffs on the CDM, so once only the player's own auras can match, the overlap's positioning should
+not need a fix of its own. Kept as two entries for now. When fixing and testing, do 999.23 first,
+then re-test 999.22 **with another Frost Mage in the group**, which is what triggers it. Only look at
+positioning if the overlap is still there after that.
+
+**999.24 — Merge Mode: every cell turns into the same debuff while the player is mind-controlled.** **Promoted into v0.5.2 (Phase 70, STEAL-22).**
+Reported by the user, 2026-10-03, on retail. During a fight where the player got mind-controlled,
+every skill in the merged bar showed the same aura, a debuff on the player. **This has happened
+before.** The user's requirement for the fix: **review the whole code path, not just the trigger.**
+No code path may be able to paint one aura over every cell. Fixing this one trigger is not enough;
+the design must make this kind of failure impossible.
+
+Precedent: the 2026-09-22 resto-druid report, documented above `AURA_UNITS` in `MergeMode.lua`.
+`AuraContainerUtil.DoesAuraPassCandidateFilters` applies `includeSpellIDs` **only** when
+`CanApplyIdentityCandidateFilters` allows it. It does not allow it for
+`isHarmful and UnitCanAssist("player", unit)`. In that case the spell-ID filter is skipped, the
+aura matches **every** merged container, and one debuff paints every tile. That fix kept the gate
+from opening on the target slot (`isFromPlayerOrPlayerPet`, plus `SlotAllowed` turning the target
+slot off while the target is assistable). Suspects for how mind control gets past it:
+- `targetIsAssistable` is a latch refreshed only on `PLAYER_TARGET_CHANGED` and
+  `RefreshMergeAuraGroups`. Mind control changes who is friendly to whom **without changing the
+  target**, so the latch goes stale. Nothing listens for `UNIT_FACTION`, `UNIT_FLAGS`,
+  `PLAYER_CONTROL_LOST` / `PLAYER_CONTROL_GAINED` or the charm state.
+- The **player** slot has no guard at all ("needs no such guard" because the player is always
+  assistable to itself). While charmed that may not hold, and a harmful aura on the player
+  becomes a candidate that skips the spell-ID filter. Check what `HELPFUL` and `isHarmful` mean
+  for a charmed player's own auras.
+- `isFromPlayerOrPlayerPet` may behave differently while the player is charmed, for example if
+  the player counts as a pet or as the controlling unit's minion.
+
+Direction: **fail closed.** Any state where Blizzard's identity gate could skip the spell-ID filter
+must leave the slot matching nothing (`maxDuration = 0`, the existing off switch). The check must
+be one that cannot go stale, for example asked when the slot's filters are sent and again on every
+control or faction event, rather than a latch. Audit every `AURA_UNITS` entry and every
+`SendSlotFilters` / `AddAuraSlot` call for a path where the include set can be bypassed.
+
+**999.25 — Centered layout does not re-centre merged buffs.** **Promoted into v0.5.2 (Phase 70, STEAL-23) — treated as obsolete with 999.24, re-checked.** Reported by the user, 2026-10-04, on
+retail. A Tracked Buffs container set to **Centered** does not centre. The user's container
+currently holds **only merged buffs**. After adding a custom tracker, a merged buff ending still
+did not make the run re-centre. **Review the centered layout as a whole**, not just this trigger.
+Not yet diagnosed. Suspects:
+- **`seen == 0` counts everything as shown.** In `ns:RefreshMergeShownSlots` (`MergeMode.lua`),
+  `entry.cdmShown = (seen == 0) or shownCooldownIDs[...]`. When no buff is up, the CDM's buff
+  viewer has no shown item frames, so `seen == 0` and **every** merged entry counts as drawn.
+  `SlotDraws` then returns true for all of them, `drawnCount` equals the slot count, and the
+  run is laid out at full width, which looks exactly like not centring. The "no answer" fallback
+  and the "the CDM is genuinely showing nothing" answer are indistinguishable here.
+- **Viewer parked off-screen.** The comment near `FlushMergeShownSlots` notes
+  `CooldownViewerMixin:OnHide` unregisters `UNIT_AURA` and the rest. If the parked viewer's item
+  frames stop updating, `cdmShown` goes stale.
+- **No re-render on a `cdmShown` flip.** Check that a change in `cdmShown` marks the icon
+  container dirty. If the render pass only re-runs on TBT's own timer or cooldown changes, a merged
+  buff ending would not move the run until something else triggers a pass.
+- **Engine-drawn aura containers keep their old cell.** A slot that does not draw gets no
+  `anchor`, so `ns:PlaceMergeAura` is skipped and the engine's aura container stays at its last
+  position. Check that a re-centred run actually moves every engine-drawn container. The
+  placement dirty-check keys on anchor and offsets, so it should, provided the pass runs.
+
+Related layout code in `Display.lua`: `CenteredSlotPlacement`, `SlotDraws` (must mirror
+`RenderIconContainer`'s branch chain exactly) and the `centered` block in `RenderIconContainer`.
+
+**999.26 — Merge Mode by moving Blizzard's CDM frames instead of redrawing them.** **Promoted into v0.5.2 (Phases 68-70, STEAL-10..19).** **Main task of
+the next milestone**, by user decision 2026-10-10. Proof of concept passed on retail (raid boss
+encounter, no taint); full record in `.planning/research/MERGE-REANCHOR-POC.md`. TBT keeps its
+mirror and its layout. For each merged slot it hides its own widget and anchors Blizzard's item
+frame onto it with `SetPoint` and `SetScale` only — no `SetParent`, no field writes, no mixin
+calls — plus one `hooksecurefunc` on each viewer's `Layout`. Blizzard then draws cooldowns,
+charges, auras, glows and borders exactly as the CDM does.
+
+Scope for the milestone:
+- Turn the prototype (`MergeReanchor.lua` and its `EXPERIMENT` branches) into the real Merge Mode
+  rendering path.
+- Fix the POC's open issues:
+  - reordering in the CDM settings window corrupts the preview;
+  - Edit Mode preview is missing merged bars;
+  - TBT container visibility does not reach the moved frames.
+- Remove the redraw machinery that goes dead for merged slots: engine aura containers, aura
+  timing reads, bar and time relays, merged pandemic/dispel reads, and the merged charge-count
+  path.
+- Test in M+, on Forever, through a spec change, and in combat while Edit Mode is open.
+
+Would close 999.21, 999.22, 999.23 and 999.24 by deleting their code paths. Re-check 999.25
+(Centered) against the new path. Keep 999.24's requirement: no path may paint one thing over
+every cell.
+
+**999.27 — Custom cooldown trackers keep a stale charge count after a spec change.** Found
+2026-10-10 by the v0.5.2 Phase 70 planner and the whole-path review (`70-MERGE-PATH-REVIEW.md`).
+The same pattern as 999.21, outside Merge Mode: `Display.lua`'s `chargeCapable` cache is sticky per spellID
+and never cleared on a spec or talent change, and `ApplyChargeCount` keeps the previous text when
+`GetSpellCharges` is unreadable. v0.5.2 fixed 999.21 for merged slots by handing them to Blizzard's
+own frames; TBT's own custom cooldown trackers still use this path. Not reproduced in game yet.
 
 *The four original backlog phases — 999.1 (Edit Mode mouse-down), 999.2 (README and store copy),
 999.3 (single-TOC migration) and 999.4 (`@project-version@` in dev installs) — were promoted into
@@ -687,3 +832,7 @@ above are kept as the design record, as 999.6 and 999.7 are for v0.4.1.*
 *999.9 (Edit Mode taint), 999.17 (Merge Mode charge count) and 999.18 (clickable reminders) were
 promoted into v0.5.1 on 2026-09-30 as Phase 61 (999.9 and 999.17) and Phase 63 (999.18). Their
 entries above are kept as the design record.*
+
+*999.5, 999.21-999.26 were promoted into v0.5.2 on 2026-10-10 (Phases 67-72); 999.8 and 999.10 close
+with the racial removal in Phase 67; 999.20 was closed as recorded in error. Their entries above are
+kept as the design record.*

@@ -2,7 +2,7 @@
 // that guarantees this is ns:ReadPlayerAura (BuffEngine.lua) -- it asks
 // C_Secrets.ShouldSpellAuraBeSecret FIRST, and only reads C_UnitAuras.GetPlayerAuraBySpellID when
 // the predicate says the read is safe. This gate proves STATICALLY that every reference to an aura
-// API in the shipped Lua sits inside one of the three allowlisted readers, so Phase 56's aura-ID
+// API in the shipped Lua sits inside the allowlisted reader, so Phase 56's aura-ID
 // path and Phase 57's aura-state cache cannot bypass it without the gate going red.
 //
 //   node scripts/aura-read-gate.js              -- scan the shipped TOC file list, exit 1 on any
@@ -13,10 +13,6 @@
 // it widens the set of places that are trusted to hold a secret aura correctly. Each allowlist row
 // carries a one-line reason so that decision is visible in the diff that adds it.
 //
-// The other two readers (Core.lua's CollectPlayerBuffs, MergeMode.lua's TryResolveFromSpellID)
-// are not gated the same way ns:ReadPlayerAura is -- CollectPlayerBuffs is the out-of-combat
-// Suggested catalogue scan and never decides a tracker's end; TryResolveFromSpellID is Merge
-// Mode's duration resolution, itself gated by ShouldSpellAuraBeSecret at MergeMode.lua ~625. Only
 // ns:ReadPlayerAura's predicate-then-read order is asserted directly (see checkPredicateOrder).
 //
 // Known limits (static text, not a Lua evaluator): an API name assembled at runtime (a string
@@ -33,9 +29,9 @@ const path = require('path');
 //
 // \bC_UnitAuras\b flags the namespace itself, not only a dotted call: an alias
 // (`local UA = C_UnitAuras`), a bracket index (`C_UnitAuras["GetPlayerAuraBySpellID"]`), a spaced
-// member (`C_UnitAuras . X`) and a function passed by value (MergeMode.lua's
-// SafeAuraCall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)) all contain it. The shipped tree only
-// names C_UnitAuras outside the three readers in comments.
+// member (`C_UnitAuras . X`) and a function passed by value
+// (`SomeHelper(C_UnitAuras.GetPlayerAuraBySpellID, spellID)`) all contain it. The shipped tree only
+// names C_UnitAuras outside the reader in comments.
 //
 // The bare names cover the old globals (UnitAura/UnitBuff/UnitDebuff and the slot APIs), the
 // namespace's members reached any other way, and C_TooltipInfo's aura tooltips, which carry the
@@ -66,16 +62,6 @@ const ALLOWLIST = [
     file: 'BuffEngine.lua',
     func: 'ns:ReadPlayerAura',
     reason: 'the gated reader -- asks C_Secrets.ShouldSpellAuraBeSecret before any read',
-  },
-  {
-    file: 'Core.lua',
-    func: 'CollectPlayerBuffs',
-    reason: 'out-of-combat Suggested catalogue scan, never decides a tracker\'s end',
-  },
-  {
-    file: 'MergeMode.lua',
-    func: 'TryResolveFromSpellID',
-    reason: 'Merge Mode duration resolution, gated by ShouldSpellAuraBeSecret at MergeMode.lua ~625',
   },
 ];
 

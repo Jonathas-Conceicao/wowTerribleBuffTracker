@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.5.1
-milestone_name: "Clickable Reminders and new icons"
+milestone: v0.5.2
+milestone_name: "Improved Merge Mode and small fixes"
 status: complete
-last_updated: "2026-10-01"
-last_activity: 2026-10-01 — Milestone v0.5.1 archived and squash-merged to main
+last_updated: "2026-10-10"
+last_activity: 2026-10-10 — Milestone v0.5.2 archived
 progress:
   total_phases: 6
   completed_phases: 6
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 17
+  completed_plans: 17
   percent: 100
 ---
 
@@ -17,82 +17,56 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-01)
+See: .planning/PROJECT.md (updated 2026-10-10)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** Planning the next milestone (`/gsd-new-milestone`; phases start at 67).
+**Current focus:** Planning the next milestone (`/gsd-new-milestone`; phases start at 73).
 
 ## Current Position
 
-Phase: — (v0.5.1 complete; Phases 61-66 all done)
+Phase: — (v0.5.2 complete; Phases 67-72 all done)
 Plan: —
-Status: v0.5.1 shipped 2026-10-01 — Phase 66 passed on Forever and retail (incl. M+), user sign-off;
-archived to `.planning/milestones/v0.5.1-*` and squash-merged to `main`. The user writes the
-CHANGELOG entry, commits the new `Assets/` images with it, and tags the release.
-Last activity: 2026-10-01 — milestone close
+Status: v0.5.2 shipped 2026-10-10 — Phase 72 passed on retail (raid and M+) and Forever;
+archived to `.planning/milestones/v0.5.2-*`. The user squash-merges to `main`, writes the
+CHANGELOG entry and tags the release.
+Last activity: 2026-10-10 — milestone close
 
-- Next kickoff: archive the phase log below to `.planning/milestones/v0.5.1-STATE-phase-log.md` and
-  move `.planning/phases/61-*`..`65-*` to `.planning/milestones/v0.5.1-phases/`, as done for v0.5.0.
-- Released and tagged `v0.5.1` by the user, 2026-10-01; the zip ships only `Media/Textures` BLPs (62-HUMAN-UAT #2 passed).
-- Still open: 61-HUMAN-UAT #2 (waits on 999.19/999.20).
+- Next kickoff: archive the phase log below to `.planning/milestones/v0.5.2-STATE-phase-log.md` and
+  move `.planning/phases/67-*`..`71-*` to `.planning/milestones/v0.5.2-phases/`, as done for v0.5.1.
+- Still open: 61-HUMAN-UAT #2 (waits on 999.19); Divine Spirit (27841) ships unverified in game.
 
-## v0.5.1 Phase Log
+## v0.5.2 Phase Log
 
-*Kept for the record until the next kickoff archives it. Superseded by the Current Position above;
-every pending UAT note below was closed by Phase 66 on 2026-10-01.*
+*Kept for the record until the next kickoff archives it. Superseded by the Current Position above.*
 
-Phase: 66 of 66 (Human Testing) — in progress: **retail general review passed 2026-10-01** (user);
-Forever regression check pending. Phase 65 executed 2026-10-01 (review WR-01 fixed in `be337ab`;
-its 3 in-game checks passed on retail the same day)
+Phase: 72 of 72 (Human Testing) — complete
 Plan: —
-Status: Phase 64 retail UAT passed 2026-10-01 (every class, clicks, lead window, combat, M+; Mark
-of the Wild fixed to 1126, Lightning Shield 192106 added); only 64 #1 (Forever) pending, being
-tested by the user
-Last activity: 2026-09-30 — Phases 61, 62 and 63 executed, code-reviewed, review findings fixed,
-verified (all `human_needed`) and deployed. In-game UAT deferred to Phase 66 by the user's
-one-testing-pass decision: 5 items in `61-HUMAN-UAT.md`, 2 in `62-HUMAN-UAT.md`, 11 in
-`63-HUMAN-UAT.md`. **Phase 63 added `ReminderClick.lua` to the TOC — a full client restart is
-needed before testing, not `/reload`.** Phase 65 carries named cleanup targets from the 63 review:
-IN-01 (shared spell-name helper), IN-02 (repeated stamp-clear code), IN-05 (tooltip hide without
-ownership check), IN-06 (castID field duplicates the auraID field's preview row).
-**User in-game review 2026-09-30:** clicks, Edit Mode, every paladin blessing, left/right/centre
-orientations, combat and mid-combat expiry all worked with no errors. Two follow-ups requested and
-built the same day, outside the phase flow: TAB-10 faction-themed tab icons (`5a7256d`, `_ally` /
-`_horde`, resolved once per login) and REM-05, reminders showing in the last max(1s, 10%) of their
-buff with its real remaining time (`0a40b05`). Both deployed; checks added as 63-HUMAN-UAT #12-13.
+Status: Every in-game check passed on retail (raid and M+) and Forever; Divine Spirit ships unverified (no leveled priest)
+Last activity: 2026-10-10 — Phase 72 Human Testing passed; 999.5 closed
 
-| Phase | Name | Requirements | Status |
-|-------|------|--------------|--------|
-| 61 | Bug Fixes | EDM-08, STEAL-09 | Executed — UAT deferred to 66 |
-| 62 | New Icons | TAB-08, TAB-09, INST-10, DIST-13 | Executed — UAT deferred to 66 |
-| 63 | Clickable Reminders | CLICK-01..06 | Executed — UAT deferred to 66 |
-| 64 | Retail Class-Buff Reminder Suggestions | MREM-04, MREM-05 | Executed — UAT deferred to 66 |
-| 65 | Cleanup | — (process only) | Executed — UAT deferred to 66 |
-| 66 | Human Testing (Forever, then retail) | — (testing pass, no plans) | Not started |
+Progress: [██████████] 100%
 
-- Branch: `milestone/v0.5.1-clickable-reminders-new-icons`, cut from `topic/dev` on 2026-09-30.
-- Phases start at **61** (v0.5.0 ended at Phase 60; numbering never restarts).
-- Research skipped: backlog 999.18 in ROADMAP.md is the settled design for clickable reminders.
-- **v0.5.0 is released** — squash-merged to `main` as `9aa91d7` and tagged `v0.5.0` (on `22f9f36`, the changelog commit after it). Its phase log
-  is archived at `.planning/milestones/v0.5.0-STATE-phase-log.md` and its phase directories at
-  `.planning/milestones/v0.5.0-phases/`.
+- Phase order: 67 Remove Racials → 68 Merge Mode by Re-anchoring → 69 Re-anchoring Open Issues →
+  70 Remove the Redraw Path & Close the Merge Mode Bugs → 71 Cleanup → 72 Human Testing (last).
 
-Scope, confirmed by the user at kickoff, in build order: 999.9 (Edit Mode taint), 999.17 (Merge
-Mode charge count), new tab icons, clickable reminders (999.18), retail class-buff reminder
-suggestions (Mage specified; the user supplies other classes when that phase starts), cleanup, then
-**one** human testing phase — Forever first, then retail — instead of two separate review phases.
-
+- Branch: `milestone/v0.5.2-improved-merge-mode`, cut from `topic/dev` on 2026-10-10. It already
+  carries the re-anchor prototype (`3bc4ad6`) and its write-up, `.planning/research/MERGE-REANCHOR-POC.md`.
+- Phases start at **67** (v0.5.1 ended at Phase 66; numbering never restarts).
+- Research skipped: the POC write-up and backlog 999.26 are the settled design.
+- v0.5.1's phase log is archived at `.planning/milestones/v0.5.1-STATE-phase-log.md` and its phase
+  directories at `.planning/milestones/v0.5.1-phases/`.
+- Still open: 61-HUMAN-UAT #2, now waiting on 999.19 alone (999.20 closed as recorded in error).
 
 ## Last Milestone at a Glance
 
-v0.5.1 Clickable Reminders and new icons: out-of-combat click-to-cast on every reminder through
-secure overlays, an editable Cast spell ID, reminders showing in the last 10% of their buff,
-faction-themed tab icons with a PNG→BLP pipeline, retail class-buff suggestions for every class,
-and the Edit Mode taint and Merge Mode charge-count fixes. 16 of 16 requirements, verified in game
-on the Forever beta and Midnight retail (incl. M+), 2026-10-01.
+v0.5.2 Improved Merge Mode and small fixes: Merge Mode moves Blizzard's own CDM item frames onto
+TBT's cells with plain C setters and one `Layout` post-hook per viewer, driven by TBT's container
+settings; the redraw path is deleted, closing 999.21-999.25, and Merge Mode reads no auras; racials
+are removed with a silent schema v12 migration. 18 of 18 requirements, verified in game on Midnight
+retail (incl. raid and M+) and the Forever beta, 2026-10-10.
 
-Full record: `.planning/MILESTONES.md` (v0.5.1 entry), `.planning/milestones/v0.5.1-ROADMAP.md`,
-`.planning/milestones/v0.5.1-REQUIREMENTS.md`, `.planning/testing/66-HUMAN-TESTING.md`.
+Full record: `.planning/MILESTONES.md` (v0.5.2 entry), `.planning/milestones/v0.5.2-ROADMAP.md`,
+`.planning/milestones/v0.5.2-REQUIREMENTS.md`, the 67-70 `HUMAN-UAT.md` files.
 
 ## Deferred Items
 
@@ -199,7 +173,10 @@ constraints that outlive the milestone are repeated here:
   with `CooldownViewerItemData.lua:782 hasTotem` errors. Calling any Blizzard CDM mixin method leaves the
   frame tainted afterwards, and the taint is **sticky**: it survives leaving combat and clears only on
   `/reload`. A combat guard is preventive, never curative. This is why v0.4.0 mirrors into TBT's own
-  containers instead.
+  containers instead. **Narrowed 2026-10-10, not reversed:** *moving* Blizzard's own item frames out
+  onto TBT's cells (`SetPoint`/`SetScale` only, never `SetParent`, one `Layout` post-hook per viewer)
+  passed a retail raid boss with no taint — `.planning/research/MERGE-REANCHOR-POC.md`. Joining their
+  container is still forbidden.
 - **Direct aura APIs hard-error for tainted callers under restriction.** Both enumeration and ID-based
   calls, and a cached instance ID does not help. Curve evaluation results are secret even from an
   addon-built curve. Both closed, not deferred — see
