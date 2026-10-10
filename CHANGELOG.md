@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.5.2 — Improved Merge Mode, small fixes and drop racials on Forever
+
+Merge Mode has been reworked and improved, better performance and
+fixed some edge case bugs. Dropped the Forever Racial Meta trackers
+as CDM now supports them all.
+
+### New Features
+- Added Meta Reminder for Divine Spirit on Forever
+- Rebuilt and improved Merge Mode, no new configuration needed
+
+### Removed
+- Dropped the support for Racial Meta Trackers on Forever, you can
+  still create your custom racial trackers if you want, just like any
+  other spell
+
+### Fixes
+- Charge counts going stale after spec or talent change
+- Another player's debuffs overlapping with the tracked Player ones
+- Centered layout being misaligned due to overlapped debuff
+- Icons being overtaken by some debuffs like Mind Control 
+
 ## v0.5.1 — Clickable reminders and new icons
 
 Adding clickable buttons to reminders so you can easily cast your

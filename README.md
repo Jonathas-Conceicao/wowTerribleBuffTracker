@@ -9,22 +9,21 @@ default CDM window. Positioning and style can be configured through
 edit-mode, making it familiar to new users. We also offer limited
 (where API restrictions allow us) support to create custom trackers to
 extend the CDM, like our built-in **Bloodlust** tracker or the
-**Active Racials** on Forever.
+**Buff Reminders**.
 
 ## Showcase
 
 ![Lust and trinket tracked](Assets/lust_and_trinket_tracked.png)
 ![Adding buffs](Assets/adding_buffs.png)
 ![Edit-Mode](Assets/edit_mode.png)
-![WoW Forever CDM](Assets/forever_racial.png)
+![Clickable Reminders](Assets/clickable_buff_reminders.png)
 
 ## Features
 
 - **Merge Mode** - Enable it on config via `/tbt`: Blizzard's Cooldown
-  Manager containers move off screen and their entries are drawn
-  inside TBT's matching containers alongside your own trackers. Have
-  the CDM buffs bar be centred and have your custom trackers side by
-  side with your class base trackers if you want.
+  Manager icons and bars are moved into TBT containers alongside your
+  own trackers. Have the CDM buffs be centred and have your custom
+  trackers side by side with your class base trackers if you want.
 - **Buff trackers** - track any spell by ID with a duration you input;
   shown as a bar or an icon
 - **Cooldown trackers** - A custom cooldown tracker counts down the
@@ -42,8 +41,8 @@ extend the CDM, like our built-in **Bloodlust** tracker or the
   trackers, with their own durations and bar display
 - Mousing over a spell or aura shows its **spell ID** to help you
   create your own custom trackers
-- **Racial trackers** - On _Forever_ have an out-of-the-box Racial
-  cooldown or buff tracker for your CDM
+- **Reminders** - Clickable buffs you can be reminded to renew even
+  when they're dropping mid-combat
 - **Rank grouping** - On _Forever_, a "cover all ranks" checkbox makes
   one tracker cover every rank of a spell
 
@@ -76,6 +75,8 @@ extend the CDM, like our built-in **Bloodlust** tracker or the
   client will not report the number, so the icon shows no count rather
   than a wrong one
 
+- Reminders' click-to-cast is disable in combat due to addon restrictions
+
 ## AI Usage
 
 This addon was built with the help of [Claude AI](https://claude.ai/).
@@ -84,6 +85,9 @@ stuff for myself and the community while I game :). Claude assisted
 with writing the implementation, but all logic and testing is manually
 done by me. The addon is maintained by me to the best of my abilities,
 use at your own leisure.
+
+The custom icons/art are not done by AI, I enjoy making barely
+accatable pixel art :)
 
 ## License
 
