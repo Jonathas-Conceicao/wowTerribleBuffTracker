@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.3 — Display buff duration alongside cooldown trackers
+
+### New Features
+- Buff duration on cooldown trackers - On the Advanced tab of any
+  cooldown, enable "Track buff duration" and set its Aura ID and
+  default duration
+- Item trackers can now be edited to add their associated Aura ID and
+  have it's buff tracked alongside it
+
 ## v0.5.2 — Improved Merge Mode, small fixes and drop racials on Forever
 
 Merge Mode has been reworked and improved, better performance and
