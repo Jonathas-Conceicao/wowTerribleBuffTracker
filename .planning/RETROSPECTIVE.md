@@ -2,6 +2,55 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v0.5.3 — Display buff duration alongside cooldowns
+
+**Shipped:** 2026-10-23 (archived; squash-merge, changelog and tag by the user)
+**Phases:** 6 (73-78) | **Plans:** 8 | **Commits:** 70+ | **Span:** 2 days
+
+### What Was Built
+
+- An optional buff on any cooldown, spell or bag item: Advanced-tab checkbox, Aura ID and typed
+  Duration, off by default, no schema bump. The cast or item use starts it alongside the cooldown.
+- The CDM's yellow aura look on the icon while the buff runs, then the grey cooldown at once, with
+  charge and item counts kept.
+- A buff-only edit dialog for bag items moved out of Suggested.
+- A buff already up is picked up and follows the aura's real expiry (Phase 78 gap fix).
+- Install goes to `_forever_` instead of `_classic_beta_`.
+
+### What Worked
+
+- **Probe instead of research.** One retail probe settled the only open question (no API gives a
+  buff's duration), so the design never changed after kickoff.
+- **The autonomous run, with all questions up front.** Phases 73-77 ran unattended, and all in-game
+  checks were deferred to one pass, which passed with one gap.
+- **Reading the CDM source for the look.** The colours, edge and reverse settings came straight
+  from `CooldownViewer.lua`, and the user called the visuals "100% what I requested".
+- **The integration check found a regression in the gap fix itself** (an unrelated edit dropped an
+  aura-synced buff) before release.
+
+### What Was Inefficient
+
+- **The gap fix took three tries.** The first build only ran on edit and rewrote the user's Duration
+  from the aura; the second added its own pass; the third reused the reminder refresh. Reading how
+  reminders already did it first would have gone straight to the third.
+- **"Auto-correct" was read as rewriting a saved setting.** The user had to say it should not; a
+  stacked flask shows why a live value is not the setting.
+
+### Patterns Established
+
+- Live aura data drives only the running timer (`SyncProcToAura`); a read never writes `ns.db`.
+- A new kind of aura-driven timer joins `ns:RefreshAuraStates` (shared `ReadWatchedList`) instead of
+  getting its own walk and its own call sites.
+- Guards and fill split from filing (`ns:FillCooldownBuffProc` vs `ns:StartCooldownBuffFromCast`),
+  so a read-start and a cast-start share the rules without the cast's side effects.
+
+### Key Lessons
+
+- Before writing a new aura path, find the existing one that already does the nearest thing, and
+  extend it.
+- Ask what "correct" means before touching a value the user typed; the default is never to
+  overwrite it.
+
 ## Milestone: v0.5.2 — Improved Merge Mode and small fixes
 
 **Shipped:** 2026-10-10 (archived; squash-merge, changelog and tag by the user)

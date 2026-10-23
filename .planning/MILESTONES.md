@@ -1,5 +1,31 @@
 # Milestones
 
+## v0.5.3 Display buff duration alongside cooldowns (Shipped: 2026-10-23)
+
+**Scope:** Any cooldown TBT tracks, a spell or a bag item, can optionally carry its buff. While the buff runs, the icon shows it in the CDM's yellow aura style instead of the cooldown. The installer deploys to Forever's new `_forever_` folder. No Merge Mode change and no backlog item promoted.
+**Phases:** 6 (73-78), 8 plans. Phase 78 was a single retail testing pass with no plans.
+**Timeline:** 2 days (2026-10-22 → 2026-10-23), 70+ commits. 10 source/script files changed (+1483 / -224 before the Phase 78 gap fix), including the throwaway `tools/TBTProbe/DurationProbe.lua`.
+**Verified on:** Midnight retail, including combat/M+ and a real logout and login, 2026-10-23, in Phase 78. Forever was not tested (servers down, user decision).
+**Requirements:** 15 / 15 closed. BUFFDISP-04's in-game charge-count check was skipped by the user; it is code-verified.
+**Known deferred items at close:** none new. Backlog 999.28 (one aura pass for buffs, reminders and cooldown buffs) was added during the Phase 78 pass, not for now. 999.11, 999.15, 999.16, 999.19 and 999.27 stay open. See `milestones/v0.5.3-ROADMAP.md`.
+
+### Key accomplishments
+
+- **Optional buff on any cooldown.** The Advanced tab gains a "Track buff duration" checkbox (off by default), an Aura ID (pre-filled with the spell ID for spells, empty for items) and a typed Duration. No API gives a buff's duration (2026-10-22 probe). Saved with no schema bump, so existing trackers load with the buff off.
+- **Buff timer next to the cooldown.** The cast, or the item use, starts the buff alongside the cooldown. It ends early only on a readable aura loss (never on a secret read), a reset-on-cast or an edit. On Forever it watches the whole rank family.
+- **The CDM's aura look.** While the buff runs, the icon shows the yellow fill clearing in full colour, with no edge and no cooldown. When it ends, the grey cooldown returns at once. Charge and item counts are kept, and buff-only, reminder and meta icons are unchanged.
+- **Bag items get an edit dialog.** A bag item moved out of Suggested opens "Edit Item Tracker" on the Advanced tab: only the buff fields are editable, and the rest show greyed with their values.
+- **The buff follows the live aura** (Phase 78 gap fix). A buff already up is picked up at login, reload, add and edit, and the timer follows the aura's real expiry (stacked flasks, an engineering extension) through the cooldown-buff half of `ns:RefreshAuraStates`. The typed Duration is never rewritten.
+- **Install to `_forever_`**, and a cleanup that unified the milestone's own duplication (`ns:FinishTrackerEdit`, shared Duration box helpers) with a verdict for each hot path.
+
+### Bugs found in this milestone's own work
+
+- **A down-ranked cast on Forever would have ended its buff at the first aura read** (74 review CR-01). The watch list held one ID; it now uses the rank family.
+- **The same-key handover hid the charge count** (caught by the Phase 75 plan check before execution).
+- **A pooled icon widget returning to a tracker kept another tracker's sweep and grey** (75 review WR-02).
+- **The first Phase 78 gap-fix build overwrote the user's typed Duration from the live aura.** Reverted by user decision: a read never rewrites a setting.
+- **An unrelated edit dropped an aura-synced buff** (audit warning 1). `ns:ApplyCooldownBuffEdit` compared the synced duration; it now compares the typed one (`5533775`).
+
 ## v0.5.2 Improved Merge Mode and small fixes (Shipped: 2026-10-10)
 
 **Scope:** Merge Mode moves Blizzard's own CDM item frames into TBT's layout instead of redrawing them (999.26), the redraw path is deleted rather than kept as a fallback, and the Merge Mode bugs that lived in it (999.21-999.25) are re-checked on the new path. Racials are removed from TBT entirely, because Forever's recent release supports them natively.

@@ -94,7 +94,11 @@ end
 -- (57.2-05). Pooled, allocation-free: the caller writes ns.activeTimers. The cast callers check
 -- entry.duration is a positive number first; the read-started reminder timer may pass none and
 -- sets duration/expiresAt itself (57.2-05 review WR-05).
-function ns:FillUserBuffProc(ownerKey, entry, now)
+-- Phase 74 review IN-01: aliveBuffsOverride, when given, is used as the proc's aliveBuffs and the
+-- choice below is skipped, so a caller with its own list (ns:StartCooldownBuffFromCast) does not
+-- compute and then discard this one. The label fallback string is built only for a legacy entry
+-- saved without a label (every add stores one), the same cost as on every user buff cast.
+function ns:FillUserBuffProc(ownerKey, entry, now, aliveBuffsOverride)
 	-- RANK-01: aliveBuffs becomes the shared family when one exists. This is a deliberate
 	-- shared REFERENCE to Plan 01's ns.rankFamilies[ownerKey] array, not a copy -- safe
 	-- because ns:ScanActiveTimersForCancellation only ever reads it with ipairs, and Plan 01
@@ -110,8 +114,8 @@ function ns:FillUserBuffProc(ownerKey, entry, now)
 	-- skips a proc with none, and ns:AcquireProc already wiped any stale value. Whatever list is
 	-- chosen below is checked only by ns:ScanActiveTimersForCancellation through
 	-- ns:ReadPlayerAura, so an unreadable aura never ends the tracker (DTRK-06).
-	local aliveBuffs
-	if ns:CancelsOnAuraLoss(entry) then
+	local aliveBuffs = aliveBuffsOverride
+	if aliveBuffs == nil and ns:CancelsOnAuraLoss(entry) then
 		-- RALT-01 (Phase 57.5): a reminder with alternatives stays alive while any of the set is
 		-- present ("End when the aura is lost" applies to the whole set). A shared read-only
 		-- reference, like ns.rankFamilies, replaced wholesale per rebuild. A buff key never has one.
@@ -189,6 +193,86 @@ function ns:StartCooldownFromCast(tracked, byKey, rankIdx, spellID)
 		ns:MarkCooldownsDirty()
 	end
 	return cdKey
+end
+
+-- --- the cooldown's buff (Phase 74, BUFFCD-03/BUFFCD-04) ---------------------------------------
+--
+-- A user cooldown or a bag item (Phase 76, BUFFCD-07) with "Track buff duration" on also runs its
+-- buff: the cast that starts the cooldown files a buff proc of the typed duration
+-- (ns:CooldownBuffDuration) in ns.activeTimers. A bag item's use arrives through
+-- MetaItemBagProviderMixin:OnTrigger (itemUseSpellToID), not the cast index, and its load is
+-- fixed ALWAYS, so the load rule holds for it too.
+-- Decisions (74-CONTEXT "Timer behaviour"):
+--   * same moment and same hidden-section rule as the cooldown (ns:StartCooldownFromCast); the
+--     load rule is inherited, because the cast index only holds loaded trackers;
+--   * a recast restarts it: the pooled proc is simply refilled;
+--   * on its own it ends early only through ns:ScanActiveTimersForCancellation, which reads
+--     aliveBuffs (ns:CooldownBuffAliveBuffs) through ns:ReadPlayerAura and never ends a timer on
+--     an unreadable read. Nothing here reads an aura, so scripts/aura-read-gate.js is untouched.
+--     It also ends with its cooldown: a "Resets when you cast" rule (ns:ApplyEndOnCast, an
+--     orchestrator decision -- the ability's state is gone, so its buff goes with it), an edit
+--     that turns the buff off or changes its Duration (ns:ApplyCooldownBuffEdit, run by both
+--     edit commits, ns:UpdateTrackedBuff and ns:UpdateTrackedItemBuff), moving the tracker to
+--     hidden (ns:SetBuffSection), and unloading or removing the tracker;
+--   * keyed under the cooldown's own key, so only that icon draws it (RenderIconContainer's
+--     live-timer branch). A cooldown filed in a bar container (old saved data) starts no buff:
+--     RenderBarContainer draws every timer in its container, and the buff must never show as a
+--     separate bar.
+-- Fill-then-override, as ns:RefreshAuraStates does: Fill sets the cooldown's duration, so it is
+-- overwritten; aliveBuffs goes in as Fill's override (review IN-01). castAt and startedAt stay at
+-- now, keeping the cast grace. Pooled and allocation-free. On ns, so declaration order cannot
+-- make it nil.
+-- ns:FillCooldownBuffProc holds the guards and the fill, shared with ns:RefreshAuraStates' read-start
+-- of a buff already up (Phase 78); it returns the filled proc, or nil when the guards refuse it, and
+-- files nothing. ns:StartCooldownBuffFromCast files it and redraws, and returns true when the buff
+-- started, nil otherwise.
+function ns:FillCooldownBuffProc(key, entry, now)
+	if not (entry and ns:IsCooldownSlotEntry(entry) and entry.section ~= "hidden") then
+		return nil
+	end
+	-- One hash read on the cast path: ns.CONTAINER_BY_KEY is the keyed twin of ns.CONTAINERS (Core.lua).
+	local def = ns.CONTAINER_BY_KEY[entry.section]
+	if not (def and def.kind ~= "bar") then
+		return nil
+	end
+	local duration = ns:CooldownBuffDuration(entry)
+	if not duration then
+		return nil
+	end
+	-- Set unconditionally: a cooldown's buff has no "End when the aura is lost" opt-out. Locked
+	-- decision (review WR-02): it follows the user-buff readable-only aura-loss rule as is, and an
+	-- aura that never lands on the player readably (an ally-targeted buff, or a wrong typed Aura
+	-- ID) ending the timer is for the user to correct in the Aura ID box.
+	-- Review CR-01: the rank family when the Aura ID follows the Spell ID, the typed ID plus the
+	-- family when one is typed (ns:CooldownBuffAliveBuffs), so a down-ranked cast keeps its buff.
+	-- Review IN-01: handed to Fill as its override, so Fill's own choice is never computed.
+	local aliveBuffs = ns:CooldownBuffAliveBuffs(key, entry)
+	local proc = ns:FillUserBuffProc(key, entry, now, aliveBuffs)
+	-- Phase 76: a bag item's buff proc has no spellID (Fill copies entry.spellID, nil for an
+	-- item), so itemID lets ns:ShowBuffTooltip show the item's tooltip on the icon. Nil for a
+	-- userCd; ns:AcquireProc wipes the pooled proc, so no stale itemID survives.
+	proc.itemID = entry.itemID
+	proc.duration = duration
+	proc.expiresAt = now + duration
+	-- The typed Duration this buff started under. ns:RefreshAuraStates may move duration to the
+	-- aura's own, so ns:ApplyCooldownBuffEdit compares this one (audit warning 1).
+	proc.typedDuration = duration
+	return proc
+end
+
+function ns:StartCooldownBuffFromCast(key, entry)
+	local proc = ns:FillCooldownBuffProc(key, entry, GetTime())
+	if proc == nil then
+		return nil
+	end
+	ns.activeTimers[key] = proc
+	if ns.QueueCastAuraRecheck then
+		ns:QueueCastAuraRecheck()
+	end
+	if ns.UpdateDisplay then
+		ns:UpdateDisplay()
+	end
+	return true
 end
 
 -- --- the reminder start (Phase 57.2-05; shared since Phase 57.4) ------------------------------
@@ -275,15 +359,19 @@ function UserSpellProviderMixin:OnTrigger(event, unit, _, spellID)
 
 	-- --- the cooldown side ---------------------------------------------------------------
 	--
-	-- A cooldown is a slot, not a timer: it never enters ns.activeTimers and therefore never
-	-- reaches ns:ScanActiveTimersForCancellation, which has nothing to cancel for a cooldown.
-	-- The cast is still not a timer, but it IS the start of one -- a custom cooldown tracker runs
-	-- on the duration the user typed rather than the game's own cooldown, and this is the only
-	-- place that start time exists. MarkCooldownsDirty also picks up a fresh charge count without
-	-- waiting for SPELL_UPDATE_CHARGES.
+	-- The cooldown itself is a slot, not a timer: its run lives in ns.cooldownStarts, never in
+	-- ns.activeTimers. When its buff is on (Phase 74), the same cast also files a buff proc under
+	-- the cooldown's key (ns:StartCooldownBuffFromCast), which ns:ScanActiveTimersForCancellation
+	-- can end on a readable aura loss. The cast is still not a timer, but it IS the start of
+	-- one -- a custom cooldown tracker runs on the duration the user typed rather than the game's
+	-- own cooldown, and this is the only place that start time exists. MarkCooldownsDirty also
+	-- picks up a fresh charge count without waiting for SPELL_UPDATE_CHARGES.
 	-- One namespace (ns.cooldownKeyBySpell) holds the user cooldowns; its key feeds the cross-spell
 	-- skip rule below.
 	local cdKey = ns:StartCooldownFromCast(tracked, ns.cooldownKeyBySpell, ns.rankIndexCooldown, spellID)
+	if cdKey then
+		ns:StartCooldownBuffFromCast(cdKey, tracked[cdKey])
+	end
 
 	-- --- reminder resolution (Phase 57.2-05) -----------------------------------------------
 	--
@@ -1689,9 +1777,11 @@ end
 -- EVERY PATH RETURNS NIL, UNCONDITIONALLY (T-47-04). ns:DispatchEventToProviders is the single
 -- writer of ns.activeTimers for cast-triggered procs and performs NO VALIDATION on what a
 -- provider returns (see its own design note below: `if proc then ns.activeTimers[proc.key] =
--- proc end`). An item tracker has no buff side, no duration to hand-maintain and no
--- ns.activeTimers entry at all -- a truthy return here would create a phantom timer that renders
--- as a buff. Do not construct a proc table here. Do not call the proc-pool acquire helper.
+-- proc end`). The item's own cooldown is a slot (entry.duration and the stamp, written by
+-- ns:RefreshTrackedItemCooldowns), never a returned proc -- a truthy return here would create a
+-- phantom timer. When the item's buff is on (Phase 76, BUFFCD-07), the same use files a buff
+-- proc under the item's own key through ns:StartCooldownBuffFromCast, a side-effect write exactly
+-- like a user cooldown's cast; OnTrigger itself still builds no table and acquires no proc.
 function MetaItemBagProviderMixin:OnTrigger(event, unit, _, spellID)
 	if event ~= "UNIT_SPELLCAST_SUCCEEDED" then
 		return nil
@@ -1713,7 +1803,9 @@ function MetaItemBagProviderMixin:OnTrigger(event, unit, _, spellID)
 
 	-- Past this point the cast IS a landed use of a catalogued item (D-01).
 	local key = META_ITEM_PREFIX .. itemID
-	if ns.db and ns.db.trackedBuffs and ns.db.trackedBuffs[key] then
+	local tracked = ns.db and ns.db.trackedBuffs
+	local entry = tracked and tracked[key]
+	if entry then
 		-- Decrement only when a count is already present -- a nil count means "never readable",
 		-- and turning that into 0 would assert something the addon does not know. Clamped at
 		-- zero below so the count can never go negative (D-03).
@@ -1728,6 +1820,17 @@ function MetaItemBagProviderMixin:OnTrigger(event, unit, _, spellID)
 	-- item's sweep running for ITEM-09.
 	ns:RefreshTrackedItemCooldowns()
 	ns:MarkCooldownsDirty()
+
+	-- Phase 76 (BUFFCD-07): the item's buff starts at the same moment as its cooldown, after the
+	-- refresh so the cooldown stamp is current. The key came from itemUseSpellToID, so it names
+	-- the item the use-spell map currently holds, not necessarily the item that was used: with
+	-- two tracked items sharing one use-spell, the map keeps whichever one
+	-- RegisterAllTrackedItemUseSpells wrote last, and that depends on pairs() order over
+	-- ns.db.trackedBuffs (last writer wins, accepted by 76-CONTEXT). The hidden-section,
+	-- bar-container and buff-off refusals live inside.
+	if entry then
+		ns:StartCooldownBuffFromCast(key, entry)
+	end
 
 	return nil
 end
@@ -1853,12 +1956,16 @@ end
 -- period is over: BuffEngine's own branching cast handler is gone, and ns:OnSpellCastSucceeded
 -- does nothing but call straight into here (BuffEngine.lua, "zero branches"). User-spell,
 -- trinket, pot and lust procs all arrive through a provider's OnTrigger, so there is one writer
--- and no way to get a duplicate entry for a key. Two other writers, both by design and both under
--- a reminder's own key (Phase 57.2-05):
---   * the user-spell OnTrigger writes a reminder's proc itself, as a side effect, because a
---     provider returns one proc and the same cast may also start a buff;
+-- and no way to get a duplicate entry for a key. Three other writers, all by design:
+--   * the user-spell OnTrigger writes a reminder's proc itself, under the reminder's own key, as
+--     a side effect, because a provider returns one proc and the same cast may also start a buff
+--     (Phase 57.2-05);
 --   * ns:RefreshAuraStates (BuffEngine.lua) starts a reminder's timer from a readable aura
---     expiry when none runs -- read-started, not cast-triggered.
+--     expiry when none runs -- read-started, not cast-triggered (Phase 57.2-05);
+--   * ns:StartCooldownBuffFromCast writes a cooldown's buff proc under the tracker's own key as
+--     a side effect of the same cast, because a provider returns only one proc. Two callers: the
+--     user-spell OnTrigger for a cooldown (Phase 74) and MetaItemBagProviderMixin:OnTrigger for
+--     a bag item (Phase 76).
 function ns:DispatchEventToProviders(event, ...)
 	local interested = eventToProviders[event]
 	if not interested then

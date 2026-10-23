@@ -6,3 +6,4 @@
 ## AllowLoadGameType: standard, camelot
 
 Probe.lua
+DurationProbe.lua

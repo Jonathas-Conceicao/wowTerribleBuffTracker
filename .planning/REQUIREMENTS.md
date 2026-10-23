@@ -1,125 +1,107 @@
-# Requirements — v0.5.2 Improved Merge Mode and small fixes
+# Requirements — v0.5.3 Display buff duration alongside cooldowns
 
-**Defined:** 2026-10-10, at kickoff, with the user. Research skipped:
-`.planning/research/MERGE-REANCHOR-POC.md` and backlog 999.26 in `ROADMAP.md` are the settled design.
+**Defined:** 2026-10-22, at kickoff, with the user. Research skipped by user decision: one retail
+probe answered the only open question (`.planning/research/BUFF-DURATION-PROBE.md`). No API gives a
+buff's duration, so the duration is typed by the user.
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces
 automatically.
 
-**Scope, set by the user:** Merge Mode moves Blizzard's own CDM frames into TBT's layout instead of
-redrawing them (999.26), and the redraw path is deleted rather than kept as a fallback. That closes
-the Merge Mode bugs 999.21-999.24 by deletion; each is re-checked in game, and 999.24's requirement
-carries over — nothing may paint one thing over every cell. 999.25 is treated as obsolete and
-re-checked. Racials are removed from TBT entirely, because Forever's recent release supports them
-natively and TBT never built retail racials. Then a cleanup phase and one human testing pass, on
-retail including M+ and on Forever.
+**Scope, set by the user:** one main feature and two small ones. Any cooldown TBT tracks (a spell or
+a bag item) can optionally carry its buff, configured on the dialog's Advanced tab. While the buff
+runs, the icon shows it with the CDM's yellow aura look instead of the cooldown. The installer
+deploys to the new `_forever_` folder. Nothing here touches Merge Mode, and no backlog item is
+promoted. Forever is not tested this milestone (servers down); it is assumed to behave as retail.
 
-## v0.5.2 Requirements
+## v0.5.3 Requirements
 
-### Merge Mode moves Blizzard's frames (backlog 999.26)
+### Buff duration on cooldown trackers
 
-- [x] **STEAL-10**: With Merge Mode on, every merged CDM entry is drawn by Blizzard's own CDM item
-  frame. It is placed on its TBT slot and sized to TBT's icon, or for bars to the row's height and
-  width. TBT draws nothing of its own on a merged slot. Cooldowns, charges, aura timers, glows,
-  pandemic and dispel borders look exactly as they do on the CDM.
-- [x] **STEAL-11**: Merged entries follow TBT's layout: order, direction, Centered and padding. They
-  share a container with the player's own trackers, and nothing overlaps.
-- [x] **STEAL-12**: TBT moves and styles Blizzard's frames using only plain C widget setters on the item
-  frames and their child regions (position, scale, size, alpha, mouse, shown state, countdown and
-  swipe setters), plus one `hooksecurefunc` on each viewer's `Layout`. No `SetParent`, no field
-  writes, no mixin calls. *(Widened 2026-10-10 from position/scale/width only, by the user's
-  decision that every container setting applies to the moved frames.)* No taint error through combat, Edit Mode, combat while
-  Edit Mode is open, a spec change, or M+.
-- [x] **STEAL-13**: Reordering an entry in the CDM settings window, or moving it to another category,
-  updates TBT's preview right away to match the CDM. No entry lands in the wrong container, and no bar
-  is mis-sized or misaligned.
-- [x] **STEAL-14**: Edit Mode preview shows every merged entry, bars included.
-- [x] **STEAL-15**: A TBT container hidden by its visibility setting also hides the merged frames
-  placed in it, and showing it brings them back.
-- [x] **STEAL-16**: Resizing the CDM, or changing its settings, does not change how big merged frames
-  are in TBT. TBT's own container settings control their size.
-- [x] **STEAL-17**: A frame is re-placed only when its slot or size changes, or when Blizzard re-lays
-  out its viewer — never on every display refresh.
-- [x] **STEAL-18**: Turning Merge Mode off returns every moved frame to its Blizzard viewer and
-  restores the viewers' positions, without `/reload`.
-- [x] **STEAL-19**: The old redraw path is removed: the engine aura containers, merged aura timing
-  reads, bar and time relays, merged pandemic/dispel reads, and the merged charge-count path. The
-  `/tbt reanchor` toggle and its saved flag go too.
+- [x] **BUFFCD-01**: The add and edit dialogs for a user cooldown tracker show, on the Advanced tab,
+  a "Track buff duration" checkbox, an Aura ID field and a Duration field. The checkbox is **off by
+  default** on new trackers and on every existing one.
+- [x] **BUFFCD-02**: For a spell cooldown, the Aura ID is pre-filled with the spell ID until the user
+  types their own. The Duration starts empty. With the checkbox on, the dialog does not save until
+  both the Aura ID and a positive Duration are filled in. With it off, whatever the two fields hold
+  is kept but has no effect.
+- [x] **BUFFCD-03**: With the buff on, casting the spell starts a buff timer of the typed duration at
+  the same moment as the cooldown. The cooldown keeps running separately, exactly as it does
+  without the buff.
+- [x] **BUFFCD-04**: The buff timer ends early when its aura is seen to be gone, under the same
+  readable-only rule as TBT's user buff trackers. It never ends early because of a read that comes
+  back secret.
+- [x] **BUFFCD-05**: A bag item tracker that was moved out of Suggested has an Edit entry. Its dialog
+  shows the item's existing fields with their values, greyed out and not editable. Only the buff
+  checkbox, the Aura ID (empty by default) and the Duration can be changed.
+- [x] **BUFFCD-06**: A Suggested item tile still has no Edit entry.
+- [x] **BUFFCD-07**: With an item's buff on, using the item starts its buff timer alongside the item's
+  cooldown, under the same rules as BUFFCD-03 and BUFFCD-04.
+- [x] **BUFFCD-08**: The buff settings survive logout and login. Existing saved trackers load with
+  the buff off and nothing else changed, proven against a real SavedVariables file by
+  `scripts/migrate-dryrun.js` if the schema changes.
 
-### Merge Mode bugs (backlog 999.21-999.25), verified on the new path
+### Icon display
 
-- [x] **STEAL-20**: After a spec change, a merged charge spell shows the right count without `/reload`
-  (999.21, Frost Orb).
-- [x] **STEAL-21**: A debuff another player put on the target — another Frost Mage's Freezing,
-  another mage's Touch of the Magi — never shows as the player's own and never overlaps other slots
-  (999.22, 999.23).
-- [x] **STEAL-22**: While mind-controlled, no merged slot shows an aura it does not own. A review of
-  the whole Merge Mode path finds no way for one aura or frame to be painted over every cell (999.24).
-- [x] **STEAL-23**: A Centered container re-centres as merged buffs come and go (999.25).
+- [x] **BUFFDISP-01**: While a cooldown tracker's buff runs, its icon shows the buff's countdown in
+  the CDM's aura style (`CooldownViewer.lua`, `ITEM_AURA_COLOR`): a yellow swipe
+  (1, 0.95, 0.57, 0.7) that clears back to full colour, no edge, and the icon not grey. The
+  cooldown is not shown while the buff runs.
+- [x] **BUFFDISP-02**: When the buff ends or is cancelled, a cooldown that is still running shows at
+  once with TBT's current cooldown look: the white-to-grey sweep and a grey icon.
+- [x] **BUFFDISP-03**: An icon is grey only while a cooldown shows and no buff does. With neither
+  running, the icon is in full colour with no sweep.
+- [x] **BUFFDISP-04**: A cooldown tracker's charge or item count stays visible while its buff runs.
+- [x] **BUFFDISP-05**: Icons for buff-only trackers (the Buffs and Reminders tabs) and the
+  Trinket/Pot meta-trackers keep their current look. This matches the CDM, whose buff viewer
+  uses the dark cooldown swipe and keeps the yellow aura swipe for cooldown entries only.
 
-### Racials removed
+### Install
 
-- [x] **RACE-11**: TBT offers no racial trackers on any client: no racial Suggested tiles, no racial
-  meta-tracker, no racial catalogue.
-- [x] **RACE-12**: Nothing racial is left in the code: the catalogue, the provider, the racial tracker
-  kinds, the racial Suggested entries, and the display of racial stack counts are all gone.
-- [x] **MIG-03**: Loading saved data that holds racial trackers removes them through a schema
-  migration, with no errors, leaving every other tracker untouched. `scripts/migrate-dryrun.js` proves
-  it against a real SavedVariables file.
+- [x] **INST-11**: `scripts/install.ps1` deploys to `World of Warcraft\_forever_` and no longer to
+  `_classic_beta_`. `CLAUDE.md` names `_forever_` and Forever's product `wowf` (1.60.1.70532,
+  interface 16001, so the TOC does not change).
 
 ### Verification
 
-- [x] **VER-12**: No cooldown icon stays grey through the GCD on either client (999.5), checked in the
-  testing pass.
-
-## Process-only phases
-
-As in earlier milestones, with no requirements of their own: a **Cleanup** phase (CLAUDE.md's
-mandate for duplication this milestone introduces; `PROJECT.md`'s "No refactors during cleanup
-phases" protects everything older), then **one Human Testing** pass — retail including M+, and
-Forever.
-
-## Closed without a requirement
-
-- **999.20** — recorded in error on 2026-09-30. Custom buff icons have always shown their countdown
-  number; the note was most likely carried over from the reminder-countdown fix (`064f76c`) that
-  afternoon. 61-HUMAN-UAT #2 now waits on 999.19 alone.
+- [x] **VER-13**: Every requirement above is checked in game on Midnight retail in one testing pass,
+  the milestone's last phase. Forever is not tested by user decision (servers down).
 
 ## Future Requirements
 
-- **999.11** profiles, **999.15** alerts, **999.16** CDM state for spells also in the CDM, **999.19**
-  stack count on custom trackers — stay in the ROADMAP Backlog.
+None deferred from this scope.
 
 ## Out of Scope
 
-- **Keeping the old redraw path as a fallback** — rejected by the user at kickoff: it would keep
-  999.21-999.24 alive on that path and double the code to maintain.
-- **Retail racials (`RACE-06`)** — dropped with the racial feature; not deferred.
-- **Restyling Blizzard's frames beyond size and position** (borders, fonts, textures) — writing into
-  their regions is a larger taint risk than moving them; the POC showed Blizzard's own look is wanted.
+| Item | Why |
+|------|-----|
+| Looking a buff's duration up automatically | No API returns one; description and tooltip text is English-only, holds several numbers, and often has none (2026-10-22 probe) |
+| Learning the duration from the live aura | Offered at kickoff; the user chose explicit typed config instead |
+| A buff on Trinket/Pot meta-trackers, reminders or buff trackers | They are already buff timers, not cooldowns |
+| Merge Mode | Untouched this milestone, by user decision |
+| Backlog items (999.11, 999.15, 999.16, 999.19, 999.27) | None promoted, by user decision |
+| Forever in-game testing | Servers down; assumed to behave as retail |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RACE-11 | Phase 67 | Complete (verified in game, Phase 72) |
-| RACE-12 | Phase 67 | Complete (verified in game, Phase 72) |
-| MIG-03 | Phase 67 | Complete (verified in game, Phase 72) |
-| STEAL-10 | Phase 68 | Complete (verified in game, Phase 72) |
-| STEAL-11 | Phase 68 | Complete (verified in game, Phase 72) |
-| STEAL-12 | Phase 68 | Complete (verified in game, Phase 72) |
-| STEAL-16 | Phase 68 | Complete (verified in game, Phase 72) |
-| STEAL-17 | Phase 68 | Complete (verified in game, Phase 72) |
-| STEAL-18 | Phase 68 | Complete (verified in game, Phase 72) |
-| STEAL-13 | Phase 69 | Complete (verified in game, Phase 72) |
-| STEAL-14 | Phase 69 | Complete (verified in game, Phase 72) |
-| STEAL-15 | Phase 69 | Complete (verified in game, Phase 72) |
-| STEAL-19 | Phase 70 | Complete (verified in game, Phase 72) |
-| STEAL-20 | Phase 70 | Complete (verified in game, Phase 72) |
-| STEAL-21 | Phase 70 | Complete (verified in game, Phase 72) |
-| STEAL-22 | Phase 70 | Complete (verified in game, Phase 72) |
-| STEAL-23 | Phase 70 | Complete (verified in game, Phase 72) |
-| VER-12 | Phase 72 | Complete (not seen on either client) |
+| BUFFCD-01 | Phase 74 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFCD-02 | Phase 74 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFCD-03 | Phase 74 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFCD-04 | Phase 74 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFCD-05 | Phase 76 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFCD-06 | Phase 76 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFCD-07 | Phase 76 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFCD-08 | Phase 74 | Complete — code-verified; logout/login check in Phase 78 |
+| BUFFDISP-01 | Phase 75 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFDISP-02 | Phase 75 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFDISP-03 | Phase 75 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFDISP-04 | Phase 75 | Complete — code-verified; in-game check in Phase 78 |
+| BUFFDISP-05 | Phase 75 | Complete — code-verified; in-game check in Phase 78 |
+| INST-11 | Phase 73 | Complete — verified on disk; in-game check in Phase 78 |
+| VER-13 | Phase 78 | Complete — passed on retail 2026-10-23 (BUFFDISP-04's charge-count check skipped by the user) |
 
-**Coverage:** 18 / 18 v0.5.2 requirements mapped, none orphaned or duplicated. Phase 71 (Cleanup)
-carries no requirement by design.
+**Coverage:** 15 / 15 v1 requirements mapped, none orphaned, none duplicated.
+
+---
+*Requirements defined: 2026-10-22*

@@ -1025,20 +1025,26 @@ function ns:SpellLabel(spellID)
 	return "Spell " .. tostring(spellID)
 end
 
--- True only for a userBuff, userCd or userReminder tracker -- the user-made kinds the edit dialog
--- can open (Phase 54; userReminder since Phase 57.2, so right-click Edit works on a reminder
--- tile). Every built-in kind gets no Edit entry: its data comes from a built-in table or the
--- item, not from the player (54-CONTEXT "Entry point"). Names
--- USER_REMINDER directly rather than ns.REMINDER_KINDS on purpose: the built-in
+-- True for the trackers the edit dialog can open. A userBuff, userCd or userReminder opens the
+-- full edit (Phase 54; userReminder since Phase 57.2, so right-click Edit works on a reminder
+-- tile). A bag item (a metaItem with a numeric itemID, Phase 76, BUFFCD-05) opens a buff-only
+-- edit whose commit is ns:UpdateTrackedItemBuff: its other data comes from the item, not from the
+-- player. Trinket, Pot, Lust and class-buff reminders still get no Edit entry (54-CONTEXT "Entry
+-- point"). Names USER_REMINDER directly rather than ns.REMINDER_KINDS on purpose: the built-in
 -- ns.KIND.META_REMINDER (Phase 57.4) is a reminder but is not editable -- its data comes from the
 -- class-buff table. Read off the entry's own kind field, never inferred from the key's shape.
--- Nil-safe.
+-- Exactly three callers: the CDMTab.lua right-click menu, CDMTab.lua dialog.OpenForEdit, and
+-- ns:UpdateTrackedBuff, which routes a bag item to the buff-only path before any spell-keyed
+-- logic. Nil-safe.
 function ns:IsEditableTracker(entry)
 	if entry == nil then
 		return false
 	end
 	local kind = entry.trackerType
-	return kind == ns.KIND.USER_BUFF or kind == ns.KIND.USER_CD or kind == ns.KIND.USER_REMINDER
+	return kind == ns.KIND.USER_BUFF
+		or kind == ns.KIND.USER_CD
+		or kind == ns.KIND.USER_REMINDER
+		or ns:IsBagItemEntry(entry)
 end
 
 -- The key of an existing tracker already occupying spellID's slot within kind's namespace, or
@@ -1304,6 +1310,143 @@ function ns:RemoveTrackedBuff(key)
 	return true
 end
 
+-- Phase 76 (BUFFCD-05): the buff-only commit for a bag item (a metaItem with a numeric itemID).
+-- The edit dialog greys every other field (plan 76-02) but still reads them, which is why this
+-- path writes at most three keys -- buffEnabled, buffAuraID and buffDuration -- and only those
+-- of the three that fieldKeys lists as read, so a hidden buff field keeps its saved value (the
+-- dialog's WR-02 "not read means not written" contract; Phase 76 review WR-01). The guard below
+-- checks the values the entry will hold after the write: the read value for a read key, the
+-- saved one otherwise. It never writes entry.duration (the game's item cooldown), never re-keys and
+-- never rebuilds the rank index (an item is never a rank owner). The refresh paths
+-- (ns:SeedItemTracker, ns:RefreshTrackedItemCooldowns) write only entry.duration and the cooldown
+-- stamp, so the buff keys survive them; a move out of Suggested keeps the same entry table
+-- (AddSuggestedTracker -> ns:SetBuffSection), so they survive that too. Returns true, key on
+-- success or false, reason on refusal -- a refusal never writes anything.
+function ns:UpdateTrackedItemBuff(key, fields, fieldKeys)
+	local entry = ns.db and ns.db.trackedBuffs and ns.db.trackedBuffs[key]
+	if not entry then
+		return false, "This tracker no longer exists"
+	end
+	if not ns:IsBagItemEntry(entry) then
+		return false, "This tracker cannot be edited"
+	end
+	if type(fields) ~= "table" then
+		return false, "This tracker cannot be edited"
+	end
+
+	-- Which of the three buff keys were read. Edit-time only, so plain locals, no table.
+	local readEnabled, readAuraID, readDuration = false, false, false
+	if type(fieldKeys) == "table" then
+		for _, k in ipairs(fieldKeys) do
+			if k == "buffEnabled" then
+				readEnabled = true
+			elseif k == "buffAuraID" then
+				readAuraID = true
+			elseif k == "buffDuration" then
+				readDuration = true
+			end
+		end
+	end
+	local buffEnabled = entry.buffEnabled
+	if readEnabled then
+		buffEnabled = fields.buffEnabled
+	end
+	local buffAuraID = entry.buffAuraID
+	if readAuraID then
+		buffAuraID = fields.buffAuraID
+	end
+	local buffDuration = entry.buffDuration
+	if readDuration then
+		buffDuration = fields.buffDuration
+	end
+
+	-- Engine-level guard (the dialog enforces it too): an item's Aura ID never follows a spell
+	-- ID, so a buff saved on without one could never end early. The Aura ID must pass the same rule
+	-- as the dialog's: a positive integer no larger than 2147483647 (Phase 76 review IN-04).
+	if buffEnabled == true then
+		if
+			not (
+				type(buffAuraID) == "number"
+				and buffAuraID > 0
+				and buffAuraID <= 2147483647
+				and buffAuraID == math.floor(buffAuraID)
+			)
+		then
+			return false, "Enter the buff's Aura ID"
+		end
+		if not (type(buffDuration) == "number" and buffDuration > 0) then
+			return false, "Enter the buff duration"
+		end
+	end
+
+	-- nil clears a read key, exactly as ns:UpdateTrackedBuff's fieldKeys loop does.
+	if readEnabled then
+		entry.buffEnabled = buffEnabled
+	end
+	if readAuraID then
+		entry.buffAuraID = buffAuraID
+	end
+	if readDuration then
+		entry.buffDuration = buffDuration
+	end
+
+	local savedDuration = ns:CooldownBuffDuration(entry)
+	local buffText = savedDuration and (savedDuration .. "s") or "off"
+	ns:FinishTrackerEdit(key, entry, tostring(entry.label or key), "item, buff " .. buffText)
+	return true, key
+end
+
+-- Phase 74: an edit applies to a cooldown slot's running buff (a userCd or a bag item). Shared by
+-- ns:UpdateTrackedBuff and ns:UpdateTrackedItemBuff. Turning the buff off ends a running buff, so
+-- "off has no effect" holds at once. A changed buff Duration ends it too (the next cast starts it
+-- at the new length): rescaling in place would leave Display.lua's icon sweep, cached on
+-- startedAt alone, drawing the old length (Phase 74 review IN-04). An unchanged Duration only
+-- repoints the watch list to the edited Aura ID, the same choice the cast makes. Must run after
+-- any ns:RebuildRankIndex of the same edit. Edit-time only; the pooled list is reused, never
+-- allocated.
+function ns:ApplyCooldownBuffEdit(key, entry)
+	if not ns:IsCooldownSlotEntry(entry) then
+		return
+	end
+	local running = ns.activeTimers[key]
+	if running == nil then
+		return
+	end
+	local buffDuration = ns:CooldownBuffDuration(entry)
+	-- typedDuration, not duration: a timer synced to its aura (ns:RefreshAuraStates) runs the
+	-- aura's length, and an edit that leaves the typed Duration alone must not end it.
+	if not buffDuration or running.typedDuration ~= buffDuration then
+		ns.activeTimers[key] = nil
+	else
+		running.aliveBuffs = ns:CooldownBuffAliveBuffs(key, entry)
+	end
+end
+
+-- The one end-of-save sequence shared by ns:UpdateTrackedBuff and ns:UpdateTrackedItemBuff
+-- (Phase 76 review IN-03, unified in the Phase 77 cleanup). It must run after any
+-- ns:RebuildRankIndex of the same edit, because ns:ApplyCooldownBuffEdit reads the rebuilt family
+-- lists. label and detail are plain strings the caller resolved before its first write, so
+-- nothing here can throw after a commit. The cooldowns are marked dirty on every edit: a duration
+-- change alters a running cooldown's render even when the key did not move. Edit-time only.
+function ns:FinishTrackerEdit(key, entry, label, detail)
+	print("|cff00ccffTerribleBuffTracker|r: Updated |cff00ff00" .. label .. "|r (" .. detail .. ").")
+	ns:ApplyCooldownBuffEdit(key, entry)
+	-- Phase 78: a cooldown's buff already up is picked up at once, on the aura's own timing, after
+	-- ns:ApplyCooldownBuffEdit above may have ended the running one. Nil-guarded like the rest.
+	if ns.displayInitialized and ns.RefreshAuraStates then
+		ns:RefreshAuraStates()
+	end
+	if ns.MarkTrackersDirty then
+		ns:MarkTrackersDirty()
+	end
+	if ns.MarkCooldownsDirty then
+		ns:MarkCooldownsDirty()
+	end
+	if ns.UpdateDisplay then
+		ns:UpdateDisplay()
+	end
+end
+
 -- The one place the edit side-effect list lives (54-CONTEXT discretion: a dedicated function
 -- over composing Add/Remove with their prints suppressed). Edits a userBuff/userCd tracker in
 -- place when spellID is unchanged; moves the SAME entry table to <kind>:<newID> when it changes,
@@ -1313,7 +1456,8 @@ end
 -- keeps the duration it was cast with, while a running cooldown picks the new length up at once
 -- through ns:CooldownDuration (IN-02, accepted). Rescaling the live proc here was not done,
 -- because Display.lua's icon sweep is cached on startedAt alone and would keep drawing the old
--- length, and closing that needs one more comparison on the per-frame render path.
+-- length, and closing that needs one more comparison on the per-frame render path. A cooldown's
+-- running buff is the exception (Phase 74 review IN-04, below): a changed buff Duration ends it.
 -- NOTE: the dialog calls ns:RefreshTBTSections and ns:StartAllPreviewTimers itself after a
 -- successful commit, exactly as it does after Add (CDMTab.lua is the UI layer) -- neither is
 -- called from inside this function.
@@ -1324,6 +1468,12 @@ function ns:UpdateTrackedBuff(oldKey, spellID, duration, fields, fieldKeys)
 	end
 	if not ns:IsEditableTracker(entry) then
 		return false, "This tracker cannot be edited"
+	end
+	-- Phase 76: a bag item has no spell ID, its entry.duration is the game's item cooldown (0 when
+	-- ready) and its key is metaItem:<itemID>, so the spell-keyed path below would refuse it or
+	-- re-key it. It takes the buff-only commit instead; the CDMTab confirm handler needs no branch.
+	if ns:IsBagItemEntry(entry) then
+		return ns:UpdateTrackedItemBuff(oldKey, fields, fieldKeys)
 	end
 	if type(spellID) ~= "number" or spellID <= 0 then
 		return false, "Invalid spell ID"
@@ -1398,17 +1548,7 @@ function ns:UpdateTrackedBuff(oldKey, spellID, duration, fields, fieldKeys)
 
 	-- One chat line instead of a stop + start pair (54-CONTEXT). Every piece was resolved before
 	-- the first write, so this cannot throw after the edit is committed.
-	print(
-		"|cff00ccffTerribleBuffTracker|r: Updated |cff00ff00"
-			.. shownLabel
-			.. "|r ("
-			.. ns:TrackerKindWord(kind)
-			.. ", ID: "
-			.. idText
-			.. ", "
-			.. duration
-			.. "s)."
-	)
+	local detail = ns:TrackerKindWord(kind) .. ", ID: " .. idText .. ", " .. duration .. "s"
 
 	-- Rebuilds, nil-guarded exactly as ns:AddTrackedBuff/ns:RemoveTrackedBuff already guard them
 	-- (this file can in principle run before Core.lua's definitions are reachable).
@@ -1417,16 +1557,9 @@ function ns:UpdateTrackedBuff(oldKey, spellID, duration, fields, fieldKeys)
 		-- old spell finds nothing.
 		ns:RebuildRankIndex()
 	end
-	if ns.MarkTrackersDirty then
-		ns:MarkTrackersDirty()
-	end
-	-- A duration change alters a running cooldown's render even when the key did not move.
-	if ns.MarkCooldownsDirty then
-		ns:MarkCooldownsDirty()
-	end
-	if ns.UpdateDisplay then
-		ns:UpdateDisplay()
-	end
+	-- Phase 74 (and review IN-04): the edit applies to a running cooldown buff, after the rebuild
+	-- above so any rank family list it points at is this edit's. See ns:FinishTrackerEdit.
+	ns:FinishTrackerEdit(newKey, entry, shownLabel, detail)
 	return true, newKey
 end
 
@@ -1475,6 +1608,10 @@ end
 -- proc), and ns:MarkCooldownsDirty() is called once when a cooldown was reset. A cast that both
 -- ends one tracker and starts another redraws twice; that case is rare, and correctness beats
 -- one redundant redraw.
+--
+-- Phase 74: "cooldown A resets when B is cast" also ends A's buff timer, filed in
+-- ns.activeTimers under A's own key when A's buff is on -- the ability's state is gone, so its
+-- buff goes with it. That removal redraws through the same endedBuff path as a buff end.
 function ns:ApplyEndOnCast(endKeys, startingCdKey, startingBuffKey)
 	local tracked = ns.db and ns.db.trackedBuffs
 	if not tracked then
@@ -1496,6 +1633,11 @@ function ns:ApplyEndOnCast(endKeys, startingCdKey, startingBuffKey)
 					if ns.cooldownStarts[k] ~= nil then
 						ns.cooldownStarts[k] = nil
 						endedCooldown = true
+					end
+					-- Phase 74: the reset also ends this cooldown's buff timer (same key).
+					if ns.activeTimers[k] then
+						ns.activeTimers[k] = nil
+						endedBuff = true
 					end
 				end
 			end
@@ -1522,7 +1664,8 @@ function ns:StartAllPreviewTimers()
 		-- A cooldown entry previews from entry.duration like any other entry -- a synthetic
 		-- demo built from a number the user typed, with no game value read and no secret
 		-- involved. The existing icon render path below already turns it into a demo sweep
-		-- with no type branch needed.
+		-- with no type branch needed. Phase 74 exception: a cooldown with its buff on previews
+		-- from entry.buffDuration instead (ns:CooldownBuffDuration, below).
 		--
 		-- Phase 57.3 (LOAD-03): a tracker that is not loaded (Load set to Never, or a When
 		-- known spell this character does not know) never
@@ -1536,26 +1679,36 @@ function ns:StartAllPreviewTimers()
 		if entry.section ~= "hidden" and ns:IsTrackerLoaded(key) then
 			-- Skip if a live real proc already owns this key (D-05 priority at insertion time).
 			--
-			-- ns.activeTimers is not the whole answer any more. A custom cooldown never enters it
-			-- -- it is a slot, not a timer -- so its live state lives in ns.cooldownStarts, and
-			-- without the second test a preview would paint a demo sweep straight over a cooldown
-			-- that was genuinely running. Preview is ADDITIVE: it shows what a tracker would look
-			-- like where nothing is happening, and never replaces something that is.
+			-- ns.activeTimers is not the whole answer. A running cooldown lives in
+			-- ns.cooldownStarts, and a running cooldown buff (Phase 74) is a real proc in
+			-- ns.activeTimers under the same key, so the two tests together keep any live state
+			-- from being painted over by a preview. Preview is ADDITIVE: it shows what a tracker
+			-- would look like where nothing is happening, and never replaces something that is.
 			local real = ns.activeTimers[key]
 			local live = (real and real.expiresAt > now) or ns:IsCooldownRunning(key, entry, now)
 			if not live then
 				local info = ns:GetDisplayInfoForKey(key)
+				local duration = info and info.duration
+				-- Phase 74 (user decision 2026-10-22): a cooldown with its buff on previews in
+				-- the buff, with its typed buff duration (Phase 75 gives it the buff look).
+				-- ns:GetDisplayInfo is left alone: tooltips and Suggested tiles share it.
+				local buffDuration = ns:IsCooldownSlotEntry(entry) and ns:CooldownBuffDuration(entry)
+				if buffDuration then
+					duration = buffDuration
+				end
 				-- A reminder saved with no duration (Blood Pact) or an item tile reports no
 				-- positive duration, and `now + nil` would raise. A tracker with no
 				-- meaningful duration has no demo sweep to show, so it previews as the
 				-- ordinary placeholder the render path already draws for an entry with no
 				-- proc.
-				if info and type(info.duration) == "number" and info.duration > 0 then
+				-- Phase 76: a bag item's preview carries its itemID, so the icon tooltip is the item's.
+				if info and type(duration) == "number" and duration > 0 then
 					ns.previewTimers[key] = {
 						key = key,
 						spellID = info.spellID, -- numeric (D-10); Display tooltip handler uses uniformly
-						duration = info.duration,
-						expiresAt = now + info.duration,
+						itemID = ns:IsBagItemEntry(entry) and entry.itemID or nil,
+						duration = duration,
+						expiresAt = now + duration,
 						startedAt = now,
 						label = info.label,
 						section = entry.section,
@@ -1748,6 +1901,49 @@ local function ReadWatchedAura(id)
 	return refreshAuraMemo[id] or nil, readable
 end
 
+-- One watched list's state, shared by the reminder and cooldown-buff halves of
+-- ns:RefreshAuraStates. present: true when any watched aura is up, false when every ID read
+-- absent, nil when an absent read could be hiding behind an unreadable one. seenAura: the present
+-- aura with the latest readable expiry (RALT-01). 57.5 review WR-01: a present aura with no
+-- readable expiry (permanent, or a secret expiry) outlasts every readable one, so then no aura is
+-- followed at all (seenAura nil) while present stays true.
+local function ReadWatchedList(list, now)
+	local present, seenAura, bestExpiry
+	local allReadable = true
+	local openEnded = false
+	for j = 1, #list do
+		local aura, readable = ReadWatchedAura(list[j])
+		if not readable then
+			allReadable = false
+		elseif aura then
+			present = true
+			local _, expirationTime = ns:ReadableAuraExpiry(aura, now)
+			if expirationTime == nil then
+				openEnded = true
+			elseif bestExpiry == nil or expirationTime > bestExpiry then
+				seenAura = aura
+				bestExpiry = expirationTime
+			end
+		end
+	end
+	if openEnded then
+		seenAura = nil
+	end
+	if present == nil and allReadable then
+		present = false
+	end
+	return present, seenAura
+end
+
+-- Puts a running proc on an aura's real timing (ns:ReadableAuraExpiry's pair). syncedAt keeps a
+-- cast within ns.CAST_AURA_GRACE from undoing it (57.2-05 review WR-03).
+local function SyncProcToAura(proc, duration, expirationTime, now)
+	proc.expiresAt = expirationTime
+	proc.duration = duration
+	proc.startedAt = expirationTime - duration
+	proc.syncedAt = now
+end
+
 -- Phase 57.2 (REM-03), revised by 57.2-05 (user decision 2026-09-29: a reminder is a buff tracker
 -- in its own category, so it can fire mid-combat when its buff runs out). The reminder state
 -- refresh. Called from Core.lua at world entry, at combat end, when addon restrictions lift, after
@@ -1782,7 +1978,7 @@ end
 -- a reminder with no timer still takes the read.
 function ns:RefreshAuraStates(suppressCancel)
 	local keys = ns.reminderKeys
-	if #keys == 0 then
+	if #keys == 0 and #ns.cooldownBuffKeys == 0 then
 		return
 	end
 	if C_Secrets.ShouldAurasBeSecret() then
@@ -1807,37 +2003,9 @@ function ns:RefreshAuraStates(suppressCancel)
 			-- a cover-all-ranks reminder without an aura ID watches its whole family.
 			local list = ns.reminderWatch[key]
 			if list ~= nil then
-				local allReadable = true
-				-- RALT-01: every watched ID is read (through the per-call memo), not just up to the
-				-- first present one: the present aura with the latest readable expiry is the one the
-				-- timer follows.
-				-- 57.5 review WR-01: a present aura with no readable expiry (permanent, or a secret
-				-- expiry) outlasts every readable one, so no aura is followed at all: the state is
-				-- still true, but no timer is started or synced from a shorter aura whose end would
-				-- show the reminder while the open-ended one still satisfies it.
-				local bestExpiry
-				local openEnded = false
-				for j = 1, #list do
-					local aura, readable = ReadWatchedAura(list[j])
-					if not readable then
-						allReadable = false
-					elseif aura then
-						present = true
-						local _, expirationTime = ns:ReadableAuraExpiry(aura, now)
-						if expirationTime == nil then
-							openEnded = true
-						elseif bestExpiry == nil or expirationTime > bestExpiry then
-							seenAura = aura
-							bestExpiry = expirationTime
-						end
-					end
-				end
-				if openEnded then
-					seenAura = nil
-				end
-				if present == nil and allReadable then
-					present = false
-				end
+				-- RALT-01: every watched ID is read (through the per-call memo); the present aura
+				-- with the latest readable expiry is the one the timer follows.
+				present, seenAura = ReadWatchedList(list, now)
 			else
 				local aura, readable = ReadWatchedAura(ns.reminderAuraID[key])
 				if readable and aura then
@@ -1891,11 +2059,8 @@ function ns:RefreshAuraStates(suppressCancel)
 						local drift = expirationTime - proc.expiresAt
 						local shortens = drift < -0.5 and ns:CancelsOnAuraLoss(entry)
 						if drift > 0.5 or shortens then
-							proc.expiresAt = expirationTime
-							proc.duration = duration
-							proc.startedAt = expirationTime - duration
 							-- WR-03: a cast within ns.CAST_AURA_GRACE keeps this synced expiry.
-							proc.syncedAt = now
+							SyncProcToAura(proc, duration, expirationTime, now)
 							changed = true
 						end
 					elseif entry.section ~= "hidden" then
@@ -1903,10 +2068,7 @@ function ns:RefreshAuraStates(suppressCancel)
 						proc = ns:FillUserBuffProc(key, entry, now)
 						-- A read-started timer is not a cast: no cast grace (WR-01).
 						proc.castAt = nil
-						proc.expiresAt = expirationTime
-						proc.duration = duration
-						proc.startedAt = expirationTime - duration
-						proc.syncedAt = now
+						SyncProcToAura(proc, duration, expirationTime, now)
 						ns.activeTimers[key] = proc
 						changed = true
 					end
@@ -1914,6 +2076,45 @@ function ns:RefreshAuraStates(suppressCancel)
 			end
 		end
 	end
+
+	-- Phase 78 (user request, 2026-10-22): a cooldown slot's buff (ns:CooldownBuffDuration) follows
+	-- its aura exactly like a reminder's timer above, so a buff already up at login/reload, after an
+	-- add or edit, or stacked by a second use (two flasks) shows its real remaining time. Only the
+	-- start/sync half applies: ending on a readable loss stays with ns:ScanActiveTimersForCancellation,
+	-- the cooldown buff's one end rule, and it has no state or opt-out. The watch list is the
+	-- running buff's own (ns:CooldownBuffAliveBuffs). The typed Duration is never rewritten (user
+	-- decision): only the running timer follows the aura.
+	local cdKeys = ns.cooldownBuffKeys
+	for i = 1, #cdKeys do
+		local key = cdKeys[i]
+		local entry = tracked[key]
+		if entry and ns:CooldownBuffDuration(entry) then
+			-- seenAura is set only while a watched aura is present, so presence needs no own test.
+			local _, seenAura = ReadWatchedList(ns:CooldownBuffAliveBuffs(key, entry), now)
+			local duration, expirationTime = ns:ReadableAuraExpiry(seenAura, now)
+			if duration then
+				local proc = ns.activeTimers[key]
+				if proc ~= nil then
+					proc.castAt = nil
+					if math.abs(expirationTime - proc.expiresAt) <= 0.5 then
+						proc = nil
+					end
+				else
+					-- Same section and container rules as a cast; read-started, so no cast grace.
+					proc = ns:FillCooldownBuffProc(key, entry, now)
+					if proc ~= nil then
+						proc.castAt = nil
+						ns.activeTimers[key] = proc
+					end
+				end
+				if proc ~= nil then
+					SyncProcToAura(proc, duration, expirationTime, now)
+					changed = true
+				end
+			end
+		end
+	end
+
 	if changed and ns.UpdateDisplay then
 		ns:UpdateDisplay()
 	end

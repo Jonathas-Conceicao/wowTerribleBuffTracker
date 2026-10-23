@@ -430,8 +430,11 @@ local function CreateIconFrame(parent)
 						ns:RefreshTBTSections()
 					end)
 				end
-				-- userBuff, userCd and userReminder only (EDIT-01, Phase 57.2): Lust, trinket, pot,
-				-- class-buff reminders and bag items get no Edit entry.
+				-- userBuff, userCd, userReminder (EDIT-01, Phase 57.2) and, since Phase 76, a bag
+				-- item moved out of Suggested (BUFFCD-05, a buff-only edit) get Edit; Lust, trinket,
+				-- pot and class-buff reminders do not. A Suggested tile never reaches this menu: the
+				-- sectionName == "suggested" branch above builds its own menu and returns first
+				-- (BUFFCD-06).
 				-- Reached through the ns field, not a file-local -- CreateIconFrame is declared
 				-- above CreateAddDialog, so a file-local ns.tbtAddDialog would still be nil here.
 				if ns:IsEditableTracker(entry) then
@@ -1521,6 +1524,12 @@ end
 --                  ID's own aura (the Aura ID field)
 -- opts.emptyIsNone true: a box the user emptied reads false and previews "No click action"
 --                  instead of the Spell ID's spell (the Cast spell ID field)
+-- opts.enabled     the field's enabled(state, ctx, dialog) greyed hook (Phase 74)
+-- opts.requiredMessage  when set, validate fails with this message for a box the user emptied;
+--                  a box still following the Spell ID holds it and counts as filled (the buff
+--                  Aura ID field, Phase 74)
+-- opts.follows     the optional (state, ctx) hook that turns following off for a kind (Phase 76;
+--                  the buff Aura ID passes NotItemField)
 local function BuildFollowSpellIDField(opts)
 	local key = opts.id
 	return {
@@ -1528,6 +1537,7 @@ local function BuildFollowSpellIDField(opts)
 		entryKey = key,
 		tab = "advanced",
 		visible = opts.visible,
+		enabled = opts.enabled,
 		build = function(row, y, onChange, dialog)
 			-- An EARLIER sibling, captured at build like every other cross-field read here.
 			local spell = dialog.GetFieldState("spellID")
@@ -1577,6 +1587,7 @@ local function BuildFollowSpellIDField(opts)
 			-- bound to the nil global state, and every hover would raise.
 			local state = {
 				editBox = box,
+				label = label,
 				spell = spell,
 				hover = hover,
 				icon = icon,
@@ -1624,11 +1635,12 @@ local function BuildFollowSpellIDField(opts)
 
 			return state, y - 72
 		end,
-		reset = function(state)
+		reset = function(state, ctx)
 			-- Blank here, not the spell ID: the first update (which always runs before the
 			-- dialog is shown) fills it in via the follow below, so a freshly opened Add dialog
-			-- still ends up showing the spell's own ID.
-			state.followsSpell = true
+			-- still ends up showing the spell's own ID. Phase 76: opts.follows, when given,
+			-- can turn following off for a kind (a bag item's buff Aura ID never follows).
+			state.followsSpell = (not opts.follows) or opts.follows(state, ctx)
 			state.editBox:SetText("")
 			state.shownID = nil
 			state.resolved = nil
@@ -1640,11 +1652,12 @@ local function BuildFollowSpellIDField(opts)
 				state.badge:Hide()
 			end
 		end,
-		prefill = function(state, entry)
+		prefill = function(state, entry, ctx)
 			-- No saved ID means the field follows the spell (the prefilled default); a saved
 			-- ID, even one equal to the spell ID, means the user is done following. A saved
 			-- false (no click action) is not nil, so it prefills an empty, non-following box.
-			state.followsSpell = entry[key] == nil
+			-- Phase 76: a kind opts.follows rules out never follows, saved ID or not.
+			state.followsSpell = ((not opts.follows) or opts.follows(state, ctx)) and entry[key] == nil
 			state.editBox:SetText(entry[key] and tostring(entry[key]) or "")
 			state.shownID = nil
 			state.resolved = nil
@@ -1717,9 +1730,58 @@ local function BuildFollowSpellIDField(opts)
 			if not state.followsSpell and state.editBox:GetNumber() > 2147483647 then
 				return false, opts.tooLarge
 			end
+			-- A box still following the Spell ID holds it, so it counts as filled; only a box the
+			-- user emptied fails, and only for a field that asked for it.
+			if opts.requiredMessage and not state.followsSpell and state.editBox:GetNumber() <= 0 then
+				return false, opts.requiredMessage
+			end
 			return true
 		end,
 	}
+end
+
+-- The greyed look of a field whose enabled() hook answered false (Phase 74), and its restore.
+-- Generic over whatever widgets a field state holds -- label, editBox, check, dropdown, and the
+-- follow-field preview's hover and name, and the secrecy badge -- each touched only if present,
+-- so Phase 76 can grey every non-buff field of a bag item (the `load` dropdown included) with no
+-- per-field code. The 0.5 grey and the white restore are the house convention, copied from the
+-- New Container dialog's barsCheck / barsLabel. Called by RefreshState only when the flag flips;
+-- allocates nothing.
+local function ApplyFieldEnabled(state, enabled)
+	local r = enabled and 1 or 0.5
+	local alpha = enabled and 1 or 0.5
+	if state.label then
+		state.label:SetTextColor(r, r, r)
+	end
+	if state.editBox then
+		-- A box greyed while it holds the cursor would keep taking keystrokes.
+		if not enabled then
+			state.editBox:ClearFocus()
+		end
+		state.editBox:SetEnabled(enabled)
+		state.editBox:SetTextColor(r, r, r)
+	end
+	if state.check then
+		state.check:SetEnabled(enabled)
+	end
+	if state.dropdown then
+		state.dropdown:SetEnabled(enabled)
+	end
+	-- Review IN-03: a greyed field raises no tooltip, so the preview's hover and the secret-aura
+	-- badge stop taking the mouse as well as dimming. The badge is parented to the row, not to
+	-- hover, so it needs its own alpha. Its update keeps toggling SetShown; alpha and mouse state
+	-- survive a hide and show, so the greyed look holds until this restores it.
+	if state.hover then
+		state.hover:SetAlpha(alpha)
+		state.hover:EnableMouse(enabled)
+	end
+	if state.name then
+		state.name:SetAlpha(alpha)
+	end
+	if state.badge then
+		state.badge:SetAlpha(alpha)
+		state.badge:EnableMouse(enabled)
+	end
 end
 
 -- THE FIELD DEFINITION CONTRACT (EDIT-03; 54-CONTEXT "One dialog, two modes"). TRACKER_FIELDS is
@@ -1743,6 +1805,15 @@ end
 --                  saved while such a field is hidden keeps that field's saved value untouched --
 --                  only a field that was relevant and read can change or clear its entry key. Add
 --                  has no saved value to keep, so an irrelevant field simply stores nothing there.
+--   enabled(state, ctx, dialog)  optional. The RUNTIME greyed hook (Phase 74), evaluated in
+--                  RefreshState after update on every change; absent means the walker never
+--                  touches the field's widgets (field.enabled stays nil). False greys the field
+--                  through ApplyFieldEnabled, but the field stays RELEVANT: it is still shown and
+--                  takes its space, still READ and saved (its values are kept), NOT validated (so
+--                  it never blocks save), and skipped by the Tab/Enter ring and FocusFirstShown.
+--                  Never grey through visible(): a field hidden by visible() is not read (WR-02).
+--                  The hook receives the dialog, so it may read ANY sibling through
+--                  dialog.GetFieldState at refresh time. Flips are compare-before-write.
 -- Tab-hidden fields are still validated and read; defaults are stored as nil.
 --   build(row, y, onChange, dialog) -> state, nextY  creates this field's widgets on row, wires
 --                  every value change to onChange, and returns a per-field state table plus the
@@ -1760,7 +1831,8 @@ end
 --                  `tab = "advanced"` field is shown prefixed "Advanced: ".
 --
 -- ctx is one reusable table on the dialog: { mode = "add" | "edit", kind = ns.KIND.USER_BUFF |
--- ns.KIND.USER_CD | ns.KIND.USER_REMINDER, editingKey = key | nil }. The saved entry is not kept
+-- ns.KIND.USER_CD | ns.KIND.USER_REMINDER | ns.KIND.META_ITEM (a bag item, buff-only edit,
+-- Phase 76), editingKey = key | nil }. The saved entry is not kept
 -- on ctx: prefill receives it as an argument, and nothing else needs it.
 --
 -- Layout (the walker owns vertical placement): Layout() starts its cursor at -38, under the title
@@ -1803,7 +1875,11 @@ end
 -- - a reminder (a buff tracker in its own category, user decision 2026-09-29) sees auraID,
 --   keepOnAuraLoss and `alternatives`, "Also satisfied by (comma separated):", in place of the
 --   cast rule (RALT-01, Phase 57.5: the one deliberate divergence from "reminders are buffs");
--- - a cooldown sees only the cast rule, labelled "Resets when you cast (comma separated):".
+-- - a cooldown sees the cast rule, labelled "Resets when you cast (comma separated):", plus
+--   `buffEnabled` ("Track buff duration"), `buffAuraID` and `buffDuration` (Phase 74,
+--   BUFFCD-01/02), the latter two greyed by their enabled() hook while the checkbox is off. Their
+--   runtime readers are Core.lua's `ns:CooldownBuffDuration` and `ns:CooldownBuffAliveBuffs`
+--   (with `ns:CooldownBuffTypedAuraID`).
 -- The cast rule and the alternatives list are the same spell-ID list row (BuildSpellListField and
 -- its siblings, above), stored as nil when empty. The runtime readers are BuffEngine.lua's
 -- `ns:DetailedAuraID`, `ns:CancelsOnAuraLoss` and `ns:ApplyEndOnCast`, Core.lua's
@@ -1813,11 +1889,15 @@ end
 -- A reminder also sees `castID` ("Cast spell ID:", Phase 63, CLICK-06), prefilled following the
 -- Spell ID and stored nil when equal, false when emptied (no click action); its runtime reader is
 -- Providers.lua's `ns:ReminderCastID`.
--- Built-ins never open this dialog, so their cast spell stays table-driven.
+-- - a bag item (Phase 76, BUFFCD-05) sees only the three buff fields editable; its General fields
+--   and Load are greyed by NotItemField, and auraID/endOnCast are hidden (it never had either).
+-- Built-ins other than a bag item never open this dialog, so their cast spell stays
+-- table-driven; a bag item is the one built-in kind that opens it, buff-only.
 -- `load` (Phase 57.3, LOAD-01) comes LAST on Advanced, after the spell-ID list, for every kind -- it
 -- has no visible() hook, so a cooldown, a buff and a reminder all show it. When known is stored
 -- as nil; Always / Never as their ns.LOAD strings. The runtime reader is Core.lua's
--- `ns:TrackerLoad`. A built-in tracker's load is fixed and it never opens this dialog.
+-- `ns:TrackerLoad`, which the prefill also uses. A built-in tracker's load is fixed; a bag item is
+-- the one built-in kind that opens this dialog (buff-only), and shows its fixed load, Always, greyed.
 --
 -- Multi-choice settings (REM-04, user direction): the chosen control for any future multi-choice
 -- field is a DropdownButton from WowStyle1DropdownTemplate set up with SetupMenu and CreateRadio,
@@ -1834,6 +1914,83 @@ end
 -- CDM_ICON_MASK_ATLAS / CDM_ICON_OVERLAY_ATLAS / MAX_CAST_RULE_IDS constants) must be declared
 -- ABOVE CreateAddDialog. A helper declared lower in the file (e.g. AddExclusiveCheck) is nil to
 -- these functions -- do not call it from a field def.
+
+-- The Duration box shared by the duration field (General, x 16, with its ADD-05 suggestion state)
+-- and the buff Duration field (Advanced, x 32, Phase 74), unified in the Phase 77 cleanup.
+local function BuildDurationRow(row, y, onChange, x)
+	local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	label:SetText("Duration (30, 45s, 2m):")
+	label:SetPoint("TOPLEFT", row, "TOPLEFT", x, y)
+
+	y = y - 18
+	local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+	box:SetSize(180, 22)
+	box:SetPoint("TOPLEFT", row, "TOPLEFT", x, y)
+	box:SetMaxLetters(6)
+	box:SetAutoFocus(false)
+	box:SetScript("OnTextChanged", onChange)
+	return label, box, y - 32
+end
+
+local function ResetDurationBox(state)
+	state.editBox:SetMaxLetters(6)
+	state.editBox:SetText("")
+	state.originalText = nil
+	state.originalValue = nil
+end
+
+local function PrefillDurationBox(state, saved)
+	state.originalValue = saved
+	state.originalText = FormatDuration(saved)
+	-- A saved value longer than 6 characters is shown whole, never truncated; the next reset
+	-- restores 6.
+	state.editBox:SetMaxLetters(math.max(6, #state.originalText))
+	state.editBox:SetText(state.originalText)
+end
+
+local function ReadDurationBox(state)
+	local text = state.editBox:GetText()
+	if state.originalText ~= nil and text == state.originalText then
+		return state.originalValue
+	end
+	return ParseDuration(text)
+end
+
+local function ValidateDurationBox(state, emptyMessage)
+	local text = state.editBox:GetText()
+	if text == "" then
+		return false, emptyMessage
+	end
+	if not ParseDuration(text) then
+		return false, DURATION_HINT
+	end
+	return true
+end
+
+-- The one predicate for which kinds show the buff fields (Phase 74, BUFFCD-01): a user cooldown,
+-- and since Phase 76 (BUFFCD-05) a bag item. ctx holds only the kind, which is enough: OpenForEdit
+-- admits a metaItem only when ns:IsEditableTracker holds, i.e. for a bag item, never Trinket or
+-- Pot. buffEnabled, buffAuraID and buffDuration keep their Phase 74 enabled/validate rules, so
+-- with the box ticked both an Aura ID and a positive Duration are required for an item too.
+-- Declared above TRACKER_FIELDS, whose defs capture it as an upvalue.
+local function CarriesCooldownBuff(_, ctx)
+	return ctx.kind == ns.KIND.USER_CD or ctx.kind == ns.KIND.META_ITEM
+end
+
+-- The enabled() hook of the buff Aura ID and Duration boxes: greyed while "Track buff duration"
+-- is off (74-CONTEXT), editable once it is ticked.
+local function BuffFieldEnabled(_, ctx, dialog)
+	return dialog.GetFieldState("buffEnabled").check:GetChecked() and true or false
+end
+
+-- The enabled() hook that greys an existing field of a bag item (Phase 76, BUFFCD-05): shown with
+-- its value, not editable, not validated (so Spell ID's "> 0" and Duration's non-empty checks
+-- never block an item's Save), still read but ignored by ns:UpdateTrackedItemBuff, which writes
+-- only the three buff keys. Always true for every user kind, so their dialogs are unchanged.
+local function NotItemField(_, ctx)
+	return ctx.kind ~= ns.KIND.META_ITEM
+end
+
 local TRACKER_FIELDS = {
 	{
 		id = "spellPreview",
@@ -1890,6 +2047,9 @@ local TRACKER_FIELDS = {
 				name = name,
 				tooltipProc = tooltipProc,
 				tooltipOpts = tooltipOpts,
+				-- Phase 76: the bag item's tooltip proc, built once here like tooltipProc; the
+				-- item arm of update keeps its itemID in step.
+				itemTooltipProc = { itemID = nil },
 				-- Bumped every time RefreshIDPreview resolves a spell (including a late
 				-- resolution of an ID that was still unknown). Never reset: secrecyBadge and
 				-- duration compare it with the value they last saw, so a late resolution
@@ -1898,7 +2058,10 @@ local TRACKER_FIELDS = {
 			}
 
 			hover:SetScript("OnEnter", function()
-				if state.spellID then
+				-- No opts on the item call: ShowBuffTooltip's item arm runs only when opts is nil.
+				if state.itemID then
+					ns:ShowBuffTooltip(hover, state.itemTooltipProc)
+				elseif state.spellID then
 					ns:ShowBuffTooltip(hover, state.tooltipProc, state.tooltipOpts)
 				end
 			end)
@@ -1910,17 +2073,63 @@ local TRACKER_FIELDS = {
 			-- line below it.
 			return state, y - 90
 		end,
-		reset = function(state)
+		reset = function(state, ctx)
 			-- No widget work: the closing RefreshState(true) of every open renders it.
 			state.shownID = nil
 			state.resolved = nil
 			state.spellID = nil
+			state.itemID = nil
+			state.itemIcon = nil
+			state.itemName = nil
+			state.shownItemID = nil
 		end,
-		prefill = function(state)
+		prefill = function(state, entry, ctx)
 			state.shownID = nil
 			state.resolved = nil
+			if ctx and ctx.kind == ns.KIND.META_ITEM then
+				state.itemID = entry.itemID
+				state.itemIcon = entry.iconOverride
+				state.itemName = entry.label
+				-- An entry saved without an icon falls back to the item's static icon, and one saved
+				-- with no label or the "Item <id>" placeholder (the client had no name cached when
+				-- it was tracked) looks the name up again (Phase 76 review IN-05). Edit-time only,
+				-- once per dialog open, no render-path read.
+				if type(entry.itemID) == "number" then
+					local placeholder = entry.label == nil or entry.label == "Item " .. tostring(entry.itemID)
+					if state.itemIcon == nil or placeholder then
+						local info = ns:ItemDisplayInfo(entry.itemID)
+						if state.itemIcon == nil then
+							state.itemIcon = info and info.icon
+						end
+						if placeholder and info and info.label then
+							state.itemName = info.label
+						end
+					end
+				end
+			end
 		end,
 		update = function(state, ctx, dialog)
+			-- Phase 76: a bag item has no spell ID; its identity is the item, drawn from the
+			-- entry's saved iconOverride and label (stored by AddSuggestedTracker for this reason),
+			-- with no API read. Compare-before-write on shownItemID, and never fall through to
+			-- ns:RefreshIDPreview, which would draw the empty-box placeholder. reset clears
+			-- shownItemID and shownID, so a later user-kind open redraws through the full path.
+			if state.itemID then
+				if state.shownItemID ~= state.itemID then
+					state.shownItemID = state.itemID
+					state.itemTooltipProc.itemID = state.itemID
+					state.shownID = nil
+					state.resolved = nil
+					state.spellID = nil
+					state.tooltipProc.spellID = nil
+					state.icon:SetTexture(state.itemIcon or 134400)
+					state.icon:SetDesaturated(false)
+					state.icon:SetAlpha(1)
+					state.name:SetText(state.itemName or "")
+					state.name:SetTextColor(1, 1, 1)
+				end
+				return
+			end
 			-- The one and only place this entry reaches the Spell ID box: at UPDATE time,
 			-- since spellPreview is FIRST in TRACKER_FIELDS and spellID is not built yet.
 			local source = dialog.GetFieldState("spellID")
@@ -1937,6 +2146,8 @@ local TRACKER_FIELDS = {
 		id = "spellID",
 		entryKey = "spellID",
 		tab = "general",
+		-- Phase 76: greyed (empty) for a bag item, which has no spell ID.
+		enabled = NotItemField,
 		build = function(row, y, onChange, dialog)
 			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 			label:SetText("Spell ID:")
@@ -1951,7 +2162,7 @@ local TRACKER_FIELDS = {
 			box:SetAutoFocus(false)
 			box:SetScript("OnTextChanged", onChange)
 
-			return { editBox = box }, y - 32
+			return { editBox = box, label = label }, y - 32
 		end,
 		reset = function(state)
 			state.editBox:SetText("")
@@ -2036,18 +2247,10 @@ local TRACKER_FIELDS = {
 		id = "duration",
 		entryKey = "duration",
 		tab = "general",
+		-- Phase 76: a bag item shows its game cooldown here, greyed; the item path never writes it.
+		enabled = NotItemField,
 		build = function(row, y, onChange, dialog)
-			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			label:SetText("Duration (30, 45s, 2m):")
-			label:SetPoint("TOPLEFT", row, "TOPLEFT", 16, y)
-
-			y = y - 18
-			local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-			box:SetSize(180, 22)
-			box:SetPoint("TOPLEFT", row, "TOPLEFT", 16, y)
-			box:SetMaxLetters(6)
-			box:SetAutoFocus(false)
-			box:SetScript("OnTextChanged", onChange)
+			local label, box, nextY = BuildDurationRow(row, y, onChange, 16)
 
 			-- Same gap as the spell ID row above. Captured once, like spellPreview and
 			-- secrecyBadge above: update reads state.source.editBox:GetNumber() live on every
@@ -2055,23 +2258,15 @@ local TRACKER_FIELDS = {
 			-- preview's resolution count so a late-resolving ID is suggested for too.
 			local source = dialog.GetFieldState("spellID")
 			local preview = dialog.GetFieldState("spellPreview")
-			return { editBox = box, source = source, preview = preview }, y - 32
+			return { editBox = box, source = source, preview = preview, label = label }, nextY
 		end,
 		reset = function(state)
-			state.editBox:SetMaxLetters(6)
-			state.editBox:SetText("")
-			state.originalText = nil
-			state.originalValue = nil
+			ResetDurationBox(state)
 			state.suggestedForID = nil
 			state.suggestionText = nil
 		end,
 		prefill = function(state, entry)
-			state.originalValue = entry.duration
-			state.originalText = FormatDuration(entry.duration)
-			-- A saved value longer than 6 characters is shown whole, never truncated; the next
-			-- reset restores 6.
-			state.editBox:SetMaxLetters(math.max(6, #state.originalText))
-			state.editBox:SetText(state.originalText)
+			PrefillDurationBox(state, entry.duration)
 			-- The prefilled saved value is the user's; with no suggestion text recorded, update
 			-- can never mistake it for a suggestion and overwrite it.
 			state.suggestedForID = nil
@@ -2131,22 +2326,11 @@ local TRACKER_FIELDS = {
 				state.editBox:SetText(newText)
 			end
 		end,
-		read = function(state)
-			local text = state.editBox:GetText()
-			if state.originalText ~= nil and text == state.originalText then
-				return state.originalValue
-			end
-			return ParseDuration(text)
-		end,
+		read = ReadDurationBox,
+		-- A wrapper, not the helper itself: validate is called as (state, ctx), and ctx must never
+		-- become the message.
 		validate = function(state)
-			local text = state.editBox:GetText()
-			if text == "" then
-				return false
-			end
-			if not ParseDuration(text) then
-				return false, DURATION_HINT
-			end
-			return true
+			return ValidateDurationBox(state, nil)
 		end,
 	},
 	{
@@ -2156,6 +2340,8 @@ local TRACKER_FIELDS = {
 		available = function()
 			return ns.CLIENT_HAS_SPELL_RANKS
 		end,
+		-- Phase 76: unchecked and greyed for a bag item.
+		enabled = NotItemField,
 		-- Cover all ranks (ADD-03): created only when the client-capability flag defined once in
 		-- Core.lua is true -- absent on retail, not hidden or disabled. This is that flag's only
 		-- reader. No leading gap here: the duration row's returned cursor already includes it.
@@ -2170,7 +2356,7 @@ local TRACKER_FIELDS = {
 			label:SetPoint("LEFT", check, "RIGHT", 4, 0)
 			label:SetText("Cover all ranks")
 
-			return { check = check }, y - 26
+			return { check = check, label = label }, y - 26
 		end,
 		reset = function(state)
 			state.check:SetChecked(true)
@@ -2187,14 +2373,15 @@ local TRACKER_FIELDS = {
 	},
 	-- A cooldown's aura ID drove only the removed visibility option, and schema v10 dropped
 	-- the saved key (REM-04). Buffs and reminders keep it: prefilled, following the Spell ID
-	-- until typed in, stored nil when equal.
+	-- until typed in, stored nil when equal. Phase 76: hidden for a bag item too, which has no aura
+	-- ID of its own (its buff has buffAuraID); hidden means not read, so nothing is written.
 	BuildFollowSpellIDField({
 		id = "auraID",
 		label = "Aura ID:",
 		tooLarge = "Aura ID is too large",
 		secrecy = true,
 		visible = function(_, ctx)
-			return ctx.kind ~= ns.KIND.USER_CD
+			return ctx.kind ~= ns.KIND.USER_CD and ctx.kind ~= ns.KIND.META_ITEM
 		end,
 	}),
 	{
@@ -2230,8 +2417,9 @@ local TRACKER_FIELDS = {
 			return true
 		end,
 		visible = function(state, ctx)
-			-- A cooldown has no aura behind it and never enters ns.activeTimers, while a buff and
-			-- a reminder both do: buff-like only, not just gated by its tab.
+			-- Buff-like only, not just gated by its tab. A cooldown's own buff timer (Phase 74) is
+			-- configured by the buff fields and always ends on a readable aura loss, so this
+			-- opt-out stays a buff and reminder setting.
 			return ns.BUFF_LIKE_KINDS[ctx.kind] == true
 		end,
 	},
@@ -2259,8 +2447,10 @@ local TRACKER_FIELDS = {
 		update = UpdateSpellListIcons,
 		read = ReadSpellList,
 		validate = ValidateSpellList,
+		-- Phase 76: hidden for a bag item, which has no cast rule (ns:ApplyEndOnCast is
+		-- USER_CD-only); hidden means not read, so nothing is written.
 		visible = function(state, ctx)
-			return not ns.REMINDER_KINDS[ctx.kind]
+			return not ns.REMINDER_KINDS[ctx.kind] and ctx.kind ~= ns.KIND.META_ITEM
 		end,
 	},
 	{
@@ -2300,11 +2490,88 @@ local TRACKER_FIELDS = {
 		end,
 	}),
 	{
+		-- Phase 74 (BUFFCD-01): a cooldown carries its buff. Off by default on new trackers and on
+		-- every existing one (a missing key reads as off). Before buffAuraID and buffDuration,
+		-- whose enabled() hook reads this check.
+		id = "buffEnabled",
+		entryKey = "buffEnabled",
+		tab = "advanced",
+		visible = CarriesCooldownBuff,
+		build = function(row, y, onChange, dialog)
+			local check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+			check:SetSize(24, 24)
+			check:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y)
+			check:SetChecked(false)
+			check:SetScript("OnClick", onChange)
+
+			local label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			label:SetPoint("LEFT", check, "RIGHT", 4, 0)
+			label:SetText("Track buff duration")
+
+			return { check = check, label = label }, y - 26
+		end,
+		reset = function(state)
+			state.check:SetChecked(false)
+		end,
+		prefill = function(state, entry)
+			state.check:SetChecked(entry.buffEnabled == true)
+		end,
+		read = function(state)
+			-- Off is the default and is stored as nil.
+			return state.check:GetChecked() and true or nil
+		end,
+		validate = function()
+			return true
+		end,
+	},
+	-- Phase 74 (BUFFCD-02): the buff's aura, following the Spell ID until typed in and stored nil
+	-- when equal to it (the runtime falls back to entry.spellID). Its own key: schema v10 removed
+	-- `auraID` from a cooldown. Required only while the checkbox is ticked (greyed otherwise).
+	-- Phase 76: a bag item has no Spell ID, so its Aura ID box starts empty and never follows (user
+	-- decision, 76-CONTEXT); "Enter the buff's Aura ID" then applies while the box is ticked, so a
+	-- saved item buff always has a typed Aura ID.
+	BuildFollowSpellIDField({
+		id = "buffAuraID",
+		label = "Aura ID:",
+		tooLarge = "Aura ID is too large",
+		requiredMessage = "Enter the buff's Aura ID",
+		secrecy = true,
+		visible = CarriesCooldownBuff,
+		enabled = BuffFieldEnabled,
+		follows = NotItemField,
+	}),
+	{
+		-- Phase 74 (BUFFCD-02): the buff's typed duration. Starts empty and is never suggested:
+		-- no API returns a buff's duration, and the user chose explicit typed config. Its own
+		-- key, never `duration`, which is the cooldown's own length.
+		id = "buffDuration",
+		entryKey = "buffDuration",
+		tab = "advanced",
+		visible = CarriesCooldownBuff,
+		enabled = BuffFieldEnabled,
+		build = function(row, y, onChange, dialog)
+			local label, box, nextY = BuildDurationRow(row, y, onChange, 32)
+			return { editBox = box, label = label }, nextY
+		end,
+		reset = ResetDurationBox,
+		prefill = function(state, entry)
+			PrefillDurationBox(state, type(entry.buffDuration) == "number" and entry.buffDuration or nil)
+		end,
+		read = ReadDurationBox,
+		-- Runs only while the checkbox is ticked (a greyed field is not validated), so a ticked
+		-- buff needs a positive duration; ParseDuration rejects zero and negatives.
+		validate = function(state)
+			return ValidateDurationBox(state, "Enter the buff duration")
+		end,
+	},
+	{
 		-- Phase 57.3 (LOAD-01): whether this tracker runs at all. Never called "visibility" --
-		-- containers already have one. No visible() hook: every user kind gets it.
+		-- containers already have one. No visible() hook: every user kind gets it. Phase 76: a bag
+		-- item shows its fixed load, Always, greyed.
 		id = "load",
 		entryKey = "load",
 		tab = "advanced",
+		enabled = NotItemField,
 		build = function(row, y, onChange)
 			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 			label:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y)
@@ -2314,7 +2581,7 @@ local TRACKER_FIELDS = {
 			dropdown:SetSize(180, 22)
 			dropdown:SetPoint("TOPLEFT", row, "TOPLEFT", 32, y - 18)
 
-			local state = { dropdown = dropdown, selected = ns.LOAD.KNOWN }
+			local state = { dropdown = dropdown, selected = ns.LOAD.KNOWN, label = label }
 			-- Built once here, not inside the menu generator, which SetupMenu/GenerateMenu may
 			-- call more than once per open.
 			local function IsSelected(value)
@@ -2334,13 +2601,10 @@ local TRACKER_FIELDS = {
 			-- (Blizzard_Menu/DropdownButton.lua).
 			state.dropdown:GenerateMenu()
 		end,
-		prefill = function(state, entry)
-			local saved = entry.load
-			if saved == ns.LOAD.ALWAYS or saved == ns.LOAD.NEVER then
-				state.selected = saved
-			else
-				state.selected = ns.LOAD.KNOWN
-			end
+		prefill = function(state, entry, ctx)
+			-- The runtime's own mapping: a user kind's saved Always / Never, else When known; a
+			-- bag item's fixed load, Always (Phase 76).
+			state.selected = ns:TrackerLoad(ctx.editingKey, entry)
 			state.dropdown:GenerateMenu()
 		end,
 		read = function(state)
@@ -2365,12 +2629,15 @@ local ADD_TITLE_BY_CATEGORY = {
 	reminders = "Add Reminder",
 }
 
--- The edit dialog's title by the saved entry's kind (only ns:IsEditableTracker kinds open it).
--- Beside ADD_TITLE_BY_CATEGORY for the same reason: above CreateAddDialog, read on open only.
+-- The edit dialog's title by the saved entry's kind (only ns:IsEditableTracker kinds open it,
+-- which since Phase 76 includes a bag item: a metaItem with a numeric itemID; Trinket and Pot
+-- never open it). Beside ADD_TITLE_BY_CATEGORY for the same reason: above CreateAddDialog, read
+-- on open only.
 local EDIT_TITLE_BY_KIND = {
 	[ns.KIND.USER_CD] = "Edit Cooldown Tracker",
 	[ns.KIND.USER_BUFF] = "Edit Buff Tracker",
 	[ns.KIND.USER_REMINDER] = "Edit Reminder",
+	[ns.KIND.META_ITEM] = "Edit Item Tracker",
 }
 
 -- The add/edit and New Container dialogs share one look: Blizzard's panel art, ButtonFrameTemplate
@@ -2601,12 +2868,13 @@ local function CreateAddDialog()
 	-- cooldown) is not relevant and is never validated. The first failing relevant field with a
 	-- message wins; when that field's tab is "advanced", the message is prefixed "Advanced: " so a
 	-- user looking at General knows where to look -- the concatenation runs only here, on a
-	-- failing validation, never per frame.
+	-- failing validation, never per frame. A field greyed by its enabled() hook (Phase 74) is
+	-- still relevant and read, but not validated, so it never blocks save.
 	local function ValidateAll()
 		local allOk = true
 		local message = ""
 		for _, field in ipairs(fieldStates) do
-			if field.relevant then
+			if field.relevant and field.enabled ~= false then
 				local def, state = field.def, field.state
 				local ok, msg = def.validate(state, ctx)
 				if not ok then
@@ -2647,6 +2915,15 @@ local function CreateAddDialog()
 				field.shown = shown
 				dirty = true
 			end
+			-- Phase 74: the greyed state. Compare before writing, and no layout change: a greyed
+			-- field keeps its row. A def without enabled() is never touched.
+			if def.enabled then
+				local enabled = def.enabled(state, ctx, dialog) and true or false
+				if enabled ~= field.enabled then
+					field.enabled = enabled
+					ApplyFieldEnabled(state, enabled)
+				end
+			end
 		end
 		if dirty then
 			Layout()
@@ -2658,16 +2935,16 @@ local function CreateAddDialog()
 	end
 	dialog.RefreshState = RefreshState
 
-	-- Tab/Enter ring over every field that owns an EditBox, wrapping and skipping a hidden
-	-- field's box; gives up after one full lap rather than looping forever if every box in the
-	-- ring is hidden.
+	-- Tab/Enter ring over every field that owns an EditBox, wrapping and skipping a hidden or
+	-- greyed (Phase 74) field's box; gives up after one full lap rather than looping forever if
+	-- every box in the ring is hidden or greyed.
 	for i, entry in ipairs(focusRing) do
 		entry.box:SetScript("OnTabPressed", function()
 			local nextIndex = i
 			for _ = 1, #focusRing do
 				nextIndex = (nextIndex % #focusRing) + 1
 				local candidate = focusRing[nextIndex]
-				if candidate.field.shown then
+				if candidate.field.shown and candidate.field.enabled ~= false then
 					candidate.box:SetFocus()
 					return
 				end
@@ -2679,10 +2956,11 @@ local function CreateAddDialog()
 	end
 
 	-- Phase 57.1: the one focus rule OpenForAdd, OpenForEdit and a tab click all share -- focuses
-	-- the first SHOWN box in the ring, or nothing if every box in the ring is hidden.
+	-- the first SHOWN, not greyed (Phase 74) box in the ring, or nothing if every box in the ring
+	-- is hidden or greyed.
 	local function FocusFirstShown()
 		for _, entry in ipairs(focusRing) do
-			if entry.field.shown then
+			if entry.field.shown and entry.field.enabled ~= false then
 				entry.box:SetFocus()
 				return
 			end
@@ -2833,11 +3111,18 @@ local function CreateAddDialog()
 			def.prefill(state, entry, ctx)
 		end
 
-		-- Phase 57.1: opening always selects General (57.1-CONTEXT), same as OpenForAdd.
-		-- SelectGeneral forces the layout, so a prefilled value that changes a field's visibility (e.g.
-		-- Cover all ranks' availability) is reflected immediately and the dialog is sized to the
-		-- visible rows before Show.
-		SelectGeneral()
+		-- Phase 57.1: opening selects General (57.1-CONTEXT), same as OpenForAdd. SelectTab forces
+		-- the layout, so a prefilled value that changes a field's visibility (e.g. Cover all ranks'
+		-- availability) is reflected immediately and the dialog is sized to the visible rows
+		-- before Show. Phase 76: a bag item opens buff-only on Advanced instead, where its only
+		-- editable fields are (every General field is greyed, so General would focus nothing).
+		-- Its Save goes through ns:UpdateTrackedBuff, which routes a bag item to
+		-- ns:UpdateTrackedItemBuff (plan 76-01), so the confirm handler needs no branch.
+		if ctx.kind == ns.KIND.META_ITEM then
+			SelectTab("advanced")
+		else
+			SelectGeneral()
+		end
 		dialog:Show()
 		FocusFirstShown()
 	end

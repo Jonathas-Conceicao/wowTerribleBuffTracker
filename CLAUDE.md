@@ -10,7 +10,7 @@ WoW Midnight addon (version 12.0 and up) for tracking buff/cooldown timers manua
 - Use `UNIT_SPELLCAST_SUCCEEDED` for cast detection
 - Use `GetTime()` + known durations for timer tracking
 - Requires Blizzard's Cooldown Manager (CDM) — no standalone fallback
-- **One TOC, all flavours.** `TerribleBuffTracker.toc` declares `## Interface: 120100, 16001` — Midnight retail (`World of Warcraft\_retail_`) and the WoW Forever beta (`World of Warcraft\_classic_beta_`, product `wow_classic_beta`, build 1.60.1.69913). This follows the pattern shipping addons on Forever use (e.g. Platynator declares six interface versions in one TOC and no `## AllowLoadGameType:` line). Superseded the two-TOC split on 2026-09-20
+- **One TOC, all flavours.** `TerribleBuffTracker.toc` declares `## Interface: 120100, 16001` — Midnight retail (`World of Warcraft\_retail_`) and WoW Forever (`World of Warcraft\_forever_`, product `wowf`, build 1.60.1.70532, interface 16001). This follows the pattern shipping addons on Forever use (e.g. Platynator declares six interface versions in one TOC and no `## AllowLoadGameType:` line). Superseded the two-TOC split on 2026-09-20
 - No flavor-forked Lua/XML file may exist. Add a new interface version to the existing `## Interface:` list rather than adding a second TOC
 
 ## Architecture

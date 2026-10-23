@@ -467,9 +467,11 @@ end
 
 ns.activeTimers = {}
 
--- Phase 38 (CD-04/CD-05): invalidation stamps, read by Display.lua. A cooldown is never a
--- timer and never enters ns.activeTimers above -- these two counters are how Display.lua
+-- Phase 38 (CD-04/CD-05): invalidation stamps, read by Display.lua. A cooldown's own run is
+-- not a timer (it lives in ns.cooldownStarts) -- these two counters are how Display.lua
 -- learns a cooldown widget or the tracker set changed, without polling either one per frame.
+-- Phase 74: a cooldown with its buff on also files its buff proc in ns.activeTimers above,
+-- under the cooldown's own key; the cooldown itself still never does.
 -- Two counters, not one, because they are advanced at very different rates: SPELL_UPDATE_COOLDOWN
 -- fires roughly once per GCD in combat, while the tracker set only changes on a user edit.
 -- Folding both into one counter would force Display.lua to pay the expensive rebuild at the
@@ -587,8 +589,9 @@ function ns:IsCooldownSlotEntry(entry)
 	return entry.trackerType == ns.KIND.META_ITEM and type(entry.itemID) == "number"
 end
 
--- True only for a metaItem entry that IS a bag item -- narrower than ns:IsCooldownSlotEntry,
--- which also answers true for trinket/pot. Nil-safe.
+-- True only for a metaItem entry that IS a bag item (a numeric itemID): the item half of
+-- ns:IsCooldownSlotEntry, which is wider only because it also answers true for a user cooldown.
+-- Trinket and Pot have no numeric itemID, so they answer false to both. Nil-safe.
 function ns:IsBagItemEntry(entry)
 	return entry ~= nil and entry.trackerType == ns.KIND.META_ITEM and type(entry.itemID) == "number"
 end
@@ -745,6 +748,57 @@ function ns:IsCooldownRunning(key, entry, now)
 		return false
 	end
 	return (now - startedAt) < duration
+end
+
+-- Phase 74 (BUFFCD-03): the one answer to "does this cooldown carry a buff that can run, and
+-- for how long". Returns the typed buff duration only when the buff is switched on and the
+-- duration is a positive number, else nil. Missing keys mean off (BUFFCD-08), so every tracker
+-- saved before Phase 74 answers nil. Never reads entry.duration: that is the cooldown's own
+-- length (and on a bag item the game's cooldown, Phase 76). Allocation-free, safe on the cast
+-- path. On ns, not a file-local, so declaration order can never make it nil at a call site.
+function ns:CooldownBuffDuration(entry)
+	if not (entry and entry.buffEnabled == true) then
+		return nil
+	end
+	local buffDuration = entry.buffDuration
+	if type(buffDuration) ~= "number" or buffDuration <= 0 then
+		return nil
+	end
+	return buffDuration
+end
+
+-- Phase 74 review CR-01: the Aura ID the user TYPED for a cooldown's buff, or nil when the box
+-- follows the Spell ID (the dialog stores nil then). Never falls back to entry.spellID: the caller
+-- decides, because "follows the Spell ID" means "watch the whole rank family", not one ID.
+function ns:CooldownBuffTypedAuraID(entry)
+	if not entry then
+		return nil
+	end
+	local auraID = entry.buffAuraID
+	if type(auraID) == "number" and auraID > 0 then
+		return auraID
+	end
+	return nil
+end
+
+-- Phase 74 review CR-01: the list a cooldown's running buff watches for aura loss, the same
+-- choice ns:FillUserBuffProc makes for a user buff tracker. On Forever each rank's aura is its
+-- own spell ID (WR-04), and a "Cover all ranks" cooldown resolves every rank's cast to this key,
+-- so a one-element list would end a down-ranked cast's buff at the first readable aura read.
+--   * Aura ID follows the Spell ID: the tracker's rank family (ns.rankFamilies[key]), else the
+--     slot's pooled one-element list of the spell ID.
+--   * Aura ID typed: the typed ID plus the family (ns.detailedRankFamilies[key], built for a
+--     USER_CD owner by ns:RebuildRankIndex exactly as for a buff-like owner), else the pooled
+--     one-element list of the typed ID.
+-- Both family lists are shared read-only references replaced wholesale per rebuild; only the
+-- pooled list is ever wiped, and only by ns:AcquireAliveBuffs. Two table reads and no allocation,
+-- safe on the cast path. On ns, so declaration order can never make it nil at a call site.
+function ns:CooldownBuffAliveBuffs(key, entry)
+	local typedAuraID = ns:CooldownBuffTypedAuraID(entry)
+	if typedAuraID then
+		return ns.detailedRankFamilies[key] or ns:AcquireAliveBuffs(key, typedAuraID)
+	end
+	return ns.rankFamilies[key] or ns:AcquireAliveBuffs(key, entry.spellID)
 end
 
 ns.cooldownGeneration = 0
@@ -1016,6 +1070,8 @@ ns.rankFamilies = {}
 -- Phase 57.2 (REM-03): a "Cover all ranks" reminder with an aura ID gets the same list. Since
 -- 57.2-05 a reminder is buff-like: its running timer's aliveBuffs and the reminder aura watch
 -- (ns.reminderWatch) both read it.
+-- Phase 74 review CR-01: a "Cover all ranks" user cooldown with a typed buff Aura ID gets the same
+-- list under its own key, read only by ns:CooldownBuffAliveBuffs for its running buff.
 ns.detailedRankFamilies = {}
 
 -- RANK-01: [castSpellID] = ownerKey -- flat map from any ID in a family to the tracker
@@ -1099,6 +1155,12 @@ ns.auraState = {}
 -- through ns.REMINDER_KINDS) -- the watch list ns:RefreshAuraStates and
 -- ns:ReminderShowsIn walk. Replaced wholesale per rebuild in ns:RebuildDetailedRuleIndex.
 ns.reminderKeys = {}
+
+-- Phase 78: array of the loaded cooldown slot keys (ns:IsCooldownSlotEntry: user cooldowns and bag
+-- items), whose buff ns:RefreshAuraStates starts or syncs from a readable aura. Whether the buff is
+-- on is asked there, per call, so a buff-only edit (which rebuilds nothing) needs no rebuild here.
+-- Replaced wholesale per rebuild in ns:RebuildDetailedRuleIndex, alongside ns.reminderKeys.
+ns.cooldownBuffKeys = {}
 
 -- Phase 57.2 (REM-03): [key] = watched aura ID (ns:DetailedAuraID(entry) or entry.spellID) for
 -- every reminder key in ns.reminderKeys. Replaced wholesale per rebuild alongside it.
@@ -1483,11 +1545,15 @@ function ns:RebuildDetailedRuleIndex()
 	-- Selected through ns:IsReminderEntry, so a metaReminder joins through ns.REMINDER_KINDS.
 	local keys = {}
 	local auraIDs = {}
+	local cdKeys = {}
 	for key, entry in pairs(ns.db.trackedBuffs) do
 		-- Phase 57.3 (LOAD-03): a tracker that is not loaded is neither a reminder watch key nor a
 		-- cross-spell rule owner. A reminder leaving the watch list loses its aura state through
 		-- the invalidation loop below.
 		if ns:IsTrackerLoaded(key) then
+			if ns:IsCooldownSlotEntry(entry) then
+				cdKeys[#cdKeys + 1] = key
+			end
 			if ns:IsReminderEntry(entry) and type(entry.spellID) == "number" then
 				keys[#keys + 1] = key
 				auraIDs[key] = ns:DetailedAuraID(entry) or entry.spellID
@@ -1537,6 +1603,7 @@ function ns:RebuildDetailedRuleIndex()
 	end
 	ns.reminderKeys = keys
 	ns.reminderAuraID = auraIDs
+	ns.cooldownBuffKeys = cdKeys
 end
 
 -- 57.5 review IN-03 (on ns since Phase 58, shared by ns:RebuildReminderWatch below and
@@ -1749,9 +1816,16 @@ function ns:RebuildRankIndex()
 			-- WR-04: the aura ID first, then the family's IDs it does not already name. Gated
 			-- through ns:DetailedAuraID, so a tracker with no saved aura ID gets no entry and
 			-- keeps using the family above unchanged.
-			-- Phase 57.2: any buff-like owner (a buff or a reminder). Not USER_CD: a cooldown's
-			-- aura ID fed only the old visibility watch, and schema v10 drops it.
-			local auraID = ns:IsBuffLikeEntry(ownerEntry) and ns:DetailedAuraID(ownerEntry)
+			-- Phase 57.2: any buff-like owner (a buff or a reminder). A cooldown's old auraID fed
+			-- only the visibility watch, and schema v10 drops it.
+			-- Phase 74 review CR-01: a USER_CD owner's typed buff Aura ID gets the same list, so a
+			-- cooldown's buff cast at any rank stays alive (ns:CooldownBuffAliveBuffs reads it).
+			local auraID
+			if ns:IsBuffLikeEntry(ownerEntry) then
+				auraID = ns:DetailedAuraID(ownerEntry)
+			elseif ownerEntry.trackerType == ns.KIND.USER_CD then
+				auraID = ns:CooldownBuffTypedAuraID(ownerEntry)
+			end
 			if auraID then
 				local combined = { auraID }
 				for _, id in ipairs(family) do

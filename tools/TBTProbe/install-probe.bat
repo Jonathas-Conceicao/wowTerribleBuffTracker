@@ -9,8 +9,8 @@ set "SOURCE=%~dp0"
 set "WOW_ROOT=%ProgramFiles(x86)%\World of Warcraft"
 if defined TBT_WOW_ROOT set "WOW_ROOT=%TBT_WOW_ROOT%"
 
-set "FILES=TBTProbe.toc Probe.lua"
-set "FLAVORS=_retail_ _classic_beta_"
+set "FILES=TBTProbe.toc Probe.lua DurationProbe.lua"
+set "FLAVORS=_retail_ _forever_"
 
 for %%F in (%FILES%) do (
     if not exist "%SOURCE%%%F" (
@@ -38,7 +38,7 @@ for %%L in (%FLAVORS%) do (
 )
 
 if "!INSTALLED!"=="0" (
-    echo ERROR: neither _retail_ nor _classic_beta_ found under "%WOW_ROOT%"
+    echo ERROR: neither _retail_ nor _forever_ found under "%WOW_ROOT%"
     echo If WoW is installed elsewhere, set TBT_WOW_ROOT and try again.
     exit /b 1
 )

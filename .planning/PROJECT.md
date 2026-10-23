@@ -10,8 +10,52 @@ Players can see countdown timers for buffs/cooldowns that the game no longer sur
 
 ## Next Milestone
 
-Not defined yet — start it with `/gsd-new-milestone`. Phase numbering continues at 73. Open
-candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27).
+Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 79. Open
+candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27, 999.28).
+
+<details>
+<summary>v0.5.3 Display buff duration alongside cooldowns — SHIPPED 2026-10-23</summary>
+
+6 phases (73-78), 8 plans, 15/15 requirements. Verified in game on Midnight retail (combat/M+ and a
+real logout and login included) on 2026-10-23, in one testing pass. Forever was not tested (servers
+down). Squash-merge to `main`, release and tag by the user. Archives:
+[`milestones/v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md) and
+[`milestones/v0.5.3-REQUIREMENTS.md`](milestones/v0.5.3-REQUIREMENTS.md).
+
+</details>
+
+<details>
+<summary>v0.5.3 milestone goal, as set at kickoff</summary>
+
+**Goal:** Any cooldown TBT tracks, a spell or a bag item, can optionally carry its buff. While that
+buff runs, the icon shows the buff's countdown with the CDM's yellow aura fill instead of the
+cooldown. Once the buff ends, the cooldown shows as it does today.
+
+**Phases start at 73.** Numbering continues from v0.5.2's Phase 72 and never restarts. Branch:
+`milestone/v0.5.3-buff-duration-alongside-cooldowns`, cut from `main` on 2026-10-22. Research
+skipped by user decision: one retail probe answered the only open question
+(`.planning/research/BUFF-DURATION-PROBE.md` — no API gives a buff's duration, so it is typed).
+Nothing in this milestone touches Merge Mode, and no backlog item is promoted. Forever is not
+tested this milestone (servers down); it is assumed to behave as retail for everything here.
+
+**Target features (set by the user at kickoff, 2026-10-22):**
+
+- **Buff duration on cooldown trackers (the main feature).** The Advanced tab of the tracker dialog
+  gains a "track buff duration" checkbox, **off by default**, plus an aura ID and a duration, both
+  typed by the user. For a spell cooldown the aura ID is pre-filled with the spell ID; for an item it
+  starts empty. Items become editable once moved out of Suggested: only these buff fields can be
+  changed, and the item's other fields show their values greyed out. A Suggested item tile has no
+  edit entry.
+- **The icon follows the CDM's look.** An icon is **normal** (no cooldown, no buff), **yellow** (the
+  buff is running: the CDM's aura colour fills the icon and the sweep clears it back to full colour;
+  the cooldown is not shown) or **white-to-grey** (the cooldown is running, the look TBT already
+  has). An icon is grey only while a cooldown shows and no buff duration does. The buff and the
+  cooldown are tracked separately; the cooldown appears when the buff ends.
+- **Install to `_forever_`.** Forever now ships as its own product (`wowf`, 1.60.1.70532, still
+  interface 16001) in `World of Warcraft\_forever_`. `install.ps1` deploys there instead of
+  `_classic_beta_`.
+
+</details>
 
 <details>
 <summary>v0.5.2 Improved Merge Mode and small fixes — SHIPPED 2026-10-10</summary>
@@ -368,6 +412,11 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 - CDM settings-window reorders reach TBT's preview at once, Edit Mode shows a placeholder for a merged entry Blizzard is not drawing, and a hidden TBT container hides its moved frames — v0.5.2 Phase 69 (STEAL-13..15)
 - The Merge Mode redraw path and `/tbt reanchor` deleted; Merge Mode reads no auras; 999.21-999.25 closed on the new path, with a whole-path review that nothing paints one thing over every cell — v0.5.2 Phase 70 (STEAL-19..23)
 - No cooldown icon stays grey through the GCD on either client (999.5 closed) — v0.5.2 Phase 72 (VER-12)
+- `install.ps1` deploys to Forever's own `_forever_` folder (product `wowf`) instead of `_classic_beta_` — v0.5.3 Phase 73 (INST-11)
+- Optional buff on any user cooldown tracker: an Advanced-tab "Track buff duration" checkbox (off by default), Aura ID (pre-filled with the spell ID) and a typed Duration, with no schema bump. The cast starts the buff alongside the cooldown; it ends early only on a readable aura loss, a reset-on-cast or an edit — v0.5.3 Phase 74 (BUFFCD-01..04, BUFFCD-08)
+- The CDM's yellow aura look on a cooldown icon while its buff runs (the fill clears in full colour, no edge); the grey cooldown returns at once when the buff ends; charge and item counts kept; buff-only and meta icons unchanged — v0.5.3 Phase 75 (BUFFDISP-01..05)
+- Bag items moved out of Suggested are editable: only the buff fields can be changed, the item's other fields show greyed; using the item starts its buff — v0.5.3 Phase 76 (BUFFCD-05..07)
+- A cooldown's buff already up is picked up at login, reload, add and edit, and its timer follows the aura's real expiry (stacking, extensions) through `ns:RefreshAuraStates`; the typed Duration is never rewritten — v0.5.3 Phase 78 gap fix
 
 ### Active
 
@@ -379,6 +428,8 @@ Still open in the backlog:
 - **999.11, 999.15, 999.16** — see the ROADMAP Backlog.
 - **999.19** — stack count on custom trackers' buff icons (61-HUMAN-UAT #2 waits on it).
 - **999.27** — custom cooldown trackers keep a stale charge count after a spec change.
+- **999.28** — one aura pass for buffs, reminders and cooldown buffs, with a buff option (on for new
+  buffs, off for existing ones and debuffs) to take presence and duration from the game.
 
 ## Current State
 
@@ -386,7 +437,9 @@ Still open in the backlog:
 
 **Planning drift note:** v0.2.5 (12.1 compatibility) and v0.2.6 (CDM tab placement) were both developed, tagged and released outside the GSD workflow, so they have no phase artifacts under `.planning/phases/`. They are recorded in `CHANGELOG.md`, `MILESTONES.md` and the Validated list above; that is the whole of their planning record — no phases are reconstructed retroactively.
 
-**v0.5.2 Improved Merge Mode and small fixes shipped 2026-10-10** — 6 phases (67-72), 17 plans, 18/18 requirements, verified in game on both flavours including retail raid and M+; the user squash-merges to `main`, writes the CHANGELOG entry and tags the release. See [`milestones/v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md).
+**v0.5.3 Display buff duration alongside cooldowns shipped 2026-10-23** — 6 phases (73-78), 8 plans, 15/15 requirements, verified in game on Midnight retail (Forever not tested, servers down); the user squash-merges to `main`, writes the CHANGELOG entry and tags the release. See [`milestones/v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md).
+
+**Earlier —** v0.5.2 Improved Merge Mode and small fixes shipped 2026-10-10 — 6 phases (67-72), 17 plans, 18/18 requirements, verified in game on both flavours including retail raid and M+; the user squash-merges to `main`, writes the CHANGELOG entry and tags the release. See [`milestones/v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md).
 
 **Earlier —** v0.5.1 Clickable Reminders and new icons shipped 2026-10-01 — 6 phases (61-66), 12 plans, 16/16 requirements, verified in game on both flavours including retail M+, squash-merged to `main`. See [`milestones/v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md).
 **Earlier —** v0.5.0 Elaborate tracking shipped 2026-09-29 — 13 phases (53-60, including 57.1-57.5 inserted), 42 plans, 33/33 requirements, verified in game on both flavours including retail M+, squash-merged to `main` and tagged `v0.5.0`. See [`milestones/v0.5.0-ROADMAP.md`](milestones/v0.5.0-ROADMAP.md).
@@ -411,7 +464,8 @@ client-side bug — see Context.
 
 ### Out of Scope
 
-- Updating timer durations from aura data — future enhancement
+- Updating timer durations from aura data for buff trackers — future enhancement (backlog 999.28).
+  Reminders (v0.5.0) and cooldown buffs (v0.5.3) already follow a readable aura's expiry
 - Aura-based buff auto-discovery — only checks already-tracked buffs
 - Preview preserving per-buff state on CDM open/close — works at timer level but could be more granular
 
@@ -472,6 +526,9 @@ client-side bug — see Context.
 | Built-in class-buff reminder rows are tagged per client (Forever, retail, or both) | Several retail spell IDs exist on Forever with another meaning (6673 Battle Shout rank 1, 465 Devotion Aura rank 1, 21562 Prayer of Fortitude), so "is the spell known" alone would offer retail rows on Forever. The tag reads the existing `ns.CLIENT_IS_FOREVER`, the one sanctioned interface-range comparison, so no second comparison is added | Decided 2026-09-30 by the user (Phase 64). Licenses reading that one answer per row; still no second flavour check anywhere |
 | Clickable reminders through secure overlays on UIParent, never anchored to TBT's frames | A secure button inside TBT's display tree would taint it and could not move in combat. Overlays are placed from each icon's screen rect out of combat only, hidden in combat by a state driver, cast by spell name (highest known rank) with `useOnKeyDown = false` | ✓ Good — shipped v0.5.1 (Phase 63), tested through combat, Edit Mode, layout switches and M+ |
 | Trinket and Pot meta-trackers stay as-is | TBT's version has custom durations and bar display, and META-01 already hides them on Forever. Whatever the CDM now does natively, the trackers keep a reason to exist | Decided 2026-09-20 — closes the product half of 999.2. Only the public copy changes |
+| A cooldown's buff duration is typed, never looked up | The 2026-10-22 retail probe found no API that returns a buff's duration; description and tooltip text is English-only, holds several numbers and grammar escapes, and is often empty of any number. The user chose explicit config over a learn-from-aura scheme | Decided 2026-10-22 (v0.5.3 kickoff). Opt-in per tracker, off by default; aura ID pre-filled with the spell ID for spells, empty for items. ✓ Shipped v0.5.3 |
+| A read never rewrites a value the user typed | Asked to "auto-correct" a buff whose live duration differed, a first build overwrote the saved Duration. A live aura can be longer than one use (two flasks stacked = 2h), and the setting is the user's | Decided 2026-10-22 by the user (Phase 78). Live data drives only the running timer (`SyncProcToAura`); `ns.db` is never written from an aura read |
+| A cooldown's buff has no "End when the aura is lost" opt-out | A buff that never lands readably (wrong Aura ID, ally-targeted) ending the timer is for the user to fix in the Aura ID box | Decided 2026-10-22 (Phase 74 review WR-02); also covers the read-sync shortening a timer (v0.5.3 audit warning 2). ✓ Shipped v0.5.3 |
 
 ## Evolution
 
@@ -491,4 +548,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-10 after the v0.5.2 milestone*
+*Last updated: 2026-10-23 after the v0.5.3 milestone*

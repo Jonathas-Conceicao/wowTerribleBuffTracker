@@ -101,8 +101,8 @@ local function SlotDraws(entry, timer, settings, iconEditing)
 		return true
 	end
 
-	-- Phase 47: an item tracker produces no ns.activeTimers entry either, for exactly the same
-	-- reason a cooldown tracker does not, so it must draw on the same terms. Currently
+	-- Phase 47: an item tracker is a cooldown slot just like a cooldown tracker, and a cooldown
+	-- slot draws on its own terms whether or not its buff proc (Phase 74) is live. Currently
 	-- unreachable for one: the centred layout this function gates is derived from
 	-- ns:GetContainerCategory(def) ~= "spells" (buffs and reminders), and an item tracker
 	-- always lives in a spells container. The widening is defensive, one token, and correct on
@@ -756,9 +756,10 @@ end
 ---------------------------------------------------------------------
 -- Phase 38 — cooldown slot helpers (CD-02/CD-03/CD-04)
 --
--- A cooldown is a SLOT, never a timer: it never enters ns.activeTimers, never reaches
--- BuffEngine's aura-driven cancellation scan (it has nothing to cancel), and produces
--- nothing for ns:GetActiveTimers to return.
+-- A cooldown itself is a SLOT, never a timer: its run is not in ns.activeTimers and never
+-- reaches BuffEngine's aura-driven cancellation scan. Only its optional buff (Phase 74) is a
+-- proc, filed under the same key and drawn by RenderIconContainer's live-timer branch, which
+-- sits above the cooldown-slot branch.
 -- Its sweep is owned by the engine, handed over once as a duration handle, and re-handed
 -- only when Core.lua's ns.cooldownGeneration says something happened (SPELL_UPDATE_COOLDOWN,
 -- SPELL_UPDATE_CHARGES, SPELLS_CHANGED, PLAYER_ENTERING_WORLD, PLAYER_REGEN_ENABLED or a
@@ -788,7 +789,7 @@ local function RefreshCooldownSlotCounts()
 	for key, entry in pairs(tracked) do
 		-- Phase 47: a container holding only tracked items must stay visible too, for the
 		-- identical reason a cooldown-only container does -- neither produces a
-		-- ns.activeTimers entry, so #timers alone can never see them.
+		-- ns.activeTimers entry while idle, so #timers alone can never see them.
 		-- Phase 57.3 (LOAD-03): an unloaded tracker does not count, so a container holding only
 		-- unloaded cooldowns stays hidden under hideWhenInactive. ns:RebuildTrackerLoad bumps
 		-- ns.trackerGeneration whenever the loaded set changes, so this stamp follows it.
@@ -827,8 +828,8 @@ end
 -- SetTexture(nil) -- the placeholder rendered blank (fixed in 3c1acf2). 134400 is the
 -- question-mark fallback it is left with instead.
 --
--- RenderIconContainer's TIMER branch deliberately does not come through here; see the comment
--- on its own cache block for why.
+-- RenderIconContainer's TIMER branch uses this for cooldown-slot entries (Phase 76) and keeps its
+-- own spellID-only cache block for every other proc.
 --
 -- Phase 43.1 (iconOverride): an item-backed CDM entry -- a trinket or a potion -- has no spell
 -- texture to look up, so the merge mirror resolves its icon once at build time and hands it
@@ -860,8 +861,55 @@ local function ClearCooldownStamps(icon)
 	icon._userCdState = nil
 	icon._userCdGrey = nil
 	icon._cdGen = nil
+	icon._auraLook = nil
+	icon._cntGen = nil
+	icon._cntKey = nil
 	icon.chargeCount:Hide()
 	icon.cooldown:Clear()
+end
+
+-- Phase 75 (BUFFDISP-01/02/05): the swipe look, per state, taken from Blizzard's CDM rather
+-- than guessed.
+--
+-- aura == true is a cooldown tracker's own buff running. It is the Essential item template's
+-- Cooldown, which has no `reverse` attribute (CooldownViewer.xml:48), skinned the way the aura
+-- arm of CheckCacheCooldownValuesFromAura does it (CooldownViewer.lua:883-905):
+-- ITEM_AURA_COLOR = (1, 0.95, 0.57, 0.7) (CooldownViewer.lua:20) and no draw edge. A Cooldown
+-- with reverse false covers the REMAINING fraction, so the swipe starts as a full yellow fill
+-- and clears back to the icon's own colours as the buff runs out.
+--
+-- aura == false is TBT's construction look (CreateTimerIcon): reverse true, black 0.7 swipe,
+-- edge on. It is the cooldown look the user asked to keep, and the look every Buffs-tab,
+-- Reminders-tab and Trinket/Pot timer keeps, which matches the CDM's buff icon template
+-- (CooldownViewer.xml:183, reverse true, ITEM_COOLDOWN_COLOR).
+--
+-- A look change nils the sweep stamps of every branch that owns the icon, so the owner re-issues
+-- SetCooldown under the new look in the same pass. Blizzard never re-skins a running sweep either:
+-- RefreshSpellCooldownInfo sets the look and then calls CooldownFrame_Set (:1148-1151).
+--
+-- Not here, on purpose: SetDrawSwipe belongs to ApplyIconStyle ("Show Timer" applies to both
+-- looks), and desaturation stays with ClearIconDesaturation / ApplyUserCooldown /
+-- ApplyCooldownGrey. SetUseAuraDisplayTime, the CDM's aura-state companion, is not used: TBT
+-- drives every sweep from SetCooldown(GetTime() start, typed duration), and the call cannot be
+-- confirmed on the Forever client from the Midnight-only source tree.
+--
+-- `aura` is always a plain boolean TBT computes from its own saved keys, never a game value, so
+-- the stamp compare is secret-safe. Literal colour numbers: this runs in the render tick.
+local function ApplySwipeLook(icon, aura)
+	if icon._auraLook ~= aura then
+		icon._auraLook = aura
+		local cooldown = icon.cooldown
+		cooldown:SetReverse(not aura)
+		if aura then
+			cooldown:SetSwipeColor(1, 0.95, 0.57, 0.7)
+		else
+			cooldown:SetSwipeColor(0, 0, 0, 0.7)
+		end
+		cooldown:SetDrawEdge(not aura)
+		icon._lastStart = nil
+		icon._userCdState = nil
+		icon._cdGen = nil
+	end
 end
 
 -- Grey while the spell is on a real cooldown, full colour otherwise.
@@ -1043,6 +1091,35 @@ local function ApplyItemCount(icon, entry)
 	icon.chargeCount:Show()
 end
 
+-- A cooldown slot's count: charges for a spell, stock for a bag item.
+--
+-- Charges come from the game whoever owns the sweep: a typed duration says how long the player
+-- wants to wait, never how many charges the spell has.
+--
+-- Phase 47: an item entry has no charges and no spellID for the charge API to answer about, so
+-- it branches to the item-count parallel instead.
+--
+-- Phase 75 (BUFFDISP-04): the count has its own stamp pair, _cntGen/_cntKey, so the live-timer
+-- branch can keep it current while a cooldown's own buff draws, without touching _cdGen. That
+-- stamp has to stay nil there, so ApplyCooldownSlot's generation block, and with it
+-- ApplyCooldownHandle, re-runs on the handover back to the cooldown. Blizzard keeps the charge
+-- count during an aura too (CooldownViewer.lua:885-886).
+local function ApplySlotCount(icon, entry)
+	if icon._cntGen ~= ns.cooldownGeneration or icon._cntKey ~= entry.key then
+		icon._cntGen = ns.cooldownGeneration
+		icon._cntKey = entry.key
+		if ns:IsBagItemEntry(entry) then
+			ApplyItemCount(icon, entry)
+		else
+			local spellID = entry.spellID
+			if type(spellID) ~= "number" then
+				spellID = nil
+			end
+			ApplyChargeCount(icon, spellID)
+		end
+	end
+end
+
 -- Render one cooldown slot into a pooled icon widget. Everything cheap (texture, style,
 -- tooltip target) happens every tick; everything that costs an API call happens only when
 -- ns.cooldownGeneration moved or this pooled widget changed which slot it draws.
@@ -1121,6 +1198,9 @@ local function ApplyCooldownSlot(icon, entry, settings, now)
 
 	ApplyCachedIcon(icon, spellID, entry.iconOverride)
 	ApplyIconStyle(icon, settings)
+	-- Phase 75 (BUFFDISP-02): the cooldown look, asserted before either sweep owner below runs, so
+	-- the handover from a buff re-issues the cooldown in this same pass.
+	ApplySwipeLook(icon, false)
 
 	-- The DB entry itself is the tooltip payload: it already carries the numeric spellID and
 	-- the label ns:ShowBuffTooltip reads, so the placeholder branch's per-tick table
@@ -1131,7 +1211,26 @@ local function ApplyCooldownSlot(icon, entry, settings, now)
 	-- rather than on a generation change: nothing fires an event when a TBT-owned cooldown
 	-- finishes, so the grey has to come off by the clock. Two number comparisons and two stamp
 	-- tests on the steady path, no API call and no allocation.
+	--
+	-- A pooled widget that drew another tracker since its last pass carries that tracker's
+	-- user-cooldown stamps. K1 -> K2 (engine-owned) -> K1 would otherwise find _userCdState and
+	-- _userCdGrey still matching K1's values and skip re-issuing K1's sweep and grey, leaving K2's
+	-- on screen. _cdKey still names the previous tracker here, because the generation block below
+	-- is what moves it, so this is the same key rule the timer branch uses.
+	if icon._cdKey ~= entry.key then
+		icon._userCdState = nil
+		icon._userCdGrey = nil
+	end
 	local userOwned = ApplyUserCooldown(icon, entry, now)
+
+	-- Charges first, ahead of the generation block below, because ApplyCooldownHandle asks
+	-- whether this spell has any: the answer lives in the sticky chargeCapable cache that
+	-- ApplyChargeCount fills, and calling it second left the very first generation of a charge
+	-- spell with no recharge sweep. ApplySlotCount runs first on every pass and does work whenever
+	-- the generation or key moved, so chargeCapable is always filled for the current generation
+	-- before the block below can ask for it. The block can also re-run on its own, when
+	-- ApplySwipeLook or the timer-branch handover nils _cdGen; the count is already current then.
+	ApplySlotCount(icon, entry)
 
 	if icon._cdGen ~= ns.cooldownGeneration or icon._cdKey ~= entry.key then
 		icon._cdGen = ns.cooldownGeneration
@@ -1139,21 +1238,6 @@ local function ApplyCooldownSlot(icon, entry, settings, now)
 		-- Clear the buff-path stamp so a later real or preview timer landing on this pooled
 		-- widget re-issues its SetCooldown instead of being skipped as unchanged.
 		icon._lastStart = nil
-		-- Charges first, because ApplyCooldownHandle now asks whether this spell has any: the
-		-- answer lives in the sticky chargeCapable cache that ApplyChargeCount fills, and calling
-		-- it second left the very first generation of a charge spell with no recharge sweep.
-		--
-		-- Charges come from the game whoever owns the sweep: a typed duration says how long the
-		-- player wants to wait, never how many charges the spell has.
-		--
-		-- Phase 47: an item entry has no charges and no spellID for the charge API to answer
-		-- about, so it branches to the item-count parallel instead, in the same position in the
-		-- block -- the ordering reason above applies identically to it.
-		if ns:IsBagItemEntry(entry) then
-			ApplyItemCount(icon, entry)
-		else
-			ApplyChargeCount(icon, spellID)
-		end
 
 		-- Where the entry has a spell, C_Spell.GetSpellCooldownDuration hands back a duration object
 		-- rather than a value, has no secrecy flag, and so works in combat and out of it.
@@ -1632,28 +1716,61 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			-- hidden here rather than drawn by TBT.
 			icon:Hide()
 		elseif timer then
+			local slotEntry = ns:IsCooldownSlotEntry(entry)
 			-- Phase 38: drop the stamps a cooldown slot left on this pooled widget -- see
 			-- ClearCooldownStamps. One nil test per icon per frame in the common case.
-			if icon._cdKey then
+			--
+			-- Phase 75 (BUFFDISP-04): a cooldown tracker's own buff proc (Phase 74) draws here under
+			-- the cooldown's key, and its count has to stay. The handover runs once: a widget that
+			-- carried ANOTHER tracker's slot state gets the full clear; the tracker's own buff
+			-- starting drops only the sweep and the user-cooldown stamps. The count is not hidden
+			-- there, because ApplyChargeCount leaves the previous text when GetSpellCharges is
+			-- unreadable, so a Hide() would lose it for the whole buff in restricted content.
+			-- _cdKey marks the widget as carrying slot state, so the existing `if icon._cdKey`
+			-- guards still drop the count when it is reassigned. _cdGen stays nil for the whole buff,
+			-- so ApplyCooldownSlot's generation block re-issues the cooldown the moment it ends.
+			if slotEntry then
+				if icon._cdGen ~= nil or icon._cdKey ~= entry.key then
+					if icon._cdKey and icon._cdKey ~= entry.key then
+						ClearCooldownStamps(icon)
+					else
+						icon._userCdState = nil
+						icon._userCdGrey = nil
+						icon._cdGen = nil
+						icon.cooldown:Clear()
+					end
+					icon._cdKey = entry.key
+					icon._lastStart = nil
+				end
+				ApplySlotCount(icon, entry)
+			elseif icon._cdKey then
 				ClearCooldownStamps(icon)
 			end
 
 			icon.proc = timer -- D-19: store for OnEnter tooltip
 
-			-- D-16/D-17: Per-widget icon cache — refresh texture only when spellID changes.
-			-- NOT ApplyCachedIcon, deliberately: this block has no `cachedIcon == nil` test and
-			-- no 134400 fallback, so it is not the same text. It is probably equivalent -- a live
-			-- timer always carries a numeric spellID -- but that is a reachability argument, and
-			-- nothing can test the timer path before Phase 43. Left as it is on purpose.
-			if icon.cachedSpellID ~= timer.spellID then
-				icon.cachedSpellID = timer.spellID
-				icon.cachedIcon = ns:GetSpellIcon(timer.spellID)
+			-- D-16/D-17: Per-widget icon cache — refresh texture only when the source changes.
+			-- A cooldown-slot entry's buff proc (Phase 74/76) goes through ApplyCachedIcon with the
+			-- entry's iconOverride, the same call ApplyCooldownSlot makes for its cooldown, because
+			-- a bag item's proc has no spellID and would otherwise draw the 134400 question mark.
+			-- Every other proc (buff, reminder, Trinket/Pot) keeps the original per-widget cache.
+			if slotEntry then
+				ApplyCachedIcon(icon, timer.spellID, entry.iconOverride)
+			else
+				if icon.cachedSpellID ~= timer.spellID then
+					icon.cachedSpellID = timer.spellID
+					icon.cachedIcon = ns:GetSpellIcon(timer.spellID)
+				end
+				icon.icon:SetTexture(icon.cachedIcon)
 			end
-			icon.icon:SetTexture(icon.cachedIcon)
 			-- Buff icons are never greyed; only a cooldown slot desaturates. Cleared here so a
 			-- pooled widget that last drew a cooldown does not keep its grey.
 			ClearIconDesaturation(icon)
 			ApplyIconStyle(icon, settings)
+			-- Phase 75 (BUFFDISP-01/05): the yellow aura look only for a cooldown tracker whose buff
+			-- is on. Gated on the ENTRY, not the timer, so Buffs-tab, Reminders-tab and Trinket/Pot
+			-- procs and a buff-off cooldown's preview demo keep the dark look.
+			ApplySwipeLook(icon, slotEntry and ns:CooldownBuffDuration(entry) ~= nil)
 
 			if icon._lastStart ~= timer.startedAt then
 				icon._lastStart = timer.startedAt
@@ -1672,7 +1789,9 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			-- Blizzard's Essential and Utility viewers do.
 			-- Phase 47: a tracked item entry reaches here too, and needs no branch body change
 			-- -- ApplyCooldownSlot is already generic on entry.key/entry.duration, and its own
-			-- generation-gated block branches ApplyChargeCount vs ApplyItemCount internally.
+			-- generation-gated ApplySlotCount branches ApplyChargeCount vs ApplyItemCount internally.
+			-- Phase 75: the timer branch above also draws a cooldown's own buff proc (Phase 74),
+			-- in the CDM aura look with the count kept; this branch takes over when it ends.
 			ApplyCooldownSlot(icon, entry, settings, now)
 			icon:Show()
 		elseif gate == true or not settings.hideWhenInactive or ns.configOpen or iconEditing then

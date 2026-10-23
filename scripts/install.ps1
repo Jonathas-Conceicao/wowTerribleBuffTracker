@@ -26,7 +26,7 @@ if (-not (Test-Path -LiteralPath $tocPath)) {
 }
 
 $wowRoot = if ($env:TBT_WOW_ROOT) { $env:TBT_WOW_ROOT } else { Join-Path ${env:ProgramFiles(x86)} 'World of Warcraft' }
-$flavors = @('_retail_', '_ptr_', '_beta_', '_classic_beta_', '_classic_', '_classic_era_', '_classic_ptr_')
+$flavors = @('_retail_', '_ptr_', '_beta_', '_forever_', '_classic_', '_classic_era_', '_classic_ptr_')
 
 # ---------------------------------------------------------------- file set --
 

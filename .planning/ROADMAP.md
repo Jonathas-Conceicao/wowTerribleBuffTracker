@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [x] **v0.5.3 Display buff duration alongside cooldowns** — Phases 73-78 (shipped 2026-10-23) — [archive](milestones/v0.5.3-ROADMAP.md)
 - [x] **v0.5.2 Improved Merge Mode and small fixes** — Phases 67-72 (shipped 2026-10-10) — [archive](milestones/v0.5.2-ROADMAP.md)
 - [x] **v0.5.1 Clickable Reminders and new icons** — Phases 61-66 (shipped 2026-10-01) — [archive](milestones/v0.5.1-ROADMAP.md)
 - [x] **v0.5.0 Elaborate tracking** — Phases 53-60 (shipped 2026-09-29) — [archive](milestones/v0.5.0-ROADMAP.md)
@@ -14,6 +15,21 @@
 - [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
+
+<details>
+<summary>✅ v0.5.3 Display buff duration alongside cooldowns (Phases 73-78) — SHIPPED 2026-10-23</summary>
+
+Full detail archived at [`milestones/v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md); requirements
+at [`milestones/v0.5.3-REQUIREMENTS.md`](milestones/v0.5.3-REQUIREMENTS.md).
+
+- [x] Phase 73: Install to Forever's New Folder (1/1 plans) — `install.ps1` deploys to `_forever_`
+- [x] Phase 74: Buff Duration on Spell Cooldowns (2/2 plans) — Advanced-tab buff config; the cast starts the buff
+- [x] Phase 75: Buff Look on Cooldown Icons (1/1 plans) — the CDM's yellow aura swipe, then the grey cooldown
+- [x] Phase 76: Buff Duration on Bag Items (2/2 plans) — item edit dialog with only the buff fields editable
+- [x] Phase 77: Cleanup (2/2 plans)
+- [x] Phase 78: Human Testing (testing pass) — passed 2026-10-23; gap fix: the buff follows its live aura
+
+</details>
 
 <details>
 <summary>✅ v0.5.2 Improved Merge Mode and small fixes (Phases 67-72) — SHIPPED 2026-10-10</summary>
@@ -277,13 +293,13 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 
 ## Phase Details
 
-*Every phase through v0.5.2 (Phases 1-72) is archived under `.planning/milestones/`. The most recent
-is [`v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md), which carries the full detail for Phases
-67-72; [`v0.5.1-ROADMAP.md`](milestones/v0.5.1-ROADMAP.md) covers Phases 61-66.*
+*Every phase through v0.5.3 (Phases 1-78) is archived under `.planning/milestones/`. The most recent
+is [`v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md), which carries the full detail for Phases
+73-78; [`v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md) covers Phases 67-72.*
 
 ## Progress
 
-**Execution order:** v0.5.2 complete; the next milestone starts with `/gsd-new-milestone`
+**Execution order:** no milestone in progress (v0.5.3 ran 73 → 74 → 75 → 76 → 77 → 78)
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -335,6 +351,12 @@ is [`v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md), which carries the full d
 | 70. Remove the Redraw Path & Close the Merge Mode Bugs | v0.5.2 | 5/5 | Complete — review fixed (2 WR + 6 IN); UAT passed in Phase 72 | 2026-10-10 |
 | 71. Cleanup | v0.5.2 | 2/2 | Complete — review fixed (2 WR, comments only); checks passed in Phase 72 | 2026-10-10 |
 | 72. Human Testing | v0.5.2 | — | Complete — PASSED on retail (raid and M+) and Forever; results in the 67-70 HUMAN-UAT files | 2026-10-10 |
+| 73. Install to Forever's New Folder | v0.5.3 | 1/1 | Complete | 2026-10-22 |
+| 74. Buff Duration on Spell Cooldowns | v0.5.3 | 2/2 | Complete | 2026-10-22 |
+| 75. Buff Look on Cooldown Icons | v0.5.3 | 1/1 | Complete | 2026-10-22 |
+| 76. Buff Duration on Bag Items | v0.5.3 | 2/2 | Complete | 2026-10-22 |
+| 77. Cleanup | v0.5.3 | 2/2 | Complete | 2026-10-22 |
+| 78. Human Testing | v0.5.3 | — | Complete — PASSED on retail; gap fix: buff follows its live aura (`469ff35`); #14 skipped | 2026-10-23 |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*
@@ -820,6 +842,79 @@ The same pattern as 999.21, outside Merge Mode: `Display.lua`'s `chargeCapable` 
 and never cleared on a spec or talent change, and `ApplyChargeCount` keeps the previous text when
 `GetSpellCharges` is unreadable. v0.5.2 fixed 999.21 for merged slots by handing them to Blizzard's
 own frames; TBT's own custom cooldown trackers still use this path. Not reproduced in game yet.
+
+**999.28 — Review general buff duration: one aura pass for buffs, reminders and cooldown buffs.**
+Intake 2026-10-23, user request, raised during the v0.5.3 Phase 78 retail pass. **Not for now:** the
+current buff tracking behaviour is fine as is, and every detail of this discussion is left for
+whenever this is picked up.
+
+*What the user wants.* All three kinds watch the player's own auras, so they should follow one
+flow. One detection pass runs and updates whichever buffs, reminders and cooldown buffs need it. A
+buff tracker gets a new option, so it can scan for its aura on the player and take presence and
+duration from the game's value:
+- **on by default** for every new buff added;
+- **off** for every buff tracker that already exists (no behaviour change on upgrade);
+- **off** when the user adds a debuff to track.
+Once enabled, the tracker scans for its aura on the player and updates presence and duration from
+the game's value, the way the flask now does as a cooldown buff (below).
+
+*Where it stands (read from `BuffEngine.lua`, 2026-10-23).* The three kinds handle a live aura
+differently:
+
+| | Starts when the aura is already up (login/reload, applied by someone else) | Follows the aura's real expiry (talents, refresh, stacking) | Ends on a readable aura loss |
+|---|---|---|---|
+| **Buff tracker** | No, only a cast starts it | No, it runs the typed duration | Yes (`ScanActiveTimersForCancellation`), unless "End when the aura is lost" is off |
+| **Reminder** | Yes (`RefreshAuraStates`) | Yes, both ways; with the opt-out off it only ever extends | Yes, in both passes; it also holds a present/missing state that decides whether the reminder shows |
+| **Cooldown buff** (v0.5.3) | Yes (`RefreshAuraStates`) | Yes, both ways | Yes (`ScanActiveTimersForCancellation`), no opt-out |
+
+So a plain buff tracker does not pick up a buff already up at login/reload, and does not follow
+an expiry the game changes. Reminders do, because v0.5.0 (Phase 57.2) built a separate refresh for
+them. Cooldown buffs were attached to that same refresh in v0.5.3 Phase 78 (commits `09f36aa`,
+`469ff35`), for the flask picked up after a reload.
+
+*How the two passes split today:*
+- **Two passes per aura event.** `ns:OnUnitAura` runs `RefreshAuraStates`, then
+  `ScanActiveTimersForCancellation`. The post-cast re-check (`RunCastAuraRecheck`) and combat end
+  (`PLAYER_REGEN_ENABLED`) run both too.
+- **Some auras are read twice per event.** The refresh caches each aura read for its own pass
+  (`refreshAuraMemo`), but the cancellation scan reads again. A running reminder timer is checked
+  in both passes.
+- **The rules differ in small ways.** Both passes use `ns.CAST_AURA_GRACE`, but each implements it
+  separately. A full aura update (zone change, loading screen) suppresses only the ending of timers
+  in the refresh (`suppressCancel`), but skips the cancellation scan entirely (ZONE-02). The opt-out
+  on reminders only applies once a read has confirmed the buff (57.5 review WR-03); on buff trackers
+  it applies at once.
+
+*Proposed shape (2026-10-23, not decided).* One pass per aura event. Each watched aura ID is read
+once (the existing memo). Then every tracked key, whatever its kind, goes through the same three
+steps: start when the aura is up, follow its expiry, end on a readable loss past the cast grace.
+The differences become per-kind settings rather than separate code:
+- buff and reminder honour the "End when the aura is lost" opt-out; cooldown buffs have none;
+- reminders also update their present/missing state;
+- cooldown buffs start only in an icon container that is not hidden
+  (`ns:FillCooldownBuffProc`);
+- buff trackers start and follow only with the new option on.
+
+The pieces already shared in v0.5.3 are `ReadWatchedList` (the read of a watched list, picking the
+latest readable expiry), `SyncProcToAura` (the timing write) and `ns:FillCooldownBuffProc`. These
+are the starting point. The refresh and the cancellation scan would merge into that one pass.
+
+*Things to keep:*
+- **Unreadable never counts as absent (DTRK-06).** Every read goes through `ns:ReadPlayerAura`,
+  proven by `scripts/aura-read-gate.js`.
+- **The typed Duration is never rewritten from a read.** Only the running timer follows the
+  aura. A stacked aura is longer than one use's (two flasks = 2h), so the typed value stays as
+  typed (user decision 2026-10-22).
+- **The reminder rules from 57.2-05 and 57.5 hold:** the cast grace, the `syncedAt` window, the
+  latest expiry among alternatives, and an open-ended aura outlasting the rest.
+- **The behaviour change is visible.** With the option on, a buff applied by someone else (e.g.
+  Power Infusion) starts the tracker. The default only applies to new buffs, so existing trackers
+  are unaffected.
+
+*A small gap to close in the same pass.* Reminders guard a fresh aura sync against the cast that
+follows it (`syncedAt` in `ns:StartReminderFromCast`); cooldown buffs do not. If the aura event
+arrives just before the cast, the cast resets the timer to the typed Duration for about half a
+second, until the post-cast re-check moves it back.
 
 *The four original backlog phases — 999.1 (Edit Mode mouse-down), 999.2 (README and store copy),
 999.3 (single-TOC migration) and 999.4 (`@project-version@` in dev installs) — were promoted into

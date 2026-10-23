@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.5.2
-milestone_name: "Improved Merge Mode and small fixes"
+milestone: v0.5.3
+milestone_name: "Display buff duration alongside cooldowns"
 status: complete
-last_updated: "2026-10-10"
-last_activity: 2026-10-10 — Milestone v0.5.2 archived
+last_updated: "2026-10-23"
+last_activity: 2026-10-23 — v0.5.3 archived (audit passed); squash-merge, changelog and release by the user
 progress:
   total_phases: 6
   completed_phases: 6
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 8
+  completed_plans: 8
   percent: 100
 ---
 
@@ -17,49 +17,68 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-10)
+See: .planning/PROJECT.md (updated 2026-10-23)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** Planning the next milestone (`/gsd-new-milestone`; phases start at 73).
+**Current focus:** v0.5.3 shipped and archived 2026-10-23. Next: the user squash-merges to `main`, writes the CHANGELOG entry and runs `release.bat` from `main`; then `/gsd-new-milestone` (phases continue at 79).
 
 ## Current Position
 
-Phase: — (v0.5.2 complete; Phases 67-72 all done)
-Plan: —
-Status: v0.5.2 shipped 2026-10-10 — Phase 72 passed on retail (raid and M+) and Forever;
-archived to `.planning/milestones/v0.5.2-*`. The user squash-merges to `main`, writes the
-CHANGELOG entry and tags the release.
-Last activity: 2026-10-10 — milestone close
+Phase: 78 — Human Testing (complete)
+Plan: — (testing pass, no plans)
+Status: Phases 73-78 complete. Phase 78 passed on retail (2026-10-23), with one gap fix: a cooldown's
+buff follows its live aura through ns:RefreshAuraStates (`838e93c`, `09f36aa`, `469ff35`). #14 (charge
+count during the buff) skipped by the user. The broader one-pass aura review is backlog 999.28.
+Last activity: 2026-10-23 — milestone audit PASSED (`.planning/v0.5.3-MILESTONE-AUDIT.md`, audit warning 1 fixed in `5533775`); milestone archived
 
-- Next kickoff: archive the phase log below to `.planning/milestones/v0.5.2-STATE-phase-log.md` and
-  move `.planning/phases/67-*`..`71-*` to `.planning/milestones/v0.5.2-phases/`, as done for v0.5.1.
-- Still open: 61-HUMAN-UAT #2 (waits on 999.19); Divine Spirit (27841) ships unverified in game.
+Progress: [██████████] 100% (6/6 phases)
 
-## v0.5.2 Phase Log
+- Phase 77 review: clean apart from 3 info notes (comment wording on ns:FinishTrackerEdit, chat-line
+  ordering only visible on a throw, duplicate container keys in hand-edited saves) — left as notes.
 
-*Kept for the record until the next kickoff archives it. Superseded by the Current Position above.*
+- Phase 76: for items, the plain `auraID` and `endOnCast` fields are HIDDEN rather than greyed (an
+  item never has a value for either) — a deviation from "every field greyed", flagged for the user;
+  two-line flip if they want them greyed. Review WR-01 (item save writes only read buff keys) fixed —
+  in-game check in Phase 78. IN-03 (duplicated end-of-save steps) deferred into Phase 77.
 
-Phase: 72 of 72 (Human Testing) — complete
-Plan: —
-Status: Every in-game check passed on retail (raid and M+) and Forever; Divine Spirit ships unverified (no leveled priest)
-Last activity: 2026-10-10 — Phase 72 Human Testing passed; 999.5 closed
+- Phase 75 review: WR-02 (pooled widget returning to a tracker re-issues its own sweep/grey) fixed —
+  needs an in-game check in Phase 78. WR-01 (bag-item buff icon) deferred into Phase 76. Phase 75
+  verifier noted a stale Core.lua comment (~592-593) on IsBagItemEntry vs IsCooldownSlotEntry —
+  Phase 77 cleanup candidate.
 
-Progress: [██████████] 100%
+- Phase 74 review: CR-01 (Forever rank family on the buff watch list) and IN-04 (edit applies to a
+  running buff; a changed Duration ends it) were fixed and need an in-game check in Phase 78. WR-02
+  kept by locked decision: the cooldown buff has no aura-loss opt-out; a wrong Aura ID is the user's
+  to correct.
 
-- Phase order: 67 Remove Racials → 68 Merge Mode by Re-anchoring → 69 Re-anchoring Open Issues →
-  70 Remove the Redraw Path & Close the Merge Mode Bugs → 71 Cleanup → 72 Human Testing (last).
+- Phase 73 review WR-01 (keep `_classic_beta_` in install.ps1) declined: it reverses the user's
+  kickoff decision. The stale TBT copy left in `_classic_beta_` goes on the Phase 78 checklist.
 
-- Branch: `milestone/v0.5.2-improved-merge-mode`, cut from `topic/dev` on 2026-10-10. It already
-  carries the re-anchor prototype (`3bc4ad6`) and its write-up, `.planning/research/MERGE-REANCHOR-POC.md`.
-- Phases start at **67** (v0.5.1 ended at Phase 66; numbering never restarts).
-- Research skipped: the POC write-up and backlog 999.26 are the settled design.
-- v0.5.1's phase log is archived at `.planning/milestones/v0.5.1-STATE-phase-log.md` and its phase
-  directories at `.planning/milestones/v0.5.1-phases/`.
-- Still open: 61-HUMAN-UAT #2, now waiting on 999.19 alone (999.20 closed as recorded in error).
+- Branch: `milestone/v0.5.3-buff-duration-alongside-cooldowns`, cut from `main` (`3377a8e`) on
+  2026-10-22.
+- Phases start at **73** (v0.5.2 ended at Phase 72; numbering never restarts).
+- Research skipped by user decision. One retail probe settled the only open question:
+  `.planning/research/BUFF-DURATION-PROBE.md` — no API gives a buff's duration, so it is typed.
+- **Forever is not tested this milestone** (servers down, user decision 2026-10-22). Everything here
+  is assumed to behave on Forever as it does on retail.
+- v0.5.2's phase log is archived at `.planning/milestones/v0.5.2-STATE-phase-log.md` and its phase
+  directories at `.planning/milestones/v0.5.2-phases/`.
+- Still open from earlier milestones: 61-HUMAN-UAT #2 (waits on 999.19); Divine Spirit (27841) ships
+  unverified in game.
 
 ## Last Milestone at a Glance
 
-v0.5.2 Improved Merge Mode and small fixes: Merge Mode moves Blizzard's own CDM item frames onto
+v0.5.3 Display buff duration alongside cooldowns: any cooldown, spell or bag item, can carry its
+buff (Advanced-tab checkbox, Aura ID, typed Duration, off by default). The cast or use starts it,
+the icon shows the CDM's yellow aura look while it runs, and the timer follows the live aura's
+expiry without ever rewriting the typed Duration. Install goes to `_forever_`. 15 of 15
+requirements, verified in game on Midnight retail, 2026-10-23 (Forever not tested, servers down).
+
+Full record: `.planning/MILESTONES.md` (v0.5.3 entry), `.planning/milestones/v0.5.3-ROADMAP.md`,
+`.planning/milestones/v0.5.3-REQUIREMENTS.md`, `.planning/v0.5.3-MILESTONE-AUDIT.md`,
+`.planning/phases/78-human-testing/78-TEST-CHECKLIST.md`.
+
+**Before:** v0.5.2 Improved Merge Mode and small fixes: Merge Mode moves Blizzard's own CDM item frames onto
 TBT's cells with plain C setters and one `Layout` post-hook per viewer, driven by TBT's container
 settings; the redraw path is deleted, closing 999.21-999.25, and Merge Mode reads no auras; racials
 are removed with a silent schema v12 migration. 18 of 18 requirements, verified in game on Midnight
