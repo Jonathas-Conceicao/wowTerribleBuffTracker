@@ -889,9 +889,9 @@ end
 --
 -- Not here, on purpose: SetDrawSwipe belongs to ApplyIconStyle ("Show Timer" applies to both
 -- looks), and desaturation stays with ClearIconDesaturation / ApplyUserCooldown /
--- ApplyCooldownGrey. SetUseAuraDisplayTime, the CDM's aura-state companion, is not used: TBT
--- drives every sweep from SetCooldown(GetTime() start, typed duration), and the call cannot be
--- confirmed on the Forever client from the Midnight-only source tree.
+-- ApplyCooldownGrey. The countdown format, the CDM's aura-state companion SetUseAuraDisplayTime,
+-- is a separate flag owned by ApplyCountdownFormat below, because it applies to every buff timer
+-- and not only the yellow look.
 --
 -- `aura` is always a plain boolean TBT computes from its own saved keys, never a game value, so
 -- the stamp compare is secret-safe. Literal colour numbers: this runs in the render tick.
@@ -906,6 +906,42 @@ local function ApplySwipeLook(icon, aura)
 			cooldown:SetSwipeColor(0, 0, 0, 0.7)
 		end
 		cooldown:SetDrawEdge(not aura)
+		icon._lastStart = nil
+		icon._userCdState = nil
+		icon._cdGen = nil
+	end
+end
+
+-- Phase 79 (BUFFTIME-01/02): the countdown text's format, per state, as Blizzard's CDM does it.
+--
+-- The cooldown format rounds hours up, so a buff with a little over 1h left read "2h" while the
+-- game's own buff display read about 1h (BUFFTIME-01). The CDM's buff icons turn the aura format
+-- on once in OnLoad (CooldownViewer.lua:1397), and its cooldown items switch it per state through
+-- cooldownUseAuraDisplayTime: true while an aura drives the sweep (:877, :895), false for a
+-- cooldown (e.g. :924), applied just before CooldownFrame_Set (:1150).
+--
+-- auraTime == true for EVERY icon the timer branch draws (buff tracker, reminder, Trinket/Pot,
+-- a cooldown's own buff); false for every real cooldown sweep (ApplyCooldownSlot). It is NOT
+-- ApplySwipeLook's `aura`, which is only the yellow cooldown-buff look.
+--
+-- A format change nils the sweep stamps, the ApplySwipeLook rule, so whichever branch owns the
+-- icon re-issues its sweep under the new format in the same pass. The steady path is one stamp
+-- compare and no API call.
+--
+-- `auraTime` is a plain boolean TBT passes in, never a game value: the stamp compare is
+-- secret-safe, and a non-secret argument is what the AllowedWhenUntainted rule permits from
+-- addon code. The method is guarded because it cannot be confirmed on the Forever client from
+-- the Midnight-only source tree; without it the icon keeps today's format and the stamp only
+-- drives the sweep re-issue. The stamp is deliberately NOT reset in ClearCooldownStamps: Clear()
+-- does not reset the widget's format (Blizzard's buff icon relies on exactly that), so where the
+-- method exists the stamp keeps matching the widget's real state.
+local function ApplyCountdownFormat(icon, auraTime)
+	if icon._auraTime ~= auraTime then
+		icon._auraTime = auraTime
+		local cooldown = icon.cooldown
+		if cooldown.SetUseAuraDisplayTime then
+			cooldown:SetUseAuraDisplayTime(auraTime)
+		end
 		icon._lastStart = nil
 		icon._userCdState = nil
 		icon._cdGen = nil
@@ -1154,6 +1190,9 @@ local function ApplyUserCooldown(icon, entry, now)
 	-- preview then drew over it, and on close the comparison still matched, so nothing cleared
 	-- the preview's sweep. The clear has to be owned by whoever owns the icon, not conditional on
 	-- having set it.
+	-- Phase 79: since ApplyCooldownSlot runs ApplyCountdownFormat(icon, false) first, a handover
+	-- from the timer branch reaches here with _lastStart already nil (the format change clears
+	-- it). This guard stays as the owner's own clear, but the handover no longer depends on it.
 	if icon._lastStart ~= nil then
 		icon._lastStart = nil
 		icon._userCdState = nil
@@ -1200,7 +1239,10 @@ local function ApplyCooldownSlot(icon, entry, settings, now)
 	ApplyIconStyle(icon, settings)
 	-- Phase 75 (BUFFDISP-02): the cooldown look, asserted before either sweep owner below runs, so
 	-- the handover from a buff re-issues the cooldown in this same pass.
+	-- Phase 79 (BUFFTIME-02): the cooldown countdown format, asserted here so both ApplyUserCooldown
+	-- and ApplyCooldownHandle draw under it, including on the handover from a buff.
 	ApplySwipeLook(icon, false)
+	ApplyCountdownFormat(icon, false)
 
 	-- The DB entry itself is the tooltip payload: it already carries the numeric spellID and
 	-- the label ns:ShowBuffTooltip reads, so the placeholder branch's per-tick table
@@ -1229,7 +1271,8 @@ local function ApplyCooldownSlot(icon, entry, settings, now)
 	-- spell with no recharge sweep. ApplySlotCount runs first on every pass and does work whenever
 	-- the generation or key moved, so chargeCapable is always filled for the current generation
 	-- before the block below can ask for it. The block can also re-run on its own, when
-	-- ApplySwipeLook or the timer-branch handover nils _cdGen; the count is already current then.
+	-- ApplySwipeLook, ApplyCountdownFormat or the timer-branch handover nils _cdGen; the count is
+	-- already current then.
 	ApplySlotCount(icon, entry)
 
 	if icon._cdGen ~= ns.cooldownGeneration or icon._cdKey ~= entry.key then
@@ -1770,7 +1813,10 @@ local function RenderIconContainer(def, container, settings, timers, now)
 			-- Phase 75 (BUFFDISP-01/05): the yellow aura look only for a cooldown tracker whose buff
 			-- is on. Gated on the ENTRY, not the timer, so Buffs-tab, Reminders-tab and Trinket/Pot
 			-- procs and a buff-off cooldown's preview demo keep the dark look.
+			-- Phase 79 (BUFFTIME-01): every timer here, not only the yellow one, counts down in the
+			-- aura format.
 			ApplySwipeLook(icon, slotEntry and ns:CooldownBuffDuration(entry) ~= nil)
+			ApplyCountdownFormat(icon, true)
 
 			if icon._lastStart ~= timer.startedAt then
 				icon._lastStart = timer.startedAt

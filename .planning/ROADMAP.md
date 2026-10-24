@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [x] **v0.5.4 Buff countdown display fix** — Phase 79 (shipped 2026-10-24) — [archive](milestones/v0.5.4-ROADMAP.md)
 - [x] **v0.5.3 Display buff duration alongside cooldowns** — Phases 73-78 (shipped 2026-10-23) — [archive](milestones/v0.5.3-ROADMAP.md)
 - [x] **v0.5.2 Improved Merge Mode and small fixes** — Phases 67-72 (shipped 2026-10-10) — [archive](milestones/v0.5.2-ROADMAP.md)
 - [x] **v0.5.1 Clickable Reminders and new icons** — Phases 61-66 (shipped 2026-10-01) — [archive](milestones/v0.5.1-ROADMAP.md)
@@ -15,6 +16,16 @@
 - [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
+
+<details>
+<summary>✅ v0.5.4 Buff countdown display fix (Phase 79) — SHIPPED 2026-10-24</summary>
+
+Full detail archived at [`milestones/v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md); requirements
+at [`milestones/v0.5.4-REQUIREMENTS.md`](milestones/v0.5.4-REQUIREMENTS.md).
+
+- [x] Phase 79: Buff Countdown Display Fix (1/1 plans) — buff icons use the aura countdown format
+
+</details>
 
 <details>
 <summary>✅ v0.5.3 Display buff duration alongside cooldowns (Phases 73-78) — SHIPPED 2026-10-23</summary>
@@ -293,13 +304,13 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 
 ## Phase Details
 
-*Every phase through v0.5.3 (Phases 1-78) is archived under `.planning/milestones/`. The most recent
-is [`v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md), which carries the full detail for Phases
-73-78; [`v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md) covers Phases 67-72.*
+*Every phase through v0.5.4 (Phases 1-79) is archived under `.planning/milestones/`. The most recent
+is [`v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md), which carries the full detail for Phase 79;
+[`v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md) covers Phases 73-78.*
 
 ## Progress
 
-**Execution order:** no milestone in progress (v0.5.3 ran 73 → 74 → 75 → 76 → 77 → 78)
+**Execution order:** no milestone in progress (v0.5.4 ran 79)
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -357,6 +368,7 @@ is [`v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md), which carries the full d
 | 76. Buff Duration on Bag Items | v0.5.3 | 2/2 | Complete | 2026-10-22 |
 | 77. Cleanup | v0.5.3 | 2/2 | Complete | 2026-10-22 |
 | 78. Human Testing | v0.5.3 | — | Complete — PASSED on retail; gap fix: buff follows its live aura (`469ff35`); #14 skipped | 2026-10-23 |
+| 79. Buff Countdown Display Fix | v0.5.4 | 1/1 | Complete — verified in game on retail; one `/reload` miss not reproduced (fluke) | 2026-10-24 |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*

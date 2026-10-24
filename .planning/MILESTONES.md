@@ -1,5 +1,18 @@
 # Milestones
 
+## v0.5.4 Buff countdown display fix (Shipped: 2026-10-24)
+
+**Scope:** One bug, then a release. A buff timer's icon read "2h" with about 1h left. Started as "Login buff duration fix" and re-scoped the same day: the bug survived a `/reload`, so the cause was the countdown text, not the login read.
+**Phases:** 1 (79), 1 plan. The user's in-game check was part of the phase (user decision).
+**Timeline:** 1 day (2026-10-24), 5 commits. `Display.lua` only, +50 / -4.
+**Verified on:** Midnight retail, 2026-10-24, user sign-off. Forever was not tested.
+**Requirements:** 4 / 4 closed (BUFFTIME-01..03, VER-14).
+**Known deferred items at close:** one `/reload` miss (the flask showed no timer until a relog), not reproduced and called a fluke by the user; the "6m shows 2h" case was not reproduced. Backlog unchanged. See `milestones/v0.5.4-ROADMAP.md`.
+
+### Key accomplishments
+
+- **Buff icons count down like the game's buffs.** Every buff timer icon (buff, reminder, Trinket/Pot, a cooldown's buff) uses the aura countdown format, `SetUseAuraDisplayTime(true)`, as the CDM's buff icons do. Real cooldowns keep the cooldown format. Pooled icons switch correctly, at the cost of one stamp compare per frame.
+
 ## v0.5.3 Display buff duration alongside cooldowns (Shipped: 2026-10-23)
 
 **Scope:** Any cooldown TBT tracks, a spell or a bag item, can optionally carry its buff. While the buff runs, the icon shows it in the CDM's yellow aura style instead of the cooldown. The installer deploys to Forever's new `_forever_` folder. No Merge Mode change and no backlog item promoted.

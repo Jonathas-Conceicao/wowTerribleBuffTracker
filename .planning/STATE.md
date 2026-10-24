@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.5.3
-milestone_name: "Display buff duration alongside cooldowns"
+milestone: v0.5.4
+milestone_name: "Buff countdown display fix"
 status: complete
-last_updated: "2026-10-23"
-last_activity: 2026-10-23 — v0.5.3 archived (audit passed); squash-merge, changelog and release by the user
+last_updated: "2026-10-24"
+last_activity: 2026-10-24 — v0.5.4 archived (audit passed) and squash-merged to main; CHANGELOG and release by the user
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 8
-  completed_plans: 8
+  total_phases: 1
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
   percent: 100
 ---
 
@@ -17,50 +17,33 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-23)
+See: .planning/PROJECT.md (updated 2026-10-24)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** v0.5.3 shipped and archived 2026-10-23. Next: the user squash-merges to `main`, writes the CHANGELOG entry and runs `release.bat` from `main`; then `/gsd-new-milestone` (phases continue at 79).
+**Current focus:** v0.5.4 shipped and archived 2026-10-24, squash-merged to `main`. Next: the user writes the CHANGELOG entry and runs `release.bat 0.5.4` from `main`; then `/gsd-new-milestone` (phases continue at 80).
 
 ## Current Position
 
-Phase: 78 — Human Testing (complete)
-Plan: — (testing pass, no plans)
-Status: Phases 73-78 complete. Phase 78 passed on retail (2026-10-23), with one gap fix: a cooldown's
-buff follows its live aura through ns:RefreshAuraStates (`838e93c`, `09f36aa`, `469ff35`). #14 (charge
-count during the buff) skipped by the user. The broader one-pass aura review is backlog 999.28.
-Last activity: 2026-10-23 — milestone audit PASSED (`.planning/v0.5.3-MILESTONE-AUDIT.md`, audit warning 1 fixed in `5533775`); milestone archived
+Phase: 79 — Buff Countdown Display Fix (complete)
+Plan: 79-01 (complete; `cbc4008`, review notes `bde1da4`)
+Status: Phase 79 verified (code trace, plus the user in game on retail). One `/reload` miss, not
+reproduced, was called a fluke by the user. Milestone audit PASSED (`.planning/v0.5.4-MILESTONE-AUDIT.md`).
+Last activity: 2026-10-24 — milestone archived and squash-merged
 
-Progress: [██████████] 100% (6/6 phases)
+Progress: [██████████] 100% (1/1 phases)
 
-- Phase 77 review: clean apart from 3 info notes (comment wording on ns:FinishTrackerEdit, chat-line
-  ordering only visible on a throw, duplicate container keys in hand-edited saves) — left as notes.
-
-- Phase 76: for items, the plain `auraID` and `endOnCast` fields are HIDDEN rather than greyed (an
-  item never has a value for either) — a deviation from "every field greyed", flagged for the user;
-  two-line flip if they want them greyed. Review WR-01 (item save writes only read buff keys) fixed —
-  in-game check in Phase 78. IN-03 (duplicated end-of-save steps) deferred into Phase 77.
-
-- Phase 75 review: WR-02 (pooled widget returning to a tracker re-issues its own sweep/grey) fixed —
-  needs an in-game check in Phase 78. WR-01 (bag-item buff icon) deferred into Phase 76. Phase 75
-  verifier noted a stale Core.lua comment (~592-593) on IsBagItemEntry vs IsCooldownSlotEntry —
-  Phase 77 cleanup candidate.
-
-- Phase 74 review: CR-01 (Forever rank family on the buff watch list) and IN-04 (edit applies to a
-  running buff; a changed Duration ends it) were fixed and need an in-game check in Phase 78. WR-02
-  kept by locked decision: the cooldown buff has no aura-loss opt-out; a wrong Aura ID is the user's
-  to correct.
-
-- Phase 73 review WR-01 (keep `_classic_beta_` in install.ps1) declined: it reverses the user's
-  kickoff decision. The stale TBT copy left in `_classic_beta_` goes on the Phase 78 checklist.
-
-- Branch: `milestone/v0.5.3-buff-duration-alongside-cooldowns`, cut from `main` (`3377a8e`) on
-  2026-10-22.
-- Phases start at **73** (v0.5.2 ended at Phase 72; numbering never restarts).
-- Research skipped by user decision. One retail probe settled the only open question:
-  `.planning/research/BUFF-DURATION-PROBE.md` — no API gives a buff's duration, so it is typed.
-- **Forever is not tested this milestone** (servers down, user decision 2026-10-22). Everything here
-  is assumed to behave on Forever as it does on retail.
+- Branch: `milestone/v0.5.4-login-buff-duration-fix`, cut from `main` (`1807c5c`) on 2026-10-24.
+- Phases start at **79** (v0.5.3 ended at Phase 78; numbering never restarts).
+- One phase only, by user decision: the user's in-game check (a real logout and login) is part of
+  Phase 79; there is no separate testing phase. Research skipped.
+- The bug, as first reported: on a cold login, a reminder and a cooldown buff, both on a buff with
+  about 1h left, showed "2h" while the game showed about 1h. It then survived a `/reload`, and a
+  buff with 6m left showed "2h" on another character. Re-scoped (user decision, 2026-10-24) to the
+  icon's countdown text: TBT's buff icons use the cooldown format, which rounds hours up; the CDM's
+  buff icons call `SetUseAuraDisplayTime(true)`. The "6m shows 2h" case is not explained by this
+  and is part of the in-game check.
+- v0.5.3's phase directories are archived at `.planning/milestones/v0.5.3-phases/`; its review notes
+  are in `.planning/milestones/v0.5.3-ROADMAP.md` and `.planning/v0.5.3-MILESTONE-AUDIT.md`.
 - v0.5.2's phase log is archived at `.planning/milestones/v0.5.2-STATE-phase-log.md` and its phase
   directories at `.planning/milestones/v0.5.2-phases/`.
 - Still open from earlier milestones: 61-HUMAN-UAT #2 (waits on 999.19); Divine Spirit (27841) ships

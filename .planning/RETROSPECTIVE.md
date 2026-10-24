@@ -2,6 +2,36 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v0.5.4 — Buff countdown display fix
+
+**Shipped:** 2026-10-24 (archived and squash-merged; changelog and tag by the user)
+**Phases:** 1 (79) | **Plans:** 1 | **Commits:** 5 | **Span:** 1 day
+
+### What Was Built
+
+- Buff timer icons use the aura countdown format; real cooldowns keep the cooldown format.
+
+### What Worked
+
+- **Asking the user what the bug looked like before planning.** "Did it stay wrong?" and "what did
+  the game's own buff show?" turned a login bug into a display bug in two answers.
+- **Copying the CDM.** Blizzard's own buff icons already solve this with one documented call.
+
+### What Was Inefficient
+
+- **The milestone was scoped on the first report.** It was written as a cold-login bug before
+  anyone checked whether a `/reload` reproduced it, so the requirements and roadmap were written
+  twice.
+- **A forbidden `sed -i` on `ROADMAP.md`, then a `git checkout` to undo it**, discarded uncommitted
+  re-scope edits, which had to be redone.
+
+### Key Lessons
+
+- Before scoping a bug as "on login", ask whether it survives a `/reload` and what the game's own
+  UI shows at the same moment.
+- A wrong number on a CooldownFrame can be the countdown format, not the timer: check
+  `SetUseAuraDisplayTime` first.
+
 ## Milestone: v0.5.3 — Display buff duration alongside cooldowns
 
 **Shipped:** 2026-10-23 (archived; squash-merge, changelog and tag by the user)

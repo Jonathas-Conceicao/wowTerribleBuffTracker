@@ -10,15 +10,28 @@ Players can see countdown timers for buffs/cooldowns that the game no longer sur
 
 ## Next Milestone
 
-Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 79. Open
+Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 80. Open
 candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27, 999.28).
+
+<details>
+<summary>v0.5.4 Buff countdown display fix — SHIPPED 2026-10-24</summary>
+
+1 phase (79), 1 plan, 4/4 requirements. Buff timer icons use the aura countdown format
+(`SetUseAuraDisplayTime(true)`, as the CDM's buff icons do), so a buff with about 1h left no longer
+reads "2h"; real cooldowns keep theirs. First scoped as "Login buff duration fix" and re-scoped the
+same day (the bug survived a `/reload`). Verified in game on Midnight retail by the user. Branch
+`milestone/v0.5.4-login-buff-duration-fix`, squash-merged to `main`; CHANGELOG, release and tag by
+the user. Archives: [`milestones/v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md) and
+[`milestones/v0.5.4-REQUIREMENTS.md`](milestones/v0.5.4-REQUIREMENTS.md).
+
+</details>
 
 <details>
 <summary>v0.5.3 Display buff duration alongside cooldowns — SHIPPED 2026-10-23</summary>
 
 6 phases (73-78), 8 plans, 15/15 requirements. Verified in game on Midnight retail (combat/M+ and a
 real logout and login included) on 2026-10-23, in one testing pass. Forever was not tested (servers
-down). Squash-merge to `main`, release and tag by the user. Archives:
+down). Squash-merged to `main` (`126f998`); CHANGELOG, release and tag by the user. Archives:
 [`milestones/v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md) and
 [`milestones/v0.5.3-REQUIREMENTS.md`](milestones/v0.5.3-REQUIREMENTS.md).
 
@@ -417,6 +430,7 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 - The CDM's yellow aura look on a cooldown icon while its buff runs (the fill clears in full colour, no edge); the grey cooldown returns at once when the buff ends; charge and item counts kept; buff-only and meta icons unchanged — v0.5.3 Phase 75 (BUFFDISP-01..05)
 - Bag items moved out of Suggested are editable: only the buff fields can be changed, the item's other fields show greyed; using the item starts its buff — v0.5.3 Phase 76 (BUFFCD-05..07)
 - A cooldown's buff already up is picked up at login, reload, add and edit, and its timer follows the aura's real expiry (stacking, extensions) through `ns:RefreshAuraStates`; the typed Duration is never rewritten — v0.5.3 Phase 78 gap fix
+- Buff timer icons count down in the aura format (`SetUseAuraDisplayTime(true)`), so about 1h left no longer reads "2h"; real cooldowns keep the cooldown format — v0.5.4 Phase 79 (BUFFTIME-01..03)
 
 ### Active
 
@@ -437,7 +451,9 @@ Still open in the backlog:
 
 **Planning drift note:** v0.2.5 (12.1 compatibility) and v0.2.6 (CDM tab placement) were both developed, tagged and released outside the GSD workflow, so they have no phase artifacts under `.planning/phases/`. They are recorded in `CHANGELOG.md`, `MILESTONES.md` and the Validated list above; that is the whole of their planning record — no phases are reconstructed retroactively.
 
-**v0.5.3 Display buff duration alongside cooldowns shipped 2026-10-23** — 6 phases (73-78), 8 plans, 15/15 requirements, verified in game on Midnight retail (Forever not tested, servers down); the user squash-merges to `main`, writes the CHANGELOG entry and tags the release. See [`milestones/v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md).
+**v0.5.4 Buff countdown display fix shipped 2026-10-24** — 1 phase (79), 1 plan, 4/4 requirements, verified in game on Midnight retail; squash-merged to `main`, CHANGELOG and tag by the user. See [`milestones/v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md).
+
+**Earlier —** **v0.5.3 Display buff duration alongside cooldowns shipped 2026-10-23** — 6 phases (73-78), 8 plans, 15/15 requirements, verified in game on Midnight retail (Forever not tested, servers down); the user squash-merges to `main`, writes the CHANGELOG entry and tags the release. See [`milestones/v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md).
 
 **Earlier —** v0.5.2 Improved Merge Mode and small fixes shipped 2026-10-10 — 6 phases (67-72), 17 plans, 18/18 requirements, verified in game on both flavours including retail raid and M+; the user squash-merges to `main`, writes the CHANGELOG entry and tags the release. See [`milestones/v0.5.2-ROADMAP.md`](milestones/v0.5.2-ROADMAP.md).
 
@@ -548,4 +564,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-23 after the v0.5.3 milestone*
+*Last updated: 2026-10-24 after the v0.5.4 milestone*

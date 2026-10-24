@@ -1,107 +1,65 @@
-# Requirements — v0.5.3 Display buff duration alongside cooldowns
+# Requirements — v0.5.4 Buff countdown display fix
 
-**Defined:** 2026-10-22, at kickoff, with the user. Research skipped by user decision: one retail
-probe answered the only open question (`.planning/research/BUFF-DURATION-PROBE.md`). No API gives a
-buff's duration, so the duration is typed by the user.
+**Defined:** 2026-10-24, at kickoff, with the user. Research skipped by user decision. Re-scoped the
+same day, by user decision, once Phase 79's planning found the cause.
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces
 automatically.
 
-**Scope, set by the user:** one main feature and two small ones. Any cooldown TBT tracks (a spell or
-a bag item) can optionally carry its buff, configured on the dialog's Advanced tab. While the buff
-runs, the icon shows it with the CDM's yellow aura look instead of the cooldown. The installer
-deploys to the new `_forever_` folder. Nothing here touches Merge Mode, and no backlog item is
-promoted. Forever is not tested this milestone (servers down); it is assumed to behave as retail.
+**Scope, set by the user:** fix one bug and get a release ready. As first reported, a buff that was
+already up at a cold login showed the wrong time: a reminder and a cooldown buff, each on a buff with
+about 1h left, both showed "2h", while the game's own buff showed about 1h. The user then saw it
+survive a `/reload`, and saw a buff with 6m left show "2h" on another character. So it is not
+login-specific. The likely cause is the icon's countdown text, not the timer. TBT's buff icons use the
+cooldown countdown format, which rounds hours up. Blizzard's CDM buff icons switch to the aura format
+with `Cooldown:SetUseAuraDisplayTime(true)`
+(`Blizzard_CooldownViewer/CooldownViewer.lua:1397`; API doc: "Aura durations are displayed slightly
+differently than cooldown durations. Setting this to true will adjust the display logic to stay in
+sync with aura timers.").
 
-## v0.5.3 Requirements
+## v0.5.4 Requirements
 
-### Buff duration on cooldown trackers
+### Buff countdown text
 
-- [x] **BUFFCD-01**: The add and edit dialogs for a user cooldown tracker show, on the Advanced tab,
-  a "Track buff duration" checkbox, an Aura ID field and a Duration field. The checkbox is **off by
-  default** on new trackers and on every existing one.
-- [x] **BUFFCD-02**: For a spell cooldown, the Aura ID is pre-filled with the spell ID until the user
-  types their own. The Duration starts empty. With the checkbox on, the dialog does not save until
-  both the Aura ID and a positive Duration are filled in. With it off, whatever the two fields hold
-  is kept but has no effect.
-- [x] **BUFFCD-03**: With the buff on, casting the spell starts a buff timer of the typed duration at
-  the same moment as the cooldown. The cooldown keeps running separately, exactly as it does
-  without the buff.
-- [x] **BUFFCD-04**: The buff timer ends early when its aura is seen to be gone, under the same
-  readable-only rule as TBT's user buff trackers. It never ends early because of a read that comes
-  back secret.
-- [x] **BUFFCD-05**: A bag item tracker that was moved out of Suggested has an Edit entry. Its dialog
-  shows the item's existing fields with their values, greyed out and not editable. Only the buff
-  checkbox, the Aura ID (empty by default) and the Duration can be changed.
-- [x] **BUFFCD-06**: A Suggested item tile still has no Edit entry.
-- [x] **BUFFCD-07**: With an item's buff on, using the item starts its buff timer alongside the item's
-  cooldown, under the same rules as BUFFCD-03 and BUFFCD-04.
-- [x] **BUFFCD-08**: The buff settings survive logout and login. Existing saved trackers load with
-  the buff off and nothing else changed, proven against a real SavedVariables file by
-  `scripts/migrate-dryrun.js` if the schema changes.
-
-### Icon display
-
-- [x] **BUFFDISP-01**: While a cooldown tracker's buff runs, its icon shows the buff's countdown in
-  the CDM's aura style (`CooldownViewer.lua`, `ITEM_AURA_COLOR`): a yellow swipe
-  (1, 0.95, 0.57, 0.7) that clears back to full colour, no edge, and the icon not grey. The
-  cooldown is not shown while the buff runs.
-- [x] **BUFFDISP-02**: When the buff ends or is cancelled, a cooldown that is still running shows at
-  once with TBT's current cooldown look: the white-to-grey sweep and a grey icon.
-- [x] **BUFFDISP-03**: An icon is grey only while a cooldown shows and no buff does. With neither
-  running, the icon is in full colour with no sweep.
-- [x] **BUFFDISP-04**: A cooldown tracker's charge or item count stays visible while its buff runs.
-- [x] **BUFFDISP-05**: Icons for buff-only trackers (the Buffs and Reminders tabs) and the
-  Trinket/Pot meta-trackers keep their current look. This matches the CDM, whose buff viewer
-  uses the dark cooldown swipe and keeps the yellow aura swipe for cooldown entries only.
-
-### Install
-
-- [x] **INST-11**: `scripts/install.ps1` deploys to `World of Warcraft\_forever_` and no longer to
-  `_classic_beta_`. `CLAUDE.md` names `_forever_` and Forever's product `wowf` (1.60.1.70532,
-  interface 16001, so the TOC does not change).
+- [x] **BUFFTIME-01**: The countdown on a running buff timer's icon (a buff tracker, a reminder, a
+  Trinket/Pot proc, or a cooldown's own buff) shows the remaining time the way the game's buff
+  display does: a buff with about 1h left never reads "2h".
+- [x] **BUFFTIME-02**: A real cooldown's countdown (a cooldown tracker with no buff running, Merge
+  Mode untouched) keeps the cooldown format it has today. A pooled icon that switches between a
+  buff and a cooldown always gets the right format for what it now shows.
+- [x] **BUFFTIME-03**: The fix changes nothing else. The timers themselves (start, sync to the aura,
+  end), the sweep, the yellow aura look and the bars stay as in v0.5.3, and no saved value is
+  written. On a client without `SetUseAuraDisplayTime`, the icon keeps today's format and raises no
+  error.
 
 ### Verification
 
-- [x] **VER-13**: Every requirement above is checked in game on Midnight retail in one testing pass,
-  the milestone's last phase. Forever is not tested by user decision (servers down).
+- [x] **VER-14**: Before the release, the user checks BUFFTIME-01..03 in game on Midnight retail,
+  including a buff with more than 1h left and the "6m shows 2h" case.
 
 ## Future Requirements
 
-None deferred from this scope.
+None added by this milestone.
 
 ## Out of Scope
 
-| Item | Why |
-|------|-----|
-| Looking a buff's duration up automatically | No API returns one; description and tooltip text is English-only, holds several numbers, and often has none (2026-10-22 probe) |
-| Learning the duration from the live aura | Offered at kickoff; the user chose explicit typed config instead |
-| A buff on Trinket/Pot meta-trackers, reminders or buff trackers | They are already buff timers, not cooldowns |
-| Merge Mode | Untouched this milestone, by user decision |
-| Backlog items (999.11, 999.15, 999.16, 999.19, 999.27) | None promoted, by user decision |
-| Forever in-game testing | Servers down; assumed to behave as retail |
+| Item | Reason |
+|------|--------|
+| Plain buff trackers reading the aura's duration | Backlog 999.28, not now (user decision) |
+| Other backlog items (999.11, 999.15, 999.16, 999.19, 999.27) | None promoted |
+| A separate human-testing phase | User decision: the in-game check is part of the fix phase |
+| Merge Mode icons | Blizzard's own frames, not TBT's |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BUFFCD-01 | Phase 74 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFCD-02 | Phase 74 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFCD-03 | Phase 74 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFCD-04 | Phase 74 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFCD-05 | Phase 76 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFCD-06 | Phase 76 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFCD-07 | Phase 76 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFCD-08 | Phase 74 | Complete — code-verified; logout/login check in Phase 78 |
-| BUFFDISP-01 | Phase 75 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFDISP-02 | Phase 75 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFDISP-03 | Phase 75 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFDISP-04 | Phase 75 | Complete — code-verified; in-game check in Phase 78 |
-| BUFFDISP-05 | Phase 75 | Complete — code-verified; in-game check in Phase 78 |
-| INST-11 | Phase 73 | Complete — verified on disk; in-game check in Phase 78 |
-| VER-13 | Phase 78 | Complete — passed on retail 2026-10-23 (BUFFDISP-04's charge-count check skipped by the user) |
+| BUFFTIME-01 | Phase 79 | Complete — verified in game 2026-10-24 |
+| BUFFTIME-02 | Phase 79 | Complete — code trace (79-REVIEW.md) |
+| BUFFTIME-03 | Phase 79 | Complete — code trace and aura-read gate |
+| VER-14 | Phase 79 | Complete — user sign-off 2026-10-24 |
 
-**Coverage:** 15 / 15 v1 requirements mapped, none orphaned, none duplicated.
+**Coverage:** 4 / 4 requirements mapped, none orphaned, none duplicated.
 
 ---
-*Requirements defined: 2026-10-22*
+*Requirements defined: 2026-10-24; re-scoped 2026-10-24*
