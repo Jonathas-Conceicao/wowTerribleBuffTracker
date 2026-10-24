@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.4 — Buff countdown display fix
+
+### Bug Fixes
+- Buff timers no longer shows wrong time on re-logging and on some
+  cases when /reload
+
 ## v0.5.3 — Display buff duration alongside cooldown trackers
 
 ### New Features
