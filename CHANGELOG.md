@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.5 — Buff countdown display fix (again)
+
+### Bug Fixes
+- Buff timers no longer shows wrong time when usage was too long and
+  has unexpected values
+
 ## v0.5.4 — Buff countdown display fix
 
 ### Bug Fixes
