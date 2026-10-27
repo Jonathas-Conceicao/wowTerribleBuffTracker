@@ -1,6 +1,18 @@
 # Milestones
 
+## v0.5.5 Fresh-login buff time fix (Shipped: 2026-10-27, outside GSD)
+
+**Scope:** One bug fix, done outside the GSD workflow: no milestone, phase, requirements or audit. One commit, `6f976e8`, on `topic/dev` (hard-reset to `main` first), fast-forwarded to `main` by the user. Phase numbering is untouched; the next GSD milestone still starts at Phase 80.
+**Bug:** a buff already up at a fresh login (a flask with 40m left) showed its whole duration, "1h" or "2h" when stacked, until it was renewed. Leaving an engineering extension did not fix it either.
+**Cause:** `GetTime()` counts from the client's launch. A buff applied before it has a negative start (`expiresAt - duration`) once synced to its aura, and `SetCooldown` stores the start as unsigned milliseconds, so it wrapped to about 49.7 days ahead. A `/reload` keeps `GetTime()` counting, so only a fresh login showed it.
+**How it was found:** a temporary state dump (never committed) ran on its own 5s after login and printed the icon frame's `GetCooldownTimes()`. The timer said 2041s left, while the frame held a start 4,293,145s in the future. Dumps run by hand after the fact had only shown the correct timer.
+**Fix:** `SetTimerSweep` in `Display.lua` draws a running timer's sweep with `SetCooldownFromExpirationTime(expiresAt, duration)`. Where that method is missing (unconfirmed on Forever), it clamps the start at zero. Every aura timing read was already secret-guarded (`ns:ReadableAuraExpiry`), so a `/reload` in combat shows no buff timer rather than an error.
+**Correction to v0.5.4:** v0.5.4's cause ("the cooldown countdown format rounds hours up") was wrong; the "2h" was this bug. Its aura-format change (`SetUseAuraDisplayTime`) is kept because it matches the CDM's buff icons, and its comment now says so.
+**Verified on:** Midnight retail, by the user.
+
 ## v0.5.4 Buff countdown display fix (Shipped: 2026-10-24)
+
+> **Correction (2026-10-27):** the cause named below is wrong. The "2h" was a negative sweep start after a fresh client launch, fixed in v0.5.5 (above).
 
 **Scope:** One bug, then a release. A buff timer's icon read "2h" with about 1h left. Started as "Login buff duration fix" and re-scoped the same day: the bug survived a `/reload`, so the cause was the countdown text, not the login read.
 **Phases:** 1 (79), 1 plan. The user's in-game check was part of the phase (user decision).

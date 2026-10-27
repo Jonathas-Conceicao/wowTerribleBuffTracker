@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [x] **v0.5.5 Fresh-login buff time fix** — no phases, done outside GSD (shipped 2026-10-27, `6f976e8`) — see `MILESTONES.md`
 - [x] **v0.5.4 Buff countdown display fix** — Phase 79 (shipped 2026-10-24) — [archive](milestones/v0.5.4-ROADMAP.md)
 - [x] **v0.5.3 Display buff duration alongside cooldowns** — Phases 73-78 (shipped 2026-10-23) — [archive](milestones/v0.5.3-ROADMAP.md)
 - [x] **v0.5.2 Improved Merge Mode and small fixes** — Phases 67-72 (shipped 2026-10-10) — [archive](milestones/v0.5.2-ROADMAP.md)

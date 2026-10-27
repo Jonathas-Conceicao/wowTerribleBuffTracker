@@ -10,8 +10,10 @@ Players can see countdown timers for buffs/cooldowns that the game no longer sur
 
 ## Next Milestone
 
-Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 80. Open
-candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27, 999.28).
+Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 80. **v0.5.5 was
+done outside GSD** (see Current State), so the next milestone is v0.5.6 or later, and Phase 80 is
+still free. Open candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27,
+999.28).
 
 <details>
 <summary>v0.5.4 Buff countdown display fix — SHIPPED 2026-10-24</summary>
@@ -430,7 +432,8 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 - The CDM's yellow aura look on a cooldown icon while its buff runs (the fill clears in full colour, no edge); the grey cooldown returns at once when the buff ends; charge and item counts kept; buff-only and meta icons unchanged — v0.5.3 Phase 75 (BUFFDISP-01..05)
 - Bag items moved out of Suggested are editable: only the buff fields can be changed, the item's other fields show greyed; using the item starts its buff — v0.5.3 Phase 76 (BUFFCD-05..07)
 - A cooldown's buff already up is picked up at login, reload, add and edit, and its timer follows the aura's real expiry (stacking, extensions) through `ns:RefreshAuraStates`; the typed Duration is never rewritten — v0.5.3 Phase 78 gap fix
-- Buff timer icons count down in the aura format (`SetUseAuraDisplayTime(true)`), so about 1h left no longer reads "2h"; real cooldowns keep the cooldown format — v0.5.4 Phase 79 (BUFFTIME-01..03)
+- Buff timer icons count down in the aura format (`SetUseAuraDisplayTime(true)`), as the CDM's buff icons do; real cooldowns keep the cooldown format — v0.5.4 Phase 79 (BUFFTIME-01..03). **v0.5.4 named the wrong cause** for the "2h for 1h" bug; the real one was fixed in v0.5.5 (next line)
+- A buff applied before the client launched (a flask still up at a fresh login) shows its real time: the timer branch draws its sweep with `SetCooldownFromExpirationTime`, because the start time (`expiresAt - duration`) is negative while `GetTime()` is small, and `SetCooldown` wraps a negative start to ~2^32 ms ahead — v0.5.5 (`6f976e8`, outside GSD)
 
 ### Active
 
@@ -449,7 +452,9 @@ Still open in the backlog:
 
 **Last shipped:** v0.3.0 WoW Forever compatibility (tagged 2026-09-19) — interface 120100 (Midnight retail) + 16001 (Forever beta). First release to ship two flavours.
 
-**Planning drift note:** v0.2.5 (12.1 compatibility) and v0.2.6 (CDM tab placement) were both developed, tagged and released outside the GSD workflow, so they have no phase artifacts under `.planning/phases/`. They are recorded in `CHANGELOG.md`, `MILESTONES.md` and the Validated list above; that is the whole of their planning record — no phases are reconstructed retroactively.
+**Planning drift note:** v0.2.5 (12.1 compatibility) and v0.2.6 (CDM tab placement) were both developed, tagged and released outside the GSD workflow, so they have no phase artifacts under `.planning/phases/`. They are recorded in `CHANGELOG.md`, `MILESTONES.md` and the Validated list above; that is the whole of their planning record — no phases are reconstructed retroactively. **v0.5.5 is the same** (2026-10-27): one commit, `6f976e8`, on `topic/dev`, fast-forwarded to `main` by the user. It has no milestone, phase, requirements or audit. Its record is `MILESTONES.md`, the Validated list above and `CHANGELOG.md`.
+
+**v0.5.5 Fresh-login buff time fix (outside GSD, 2026-10-27)** — a buff already up at a fresh login (a flask with 40m left) showed its whole duration ("1h", or "2h" when stacked) until renewed, and following the aura through an engineering extension did not help. Found with a state dump that ran automatically 5s after login: the timer was right (2041s left), but the icon's countdown frame held a start 4,293,145s ahead. `GetTime()` counts from the client's launch, so a buff applied before it has a negative start once synced to the aura, and `SetCooldown` stores the start as unsigned milliseconds (a wrap to ~49.7 days). A `/reload` keeps `GetTime()` counting, which is why only a fresh login showed it. This was also the real cause of v0.5.4's "2h"; v0.5.4's rounding explanation was wrong. Fix: `SetTimerSweep` in `Display.lua` uses `SetCooldownFromExpirationTime`, with a clamp-at-zero fallback where the method is missing.
 
 **v0.5.4 Buff countdown display fix shipped 2026-10-24** — 1 phase (79), 1 plan, 4/4 requirements, verified in game on Midnight retail; squash-merged to `main`, CHANGELOG and tag by the user. See [`milestones/v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md).
 
@@ -564,4 +569,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-24 after the v0.5.4 milestone*
+*Last updated: 2026-10-27, recording v0.5.5 (done outside GSD)*

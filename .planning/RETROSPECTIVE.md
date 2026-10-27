@@ -2,6 +2,25 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## v0.5.5 — Fresh-login buff time fix (outside GSD, 2026-10-27)
+
+One commit (`6f976e8`), no milestone. It records the real cause of v0.5.4's bug.
+
+### Key Lessons
+
+- **Run a diagnostic dump on its own at reload/login, not only by hand.** A by-hand `/tbt dump` after
+  a `/reload` showed a correct timer, and v0.5.4 closed on a fix for the wrong cause. The dump that
+  found the bug ran on its own 5s after a fresh login, and printed the icon frame's own
+  `GetCooldownTimes()` next to the timer. From now on, every temporary dump does both: it runs on
+  its own after `PLAYER_ENTERING_WORLD`, and it prints what the widget holds as well as TBT's
+  state. Then ask for a fresh login as well as a `/reload`.
+- **`GetTime()` is not a wall clock.** It counts from the client's launch, so anything computed
+  as `expiration - duration` from an aura can be negative after a fresh launch. A `/reload` never
+  shows that.
+- **v0.5.4 accepted a cause nobody had observed.** "The countdown rounds hours up" was inferred
+  from an API doc sentence, never measured. A display bug needs the widget's own state before a
+  cause is written down.
+
 ## Milestone: v0.5.4 — Buff countdown display fix
 
 **Shipped:** 2026-10-24 (archived and squash-merged; changelog and tag by the user)

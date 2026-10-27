@@ -4,7 +4,7 @@ milestone: v0.5.4
 milestone_name: "Buff countdown display fix"
 status: complete
 last_updated: "2026-10-24"
-last_activity: 2026-10-24 — v0.5.4 archived (audit passed) and squash-merged to main; CHANGELOG and release by the user
+last_activity: 2026-10-27 — v0.5.5 fixed outside GSD (`6f976e8`); recorded in MILESTONES.md and PROJECT.md
 progress:
   total_phases: 1
   completed_phases: 1
@@ -20,7 +20,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-24)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** v0.5.4 shipped and archived 2026-10-24, squash-merged to `main`. Next: the user writes the CHANGELOG entry and runs `release.bat 0.5.4` from `main`; then `/gsd-new-milestone` (phases continue at 80).
+**Current focus:** No milestone in progress. v0.5.4 shipped 2026-10-24. **v0.5.5 was done outside GSD** on 2026-10-27: one commit, `6f976e8`, the fresh-login buff time fix, recorded in `MILESTONES.md` and `PROJECT.md`. It also corrects v0.5.4's cause. Next: `/gsd-new-milestone` for v0.5.6 or later (phases continue at 80).
 
 ## Current Position
 
