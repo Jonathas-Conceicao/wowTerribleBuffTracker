@@ -914,8 +914,9 @@ end
 
 -- Phase 79 (BUFFTIME-01/02): the countdown text's format, per state, as Blizzard's CDM does it.
 --
--- The cooldown format rounds hours up, so a buff with a little over 1h left read "2h" while the
--- game's own buff display read about 1h (BUFFTIME-01). The CDM's buff icons turn the aura format
+-- Phase 79 blamed this format for a buff with about 1h left reading "2h". The real cause was a
+-- negative sweep start (SetTimerSweep below). The aura format is kept because it is what the CDM
+-- shows for a buff. The CDM's buff icons turn the aura format
 -- on once in OnLoad (CooldownViewer.lua:1397), and its cooldown items switch it per state through
 -- cooldownUseAuraDisplayTime: true while an aura drives the sweep (:877, :895), false for a
 -- cooldown (e.g. :924), applied just before CooldownFrame_Set (:1150).
@@ -945,6 +946,30 @@ local function ApplyCountdownFormat(icon, auraTime)
 		icon._lastStart = nil
 		icon._userCdState = nil
 		icon._cdGen = nil
+	end
+end
+
+-- A running timer's sweep, drawn from its expiry rather than its start.
+--
+-- GetTime() counts from the client's launch, so a buff applied before it (a flask still up at a
+-- fresh login) has startedAt = expiresAt - duration below zero once ns:RefreshAuraStates syncs it
+-- to the aura. SetCooldown keeps its start as unsigned milliseconds, so a negative start wraps to
+-- about 2^32 ms (~49.7 days) ahead: the frame thinks the timer has not begun and shows its whole
+-- duration ("1h" for a flask with 40m left, "2h" for a stacked one). Seen in game with a state dump,
+-- 2026-10-27: GetCooldownTimes held a start 4,293,145s in the future. A /reload never showed it,
+-- because GetTime() keeps counting across one.
+--
+-- SetCooldownFromExpirationTime takes the expiry, which is always ahead of GetTime(). It is guarded,
+-- since it cannot be confirmed on the Forever client from the Midnight-only source tree. There the
+-- fallback clamps the start at zero and stretches the duration to match. The remaining time stays
+-- exact; only the sweep's fill fraction is off, and only for a timer that began before launch.
+local function SetTimerSweep(cooldown, timer)
+	if cooldown.SetCooldownFromExpirationTime then
+		cooldown:SetCooldownFromExpirationTime(timer.expiresAt, timer.duration)
+	elseif timer.startedAt < 0 then
+		cooldown:SetCooldown(0, timer.expiresAt)
+	else
+		cooldown:SetCooldown(timer.startedAt, timer.duration)
 	end
 end
 
@@ -1820,7 +1845,7 @@ local function RenderIconContainer(def, container, settings, timers, now)
 
 			if icon._lastStart ~= timer.startedAt then
 				icon._lastStart = timer.startedAt
-				icon.cooldown:SetCooldown(timer.startedAt, timer.duration)
+				SetTimerSweep(icon.cooldown, timer)
 			end
 
 			icon:Show()
