@@ -93,9 +93,9 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 - [ ] **MREM-15**: Mage: Amplify Magic (10170) and Dampen Magic (10174), 10 min each, grouped.
 - [ ] **MREM-16**: Priest: Shadow Protection (10958), 10 min; Prayer of Shadow Protection (27683)
   satisfies it.
-- [ ] **MREM-17**: Warlock: one Detect Invisibility reminder, 10 min; any of Detect Lesser
-  Invisibility (132), Detect Invisibility (2970) and Detect Greater Invisibility (11743) satisfies
-  it. These are three spell names, so the rank family does not join them.
+- ~~**MREM-17**: Warlock: one Detect Invisibility reminder~~ — **Dropped 2026-11-09 (user, at the
+  autonomous kickoff):** "let's drop all hunter (or other) track skills". Detection and tracking
+  skills (Detect Invisibility, hunter Track Beasts and the like, Find Herbs/Minerals) get no row.
 
 ### Review doc
 
@@ -159,7 +159,7 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 | MREM-14 | Phase 82 | Pending |
 | MREM-15 | Phase 82 | Pending |
 | MREM-16 | Phase 82 | Pending |
-| MREM-17 | Phase 82 | Pending |
+| MREM-17 | — | Dropped (user, 2026-11-09) |
 | DOC-06 | Phase 83 | Pending |
 | DOC-07 | Phase 83 | Pending |
 | CLEAN-01 | Phase 84 | Pending |

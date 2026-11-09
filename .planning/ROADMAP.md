@@ -365,11 +365,11 @@ not tested keep "(unverified in game)" in their trailing comment.
 ### Phase 82: Other Class Rows
 **Goal**: Forever warlocks, shamans, priests, paladins and hunters are offered reminders for their maintained self buffs, with exclusive buffs grouped so any one up hides the others
 **Depends on**: Phase 80
-**Requirements**: MREM-08, MREM-09, MREM-10, MREM-11, MREM-12, MREM-13, MREM-14, MREM-15, MREM-16, MREM-17
+**Requirements**: MREM-08, MREM-09, MREM-10, MREM-11, MREM-12, MREM-13, MREM-14, MREM-15, MREM-16 (MREM-17 dropped by the user: no detection or tracking skills)
 **Success Criteria** (what must be TRUE):
   1. A Forever warlock sees Demon Armor (11735) and Demon Skin (696) as one group, a shaman sees Lightning Shield (10432) and Water Shield (408510) as one group, and a priest sees Inner Fire (10952, 10 min), Shadowform (15473, no timer, shown once the aura is gone) and, only if they know it, Shadowguard (19312)
   2. A Forever paladin sees one Devotion Aura (10293) reminder that any rank of Devotion, Retribution, Concentration or the three resistance auras hides; a hunter sees one Aspect of the Hawk (25296) reminder that Monkey, Cheetah, Pack, Wild or Beast hides, and that Viper or Falcon never hides
-  3. Situational rows on Forever: a mage's Amplify Magic (10170) and Dampen Magic (10174) form one group; a priest's Shadow Protection (10958) is hidden by Prayer of Shadow Protection (27683) or a lower rank another priest cast; a warlock's one Detect Invisibility reminder is hidden by any of 132, 2970 and 11743
+  3. Situational rows on Forever: a mage's Amplify Magic (10170) and Dampen Magic (10174) form one group; a priest's Shadow Protection (10958) is hidden by Prayer of Shadow Protection (27683) or a lower rank another priest cast; no detection or tracking skill (Detect Invisibility, Track Beasts and the like) is offered
   4. A Forever warlock sees Demonic Sacrifice (18788), 120 min, which watches aura 18789 and is hidden by any of 18790, 18791 or 18792
   5. On retail no new reminder is offered and every existing reminder is unchanged
 **Plans**: TBD
