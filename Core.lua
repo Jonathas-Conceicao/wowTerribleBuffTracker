@@ -2194,8 +2194,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		-- event that fires on every gear change.
 		if event == "BAG_UPDATE_DELAYED" then
 			ns:ReconcileTrackedItemCounts()
-			-- CLICK-07: a bag change can change which familiar scroll a reminder click uses; the flush is coalesced and deferred in combat.
-			ns:MarkReminderClicksDirty()
+			-- CLICK-07: a bag change can change which familiar scroll a reminder click uses; the flush is
+			-- coalesced and deferred in combat. Review 81 WR-01: only while a shown reminder uses an item.
+			if ns.reminderItemClickActive then
+				ns:MarkReminderClicksDirty()
+			end
 		end
 	end
 end)

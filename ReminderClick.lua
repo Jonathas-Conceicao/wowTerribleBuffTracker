@@ -187,6 +187,7 @@ local function Flush()
 	dirty = false
 	local used = 0
 	local skipped = 0
+	local sawItemReminder = false
 	if not editModeOpen and not ns.editModeActive and ns.db ~= nil then
 		local count, hidden = ns:CollectReminderClickIcons(clickIcons)
 		skipped = hidden
@@ -203,6 +204,9 @@ local function Flush()
 			local castName = castID and ResolveCastName(castID)
 			-- CLICK-07: an item reminder (the familiar scrolls) clicks the first usable scroll.
 			local useItems = entry and ns:ReminderUseItems(entry)
+			if useItems then
+				sawItemReminder = true
+			end
 			local itemAttr = useItems and PickUseItem(useItems)
 			if castName or itemAttr then
 				local overlay = overlays[used + 1] or CreateOverlay()
@@ -220,6 +224,9 @@ local function Flush()
 	for i = used + 1, #overlays do
 		Retire(overlays[i])
 	end
+	-- Review 81 WR-01: Core's BAG_UPDATE_DELAYED branch re-marks only while a shown reminder uses an
+	-- item (the familiar), so a bag change costs every other character nothing, exactly as before.
+	ns.reminderItemClickActive = sawItemReminder
 	if skipped > 0 and not retrySpent and not retryScheduled then
 		retrySpent = true
 		retryScheduled = true
