@@ -360,7 +360,8 @@ not tested keep "(unverified in game)" in their trailing comment.
   2. A Forever mage who knows Comprehend Scroll (1296017) is offered one familiar reminder, 60 min; any of Cat (1302303), Frog (1302285) or Rat (1296202) on the player hides it, using any scroll starts its timer, and it is not grouped with Arcane Intellect or the armors
   3. Out of combat, clicking the familiar reminder uses the highest-tier scroll in the bags that the player's level allows (Cat 277493 at 25, then Frog 277483 at 16, then Rat 275069 at 5); after a bag change the choice is made again, and with no usable scroll the icon shows with no click action
   4. Every other reminder's click is unchanged on both clients: out of combat it casts its spell, in combat it does nothing, and a reminder whose spell is not known gets no click
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 81-01-PLAN.md — Ice Armor, Mage Armor and familiar rows with their Forever-block groups and `useItems`; the familiar overlay uses the best usable scroll (`type1 = "item"`), re-picked on `BAG_UPDATE_DELAYED`; gate `81-check.js`
 **Notes**: Scope rule above applies; CLICK-07 is the milestone's only new behaviour. Shape per research §11.2-§11.3: `castID = false`, `knownID = 1296017`, an ordered `useItems` list (never sorted by ID), the item picked in `ReminderClick.lua`'s out-of-combat `Flush`, `type1 = "item"` written only for that overlay, one `ns:MarkReminderClicksDirty()` call in the existing `BAG_UPDATE_DELAYED` branch. Mage rows stay "(unverified in game)" until Phase 85.
 
 ### Phase 82: Other Class Rows
