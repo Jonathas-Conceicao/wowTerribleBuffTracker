@@ -387,7 +387,8 @@ not tested keep "(unverified in game)" in their trailing comment.
   2. The doc lists every candidate left out, each with a reason
   3. Every ID in the doc matches a row or alternative in `Providers.lua` and every row or alternative ID in `Providers.lua` appears in the doc, with zero mismatches; the reminder table's comment points at the doc
   4. The packaged zip contains no `docs/` (`.pkgmeta` ignores it)
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 83-01-PLAN.md — doc-to-code check script with --selftest, docs/REMINDERS.md built from the current reminder table, pointer comment, .pkgmeta and CLAUDE.md lines
 **Notes**: Scope rule above applies; no code behaviour changes here, only the pointer comment. Salvation, Light and Revoker stay out of this doc (MREM-06); they live in the internal note in `Providers.lua`. Lifted from research §5, §7, §8 and §11-§12.
 
 ### Phase 84: Cleanup
