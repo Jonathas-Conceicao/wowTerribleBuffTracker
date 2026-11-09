@@ -1076,6 +1076,11 @@ local MetaSkillLustProvider = CreateFromMixins(SpellProviderBaseMixin, MetaSkill
 -- Deliberately NOT here (user decision 2026-09-29): the shaman totems Strength of Earth (25361)
 -- and Windfury (10609) are left out because their auras have different IDs from the casts.
 --
+-- Also not here (user, 2026-11-09, Phase 82): detection and tracking skills such as Detect
+-- Invisibility, Track Beasts and Find Herbs/Minerals (MREM-17 was dropped); Soul Link, which needs
+-- a "pet is out" load rule; and Sanctity Aura, which is not on the Forever paladin list and is
+-- added only if a Forever paladin sees it.
+--
 -- Group versions count (user, 2026-11-09, RALT-05/06): the 2026-09-29 decision that group versions
 -- do not count was reversed. On Forever, Arcane Brilliance, Prayer of Fortitude, Prayer of Spirit,
 -- Gift of the Wild and the Greater Blessings now count as the buff being present, and every rank
@@ -1184,6 +1189,27 @@ MetaReminderRow(20217, 60) -- Paladin: Blessing of Kings
 MetaReminderRow(25291, 60) -- Paladin: Blessing of Might
 MetaReminderRow(25290, 60) -- Paladin: Blessing of Wisdom
 MetaReminderRow(25780, 30) -- Paladin: Righteous Fury (aura ID = spell ID, unverified)
+
+-- Warlock armors (Phase 82, MREM-08): Demon Armor and Demon Skin; grouped in the Forever block.
+MetaReminderRow(11735, 30) -- Warlock: Demon Armor (MREM-08) (unverified in game)
+MetaReminderRow(696, 30) -- Warlock: Demon Skin (MREM-08) (unverified in game)
+-- Shaman shields (Phase 82, MREM-09): Lightning Shield and Water Shield; grouped in the Forever block.
+MetaReminderRow(10432, 10) -- Shaman: Lightning Shield (MREM-09; 3 charges, so it can drop before the timer) (unverified in game)
+MetaReminderRow(408510, 10) -- Shaman: Water Shield (MREM-09; Restoration talent; a reused ID, check in game) (unverified in game)
+-- Priest self buffs (Phase 82, MREM-10/14/16): Inner Fire, Shadowform, Shadowguard, Shadow Protection.
+MetaReminderRow(10952, 10) -- Priest: Inner Fire (MREM-10) (unverified in game)
+MetaReminderRow(15473, 0) -- Priest: Shadowform (MREM-10; Shadow talent; permanent: no timer, shown once the aura is gone) (unverified in game)
+MetaReminderRow(19312, 10) -- Priest: Shadowguard (MREM-14; Troll; the known-spell rule offers it only to a priest who knows it) (unverified in game)
+MetaReminderRow(10958, 10) -- Priest: Shadow Protection (MREM-16; situational) (unverified in game)
+-- Paladin aura (Phase 82, MREM-11): one "any aura" row; every aura rank is listed in the Forever block.
+MetaReminderRow(10293, 0) -- Paladin: Devotion Aura, any paladin aura satisfies it (MREM-11; permanent; the retail row's ID is never used here) (unverified in game)
+-- Hunter aspect (Phase 82, MREM-12): one "any aspect" row; the aspects are listed in the Forever block.
+MetaReminderRow(25296, 0) -- Hunter: Aspect of the Hawk, any aspect satisfies it (MREM-12; permanent; Viper and Falcon never count) (unverified in game)
+-- Mage situational pair (Phase 82, MREM-15): Amplify Magic and Dampen Magic; grouped in the Forever block.
+MetaReminderRow(10170, 10) -- Mage: Amplify Magic (MREM-15; situational) (unverified in game)
+MetaReminderRow(10174, 10) -- Mage: Dampen Magic (MREM-15; situational) (unverified in game)
+-- Demonic Sacrifice (Phase 82, MREM-13): last, the only row with a separate aura ID.
+MetaReminderRow(18788, 120, nil, nil, nil, { auraID = 18789 }) -- Warlock: Demonic Sacrifice (MREM-13; the cast 18788 carries no buff, the row watches aura 18789; a click casts 18788) (unverified in game)
 
 -- The retail rows (user data 2026-09-30, MREM-04/MREM-05).
 -- Arcane Familiar trade-off: a cast of 1459 starts only the Arcane Intellect row (the cast index
