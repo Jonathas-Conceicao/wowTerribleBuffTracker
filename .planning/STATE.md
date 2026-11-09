@@ -4,12 +4,12 @@ milestone: v0.5.6
 milestone_name: "More Forever Reminders"
 status: executing
 last_updated: "2026-11-09"
-last_activity: 2026-11-09 — Phase 83 plan 01 executed (docs/REMINDERS.md and reminders-doc-check.js)
+last_activity: 2026-11-09 — Phase 84 plan 01 executed (cleanup: review items closed, hot paths verdicted, deployed)
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 5
+  completed_plans: 5
   percent: 0
 ---
 
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 83 — Reminder Review Doc (plan executed; awaiting phase verification)
-Plan: 83-01 complete (1/1) — commits 06f984c, 0455dc0, 87a1bd5; `node scripts/reminders-doc-check.js` passes (132 Forever IDs, 15 retail IDs, 39 rows), `--selftest` 27/27
+Phase: 84 — Cleanup (plan executed; awaiting phase verification)
+Plan: 84-01 complete (1/1) — commit 35b18e1; 81 IN-01 (prebuilt "item:<id>"), 81 IN-03 (`_spellAttr`), 80 IN-04 (cap comment) closed; stylua/CRLF clean, aura-read gate + reminders-doc check (and selftests) pass; deployed with install.bat
 Status: Executing (roadmap: Phases 80-85, 22/22 requirements mapped)
-Last activity: 2026-11-09 — 83-01 executed: docs/REMINDERS.md (every built-in reminder, Forever and retail, Wowhead links, Not included table), scripts/reminders-doc-check.js (DOC-07), pointer comment in Providers.lua, `docs` ignored by .pkgmeta
+Last activity: 2026-11-09 — 84-01 executed: hot-path verdicts (aura refresh, Flush, Place, PickUseItem, BAG_UPDATE_DELAYED, load-time rows) in 84-01-SUMMARY.md, release tooling reviewed, build deployed for Phase 85
 
 Progress: [█████░░░░░] 50% (3/6 phases)
 

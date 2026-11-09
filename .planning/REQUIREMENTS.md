@@ -109,7 +109,7 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 
 ### Cleanup and verification
 
-- [ ] **CLEAN-01**: Cleanup per CLAUDE.md: unused code and duplication this milestone introduced,
+- [x] **CLEAN-01**: Cleanup per CLAUDE.md: unused code and duplication this milestone introduced,
   hot paths the new rows and groups touch, `stylua .`, and the release scripts.
 - [ ] **VER-15**: The user checks on Forever: every mage row and the armor group (each armor's ID
   tooltip, and that one armor up hides the others), the familiar reminder (each tier's buff ID, the
@@ -162,7 +162,7 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 | MREM-17 | — | Dropped (user, 2026-11-09) |
 | DOC-06 | Phase 83 | Complete |
 | DOC-07 | Phase 83 | Complete |
-| CLEAN-01 | Phase 84 | Pending |
+| CLEAN-01 | Phase 84 | Complete |
 | VER-15 | Phase 85 | Pending |
 
 **Coverage:** 22/22 v0.5.6 requirements mapped, no orphans, no duplicates (roadmap created 2026-11-09).

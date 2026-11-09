@@ -401,7 +401,7 @@ not tested keep "(unverified in game)" in their trailing comment.
   3. `stylua .` leaves no diff and `git ls-files --eol` shows CRLF for every touched Lua file; the release scripts are reviewed
   4. The doc-to-code ID check from DOC-07 is re-run after cleanup and still finds zero mismatches
 **Plans**: 1 plan
-- [ ] 84-01-PLAN.md — close review items 81 IN-01 (prebuilt "item:<id>"), 81 IN-03 (_spellAttr), 80 IN-04 (cap comment); hot-path verdicts, stylua/CRLF/gates, release review, install.bat
+- [x] 84-01-PLAN.md — close review items 81 IN-01 (prebuilt "item:<id>"), 81 IN-03 (_spellAttr), 80 IN-04 (cap comment); hot-path verdicts, stylua/CRLF/gates, release review, install.bat
 **Notes**: Scope rule above applies. Process only; the costs research §12.4 lists are noted, not optimised.
 
 ### Phase 85: Forever Testing Pass
@@ -481,7 +481,7 @@ not tested keep "(unverified in game)" in their trailing comment.
 | 81. Mage Armors and Familiar Scrolls | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
 | 82. Other Class Rows | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
 | 83. Reminder Review Doc | v0.5.6 | 1/1 | Plan executed; awaiting phase verification | - |
-| 84. Cleanup | v0.5.6 | 0/TBD | Not started | - |
+| 84. Cleanup | v0.5.6 | 1/1 | Plan executed; awaiting phase verification | - |
 | 85. Forever Testing Pass | v0.5.6 | — | Not started | - |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
