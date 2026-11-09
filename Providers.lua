@@ -1133,7 +1133,8 @@ local metaReminderDefsBySpellID = {}
 -- (nil = the aura is the spell ID) and allyCast (true = a click does not force the player as unit),
 -- and useItems: an ordered list of { itemID, minLevel } pairs, highest tier first and never sorted,
 -- that a click on the reminder picks from (the first one in the bags the player's level allows,
--- CLICK-07); nil for every other row.
+-- CLICK-07); nil for every other row. Each pair's third field, the "item:<id>" click attribute,
+-- is filled in here at load, so ReminderClick.lua's PickUseItem builds no string per flush.
 -- This is the ONE point where a row is kept off a client: an unregistered row is neither offered
 -- nor loaded (an already-placed entry for it is an orphan via ns:IsOrphanMetaReminder). Existing
 -- Forever rows need no argument because nil means forever.
@@ -1143,10 +1144,16 @@ local function MetaReminderRow(spellID, minutes, knownID, petBook, castID, opts)
 	if not (client == "both" or (client == "forever" and isForever) or (client == "retail" and not isForever)) then
 		return
 	end
+	local useItems = opts and opts.useItems or nil
+	if useItems then
+		for i = 1, #useItems do
+			useItems[i][3] = "item:" .. useItems[i][1]
+		end
+	end
 	local def = {
 		auraID = opts and opts.auraID or nil,
 		allyCast = opts ~= nil and opts.allyCast == true,
-		useItems = opts and opts.useItems or nil,
+		useItems = useItems,
 		spellID = spellID,
 		duration = minutes > 0 and minutes * 60 or nil,
 		knownID = knownID or spellID,
@@ -1384,7 +1391,7 @@ function ns:ReminderCastID(entry)
 end
 
 -- The ordered { itemID, minLevel } list a click on a reminder picks an item from (CLICK-07), or
--- nil. Only a built-in row carries one (the familiar scrolls). Called by ReminderClick.lua's Flush;
+-- nil; each pair's third field is its "item:<id>" click attribute, built once by MetaReminderRow. Only a built-in row carries one (the familiar scrolls). Called by ReminderClick.lua's Flush;
 -- one map read, no allocation.
 function ns:ReminderUseItems(entry)
 	if entry.trackerType ~= ns.KIND.META_REMINDER then

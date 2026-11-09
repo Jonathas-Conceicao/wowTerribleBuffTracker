@@ -1036,6 +1036,10 @@ end
 -- Exactly three callers: the CDMTab.lua right-click menu, CDMTab.lua dialog.OpenForEdit, and
 -- ns:UpdateTrackedBuff, which routes a bag item to the buff-only path before any spell-keyed
 -- logic. Nil-safe.
+-- Review 80 IN-04: since Phase 80 a built-in class-buff reminder carries up to 18 "Also satisfied
+-- by" IDs (the Forever blessings), while the edit dialog's ns:ParseSpellIDList rejects more than
+-- MAX_CAST_RULE_IDS (8, CDMTab.lua). Making a built-in editable, or copying one into a user
+-- reminder, needs that cap raised first.
 function ns:IsEditableTracker(entry)
 	if entry == nil then
 		return false

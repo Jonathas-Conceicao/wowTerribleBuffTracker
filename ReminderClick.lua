@@ -51,7 +51,8 @@ local function ResolveCastName(spellID)
 end
 
 -- CLICK-07: picks the first usable entry of an ordered { itemID, minLevel } list (highest tier
--- first, never sorted) and returns the "item:<id>" attribute value, or nil. Called only from
+-- first, never sorted) and returns its "item:<id>" attribute value, the string MetaReminderRow
+-- built at row load (pair field 3), so it allocates nothing; or nil. Called only from
 -- Flush, so out of combat; guarded like the pot scan against a missing API and secret values.
 -- The level is tested before the count, so a scroll the player is too low for falls through.
 local function PickUseItem(useItems)
@@ -63,11 +64,11 @@ local function PickUseItem(useItems)
 		return nil
 	end
 	for i = 1, #useItems do
-		local itemID, minLevel = useItems[i][1], useItems[i][2]
+		local minLevel = useItems[i][2]
 		if level >= minLevel then
-			local ok, count = pcall(C_Item.GetItemCount, itemID)
+			local ok, count = pcall(C_Item.GetItemCount, useItems[i][1])
 			if ok and not issecretvalue(count) and type(count) == "number" and count > 0 then
-				return "item:" .. itemID
+				return useItems[i][3]
 			end
 		end
 	end
@@ -156,9 +157,9 @@ local function Place(overlay, icon, castName, itemAttr, unit)
 		overlay:SetAttribute("type1", actionType)
 		overlay._actionType = actionType
 	end
-	if overlay._castName ~= spellAttr then
+	if overlay._spellAttr ~= spellAttr then
 		overlay:SetAttribute("spell", spellAttr)
-		overlay._castName = spellAttr
+		overlay._spellAttr = spellAttr
 	end
 	if overlay._itemAttr ~= itemAttr then
 		overlay:SetAttribute("item", itemAttr)
