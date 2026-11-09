@@ -1085,15 +1085,15 @@ local MetaSkillLustProvider = CreateFromMixins(SpellProviderBaseMixin, MetaSkill
 -- do not count was reversed. On Forever, Arcane Brilliance, Prayer of Fortitude, Prayer of Spirit,
 -- Gift of the Wild and the Greater Blessings now count as the buff being present, and every rank
 -- another player can apply is listed too (RALT-07), as alternatives in the Forever block after the
--- rows. IDs are from research §12.3 (.planning/research/FOREVER-REMINDERS.md).
+-- rows. IDs are from research §12.2/§12.3 (.planning/research/FOREVER-REMINDERS.md).
 --
 -- On Forever every rank the character knows counts, through the rank family (ns:ResolveRankFamily;
 -- a metaReminder is rank-covering wherever ns.CLIENT_HAS_SPELL_RANKS). Retail has no ranks, so a
 -- retail row watches its single aura ID (Phase 64 review CR-01/WR-01). A row's duration is in
 -- minutes; 0 = no timer (aura only).
 --
--- In-game verification (user, 2026-09-29): the Mage, Paladin and Warlock rows were tested in
--- game (57.4-HUMAN-UAT). The other classes are being tested now, and their rows keep
+-- In-game verification (user, 2026-09-29): the original Mage, Paladin and Warlock rows were tested
+-- in game (57.4-HUMAN-UAT); rows added later (v0.5.6 included) say "(unverified in game)". The other classes are being tested now, and their rows keep
 -- "(unverified in game)" in their trailing comment until reported. Righteous Fury (25780, added
 -- in Phase 57.5) assumes its aura ID equals its spell ID; the user verifies it.
 --
@@ -1196,13 +1196,14 @@ MetaReminderRow(696, 30) -- Warlock: Demon Skin (MREM-08) (unverified in game)
 -- Shaman shields (Phase 82, MREM-09): Lightning Shield and Water Shield; grouped in the Forever block.
 MetaReminderRow(10432, 10) -- Shaman: Lightning Shield (MREM-09; 3 charges, so it can drop before the timer) (unverified in game)
 MetaReminderRow(408510, 10) -- Shaman: Water Shield (MREM-09; Restoration talent; a reused ID, check in game) (unverified in game)
--- Priest self buffs (Phase 82, MREM-10/14/16): Inner Fire, Shadowform, Shadowguard, Shadow Protection.
+-- Priest buffs (Phase 82, MREM-10/14/16): Inner Fire, Shadowform and Shadowguard are self-only;
+-- Shadow Protection can come from another priest, so its ranks are listed in the Forever block.
 MetaReminderRow(10952, 10) -- Priest: Inner Fire (MREM-10) (unverified in game)
 MetaReminderRow(15473, 0) -- Priest: Shadowform (MREM-10; Shadow talent; permanent: no timer, shown once the aura is gone) (unverified in game)
 MetaReminderRow(19312, 10) -- Priest: Shadowguard (MREM-14; Troll; the known-spell rule offers it only to a priest who knows it) (unverified in game)
 MetaReminderRow(10958, 10) -- Priest: Shadow Protection (MREM-16; situational) (unverified in game)
 -- Paladin aura (Phase 82, MREM-11): one "any aura" row; every aura rank is listed in the Forever block.
-MetaReminderRow(10293, 0) -- Paladin: Devotion Aura, any paladin aura satisfies it (MREM-11; permanent; the retail row's ID is never used here) (unverified in game)
+MetaReminderRow(10293, 0) -- Paladin: Devotion Aura, any paladin aura satisfies it (MREM-11; permanent; the row is 10293, never the retail row's 465, which is only an alternative here) (unverified in game)
 -- Hunter aspect (Phase 82, MREM-12): one "any aspect" row; the aspects are listed in the Forever block.
 MetaReminderRow(25296, 0) -- Hunter: Aspect of the Hawk, any aspect satisfies it (MREM-12; permanent; Viper and Falcon never count) (unverified in game)
 -- Mage situational pair (Phase 82, MREM-15): Amplify Magic and Dampen Magic; grouped in the Forever block.
@@ -1237,7 +1238,7 @@ MetaReminderGroup(465, 317920, 32223)
 -- groups inside this block (mage armors, familiar scrolls, the other class rows).
 -- MetaReminderGroup gives each listed ID that has a row the others as alternatives; an ID without
 -- a row is a one-way alternative. A second call naming the same row REPLACES its alternatives, so
--- a row ID appears in exactly one call here. IDs are from research §12.3.
+-- a row ID appears in exactly one call here. IDs are from research §12.2/§12.3.
 if ns.CLIENT_IS_FOREVER then
 	-- Arcane Intellect: ranks 1-5 and Arcane Brilliance (RALT-05, RALT-07)
 	MetaReminderGroup(1459, 1460, 1461, 10156, 10157, 23028)
