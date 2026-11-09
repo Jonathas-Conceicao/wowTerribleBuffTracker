@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.5.6
 milestone_name: "More Forever Reminders"
-status: executing
+status: verifying
 last_updated: "2026-11-09"
-last_activity: 2026-11-09 — Phase 84 plan 01 executed (cleanup: review items closed, hot paths verdicted, deployed)
+last_activity: 2026-11-09 — Phases 80-84 complete; Phase 85 (Forever testing by the user) next
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 5
   total_plans: 5
   completed_plans: 5
-  percent: 0
+  percent: 83
 ---
 
 # Project State
@@ -24,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 84 — Cleanup (plan executed; awaiting phase verification)
-Plan: 84-01 complete (1/1) — commit 35b18e1; 81 IN-01 (prebuilt "item:<id>"), 81 IN-03 (`_spellAttr`), 80 IN-04 (cap comment) closed; stylua/CRLF clean, aura-read gate + reminders-doc check (and selftests) pass; deployed with install.bat
-Status: Executing (roadmap: Phases 80-85, 22/22 requirements mapped)
-Last activity: 2026-11-09 — 84-01 executed: hot-path verdicts (aura refresh, Flush, Place, PickUseItem, BAG_UPDATE_DELAYED, load-time rows) in 84-01-SUMMARY.md, release tooling reviewed, build deployed for Phase 85
+Phase: 85 — Forever Testing Pass (waiting on the user)
+Plan: none (testing pass); checklist `.planning/phases/85-forever-testing-pass/85-TEST-CHECKLIST.md`
+Status: Phases 80-84 complete and verified by code trace; build deployed with install.bat
+Last activity: 2026-11-09 — autonomous run 80-84 finished
 
-Progress: [█████░░░░░] 50% (3/6 phases)
+Progress: [████████░░] 83% (5/6 phases)
 
 - Branch: `milestone/v0.5.6-more-forever-reminders`, cut from `main` (`21c018d`) on 2026-11-09.
 - Phases start at **80** (v0.5.4 ended at Phase 79; v0.5.5 used no phase; numbering never restarts).
