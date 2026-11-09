@@ -1391,8 +1391,9 @@ function ns:ReminderCastID(entry)
 end
 
 -- The ordered { itemID, minLevel } list a click on a reminder picks an item from (CLICK-07), or
--- nil; each pair's third field is its "item:<id>" click attribute, built once by MetaReminderRow. Only a built-in row carries one (the familiar scrolls). Called by ReminderClick.lua's Flush;
--- one map read, no allocation.
+-- nil; each pair's third field is its "item:<id>" click attribute, built once by MetaReminderRow,
+-- the only place a useItems list is built. Only a built-in row carries one (the familiar
+-- scrolls). Called by ReminderClick.lua's Flush; one map read, no allocation.
 function ns:ReminderUseItems(entry)
 	if entry.trackerType ~= ns.KIND.META_REMINDER then
 		return nil
