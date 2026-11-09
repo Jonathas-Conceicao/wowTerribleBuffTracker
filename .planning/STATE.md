@@ -1,6 +1,6 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.5.9
+milestone: v0.5.6
 milestone_name: "More Forever Reminders"
 status: planning
 last_updated: "2026-11-09"
@@ -20,7 +20,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** v0.5.9 More Forever Reminders — more Forever class-buff reminder suggestions with exclusive groups (mage armors first), group buffs as alternatives, and `docs/REMINDERS.md` for human review.
+**Current focus:** v0.5.6 More Forever Reminders — more Forever class-buff reminder suggestions with exclusive groups (mage armors first), group buffs as alternatives, and `docs/REMINDERS.md` for human review.
 
 ## Current Position
 
@@ -31,7 +31,7 @@ Last activity: 2026-11-09 — Roadmap created
 
 Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
-- Branch: `milestone/v0.5.9-more-forever-reminders`, cut from `main` (`21c018d`) on 2026-11-09.
+- Branch: `milestone/v0.5.6-more-forever-reminders`, cut from `main` (`21c018d`) on 2026-11-09.
 - Phases start at **80** (v0.5.4 ended at Phase 79; v0.5.5 used no phase; numbering never restarts).
 - Forever IDs and `wowhead.com/forever/` links only — never Classic's (user, 2026-11-09).
 - v0.5.4's phase directory is archived at `.planning/milestones/v0.5.4-phases/`. v0.5.3's phase directories are archived at `.planning/milestones/v0.5.3-phases/`; its review notes

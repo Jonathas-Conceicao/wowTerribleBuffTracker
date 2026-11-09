@@ -2,7 +2,7 @@
 
 ## Milestones
 
-- [ ] **v0.5.9 More Forever Reminders** — Phases 80-85 (in progress, started 2026-11-09)
+- [ ] **v0.5.6 More Forever Reminders** — Phases 80-85 (in progress, started 2026-11-09)
 - [x] **v0.5.5 Fresh-login buff time fix** — no phases, done outside GSD (shipped 2026-10-27, `6f976e8`) — see `MILESTONES.md`
 - [x] **v0.5.4 Buff countdown display fix** — Phase 79 (shipped 2026-10-24) — [archive](milestones/v0.5.4-ROADMAP.md)
 - [x] **v0.5.3 Display buff duration alongside cooldowns** — Phases 73-78 (shipped 2026-10-23) — [archive](milestones/v0.5.3-ROADMAP.md)
@@ -19,9 +19,9 @@
 
 ## Phases
 
-### v0.5.9 More Forever Reminders (Phases 80-85) — IN PROGRESS
+### v0.5.6 More Forever Reminders (Phases 80-85) — IN PROGRESS
 
-Started 2026-11-09 on `milestone/v0.5.9-more-forever-reminders`. Research:
+Started 2026-11-09 on `milestone/v0.5.6-more-forever-reminders`. Research:
 [`research/FOREVER-REMINDERS.md`](research/FOREVER-REMINDERS.md) (§12.3 is the final group-call
 list), summary in [`research/SUMMARY.md`](research/SUMMARY.md).
 
@@ -329,7 +329,7 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 is [`v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md), which carries the full detail for Phase 79;
 [`v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md) covers Phases 73-78.*
 
-**Scope rule for every v0.5.9 phase (user, 2026-11-09).** Nothing may work differently from today,
+**Scope rule for every v0.5.6 phase (user, 2026-11-09).** Nothing may work differently from today,
 except the familiar-scroll item click (CLICK-07). Every row and group is data through the existing
 `MetaReminderRow` / `MetaReminderGroup`; matching, watch and cast code is not changed. Every Forever
 ID comes from `research/FOREVER-REMINDERS.md` only, is WoW Forever's own, and its link is
@@ -346,7 +346,7 @@ not tested keep "(unverified in game)" in their trailing comment.
   2. On Forever, any blessing or Greater Blessing (Kings 25898, Might 25782/25916, Wisdom 25894/25918) on the player hides every blessing reminder
   3. On Forever, a rank the player does not know hides its reminder for every existing row in research §12.3 (Arcane Intellect, Fortitude, Divine Spirit, Mark of the Wild, Thorns, Battle Shout, Trueshot Aura, Blood Pact, the blessings): e.g. another mage's Arcane Intellect 10157 on a level-30 mage
   4. Blessing of Salvation (1038) and Blessing of Light (19979) are no longer offered in Suggested; one already placed shows greyed as "no longer offered" with its saved data kept; `Providers.lua` carries an internal note recording Salvation, Light and Revoker as removed from Forever
-  5. On retail, every reminder, including the rows on 21562, 1459, 1126, 6673 and 465, shows and hides exactly as before and gains no alternative; all v0.5.9 group calls sit in one `if ns.CLIENT_IS_FOREVER then … end` block and `MetaReminderGroup` itself is unchanged
+  5. On retail, every reminder, including the rows on 21562, 1459, 1126, 6673 and 465, shows and hides exactly as before and gains no alternative; all v0.5.6 group calls sit in one `if ns.CLIENT_IS_FOREVER then … end` block and `MetaReminderGroup` itself is unchanged
 **Plans**: TBD
 **Notes**: Scope rule above applies. Rank lists are research §12.2/§12.3 verbatim. Blood Pact's extra data IDs (7871-7873 and others) are not added (RALT-07: only if the in-game ID tooltip shows one). The blessings call replaces the existing one, without 1038/19979. Keep comments out of the middle of multi-line calls (stylua CR trap).
 
@@ -413,7 +413,7 @@ not tested keep "(unverified in game)" in their trailing comment.
 
 ## Progress
 
-**Execution order:** 80 → 81 → 82 → 83 → 84 → 85 (v0.5.9)
+**Execution order:** 80 → 81 → 82 → 83 → 84 → 85 (v0.5.6)
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -472,12 +472,12 @@ not tested keep "(unverified in game)" in their trailing comment.
 | 77. Cleanup | v0.5.3 | 2/2 | Complete | 2026-10-22 |
 | 78. Human Testing | v0.5.3 | — | Complete — PASSED on retail; gap fix: buff follows its live aura (`469ff35`); #14 skipped | 2026-10-23 |
 | 79. Buff Countdown Display Fix | v0.5.4 | 1/1 | Complete — verified in game on retail; one `/reload` miss not reproduced (fluke) | 2026-10-24 |
-| 80. Forever Group Block, Group Buffs and Rank Coverage | v0.5.9 | 0/TBD | Not started | - |
-| 81. Mage Armors and Familiar Scrolls | v0.5.9 | 0/TBD | Not started | - |
-| 82. Other Class Rows | v0.5.9 | 0/TBD | Not started | - |
-| 83. Reminder Review Doc | v0.5.9 | 0/TBD | Not started | - |
-| 84. Cleanup | v0.5.9 | 0/TBD | Not started | - |
-| 85. Forever Testing Pass | v0.5.9 | — | Not started | - |
+| 80. Forever Group Block, Group Buffs and Rank Coverage | v0.5.6 | 0/TBD | Not started | - |
+| 81. Mage Armors and Familiar Scrolls | v0.5.6 | 0/TBD | Not started | - |
+| 82. Other Class Rows | v0.5.6 | 0/TBD | Not started | - |
+| 83. Reminder Review Doc | v0.5.6 | 0/TBD | Not started | - |
+| 84. Cleanup | v0.5.6 | 0/TBD | Not started | - |
+| 85. Forever Testing Pass | v0.5.6 | — | Not started | - |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*
@@ -1037,14 +1037,14 @@ follows it (`syncedAt` in `ns:StartReminderFromCast`); cooldown buffs do not. If
 arrives just before the cast, the cast resets the timer to the typed Duration for about half a
 second, until the post-cast re-check moves it back.
 
-**999.29 — Weapon-enchant reminders.** Intake 2026-11-09, user request, raised at the v0.5.9
+**999.29 — Weapon-enchant reminders.** Intake 2026-11-09, user request, raised at the v0.5.6
 kickoff. **Not for now:** the user asked for it to be noted only.
 
 Reminders for weapon enchants: shaman imbues (60 min on Forever), rogue poisons, oils, sharpening
 stones and the like. They are weapon enchants with no aura, so the reminder aura path
 (`ns:ReadPlayerAura`, `ns:RefreshAuraStates`) cannot see them; they would need a
 `GetWeaponEnchantInfo` path. Research: `.planning/research/FOREVER-REMINDERS.md` §6, where they are
-excluded from v0.5.9 for this reason.
+excluded from v0.5.6 for this reason.
 
 *The four original backlog phases — 999.1 (Edit Mode mouse-down), 999.2 (README and store copy),
 999.3 (single-TOC migration) and 999.4 (`@project-version@` in dev installs) — were promoted into

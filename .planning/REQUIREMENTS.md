@@ -1,4 +1,4 @@
-# Requirements — v0.5.9 More Forever Reminders
+# Requirements — v0.5.6 More Forever Reminders
 
 **Defined:** 2026-11-09, at kickoff, with the user. Research: one focused researcher
 (`.planning/research/FOREVER-REMINDERS.md`, summary in `research/SUMMARY.md`).
@@ -23,11 +23,11 @@ exists only to keep retail unchanged.
 every Forever link uses `https://www.wowhead.com/forever/spell=<id>`. A Classic page is not evidence.
 Rows the user has not tested in game keep "(unverified in game)" in their trailing comment.
 
-## v0.5.9 Requirements
+## v0.5.6 Requirements
 
 ### Group gating and alternatives
 
-- [ ] **RALT-04**: Every v0.5.9 group call is Forever-only. The calls sit in one
+- [ ] **RALT-04**: Every v0.5.6 group call is Forever-only. The calls sit in one
   `if ns.CLIENT_IS_FOREVER then … end` block, and `MetaReminderGroup` itself is unchanged. On retail
   no retail or `both` row gains an alternative from a Forever group. That covers 21562, 1459, 1126,
   6673 and 465, which are both Forever ranks and retail row IDs.
@@ -165,4 +165,4 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 | CLEAN-01 | Phase 84 | Pending |
 | VER-15 | Phase 85 | Pending |
 
-**Coverage:** 22/22 v0.5.9 requirements mapped, no orphans, no duplicates (roadmap created 2026-11-09).
+**Coverage:** 22/22 v0.5.6 requirements mapped, no orphans, no duplicates (roadmap created 2026-11-09).
