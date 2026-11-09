@@ -400,7 +400,8 @@ not tested keep "(unverified in game)" in their trailing comment.
   2. The hot paths the new rows, groups and familiar click touch (the reminder aura refresh, the reminder click flush, the bag-update branch) do no new per-frame or per-event allocation
   3. `stylua .` leaves no diff and `git ls-files --eol` shows CRLF for every touched Lua file; the release scripts are reviewed
   4. The doc-to-code ID check from DOC-07 is re-run after cleanup and still finds zero mismatches
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 84-01-PLAN.md — close review items 81 IN-01 (prebuilt "item:<id>"), 81 IN-03 (_spellAttr), 80 IN-04 (cap comment); hot-path verdicts, stylua/CRLF/gates, release review, install.bat
 **Notes**: Scope rule above applies. Process only; the costs research §12.4 lists are noted, not optimised.
 
 ### Phase 85: Forever Testing Pass
