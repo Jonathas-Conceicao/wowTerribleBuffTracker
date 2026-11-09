@@ -347,7 +347,8 @@ not tested keep "(unverified in game)" in their trailing comment.
   3. On Forever, a rank the player does not know hides its reminder for every existing row in research §12.3 (Arcane Intellect, Fortitude, Divine Spirit, Mark of the Wild, Thorns, Battle Shout, Trueshot Aura, Blood Pact, the blessings): e.g. another mage's Arcane Intellect 10157 on a level-30 mage
   4. Blessing of Salvation (1038) and Blessing of Light (19979) are no longer offered in Suggested; one already placed shows greyed as "no longer offered" with its saved data kept; `Providers.lua` carries an internal note recording Salvation, Light and Revoker as removed from Forever
   5. On retail, every reminder, including the rows on 21562, 1459, 1126, 6673 and 465, shows and hides exactly as before and gains no alternative; all v0.5.6 group calls sit in one `if ns.CLIENT_IS_FOREVER then … end` block and `MetaReminderGroup` itself is unchanged
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 80-01-PLAN.md — retire 1038/19979 with the internal note, update the header comment, add the Forever group block (nine §12.3 calls); gate `80-check-groups.js --exact`
 **Notes**: Scope rule above applies. Rank lists are research §12.2/§12.3 verbatim. Blood Pact's extra data IDs (7871-7873 and others) are not added (RALT-07: only if the in-game ID tooltip shows one). The blessings call replaces the existing one, without 1038/19979. Keep comments out of the middle of multi-line calls (stylua CR trap).
 
 ### Phase 81: Mage Armors and Familiar Scrolls
