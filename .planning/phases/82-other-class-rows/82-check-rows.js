@@ -31,7 +31,7 @@ if (baseFile) {
 	base = fs.readFileSync(baseFile, "utf8");
 	baseName = baseFile;
 } else {
-	const rev = baseRev || sh(`git log -1 --format=%H --invert-grep -E "--grep=^[a-z]+\\(82-" -- Providers.lua`).trim();
+	const rev = baseRev || sh(`git log -1 --format=%H --invert-grep -E "--grep=^[a-z]+\\(82[-)]" -- Providers.lua`).trim();
 	base = sh(`git show ${rev}:Providers.lua`);
 	baseName = rev.slice(0, 7);
 }
