@@ -14,7 +14,14 @@ findings:
   warning: 7
   info: 6
   total: 13
-status: issues_found
+status: fixed
+fixed_at: 2026-11-09T00:00:00Z
+fix_commit: 97fdc5a
+fixed_findings: [WR-01, WR-02, WR-03, WR-04, WR-05, WR-06, WR-07, IN-01, IN-05]
+fix_notes: >-
+  WR-06 kept as a documented header contract (no code change). IN-03 is covered for the fixed
+  WRs and gate-level exit codes only. IN-02 and IN-04 (the \z escape) were not taken. IN-06 is
+  for the Phase 85 human pass.
 ---
 
 # Phase 83: Code Review Report
