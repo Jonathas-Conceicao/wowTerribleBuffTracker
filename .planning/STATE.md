@@ -4,12 +4,12 @@ milestone: v0.5.6
 milestone_name: "More Forever Reminders"
 status: executing
 last_updated: "2026-11-09"
-last_activity: 2026-11-09 — Phase 80 plan 01 executed (Forever group block)
+last_activity: 2026-11-09 — Phase 81 plan 01 executed (mage armors, familiar scrolls, item click)
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 1
-  completed_plans: 1
+  total_plans: 2
+  completed_plans: 2
   percent: 0
 ---
 
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 80 — Forever Group Block, Group Buffs and Rank Coverage (plan executed; awaiting phase verification)
-Plan: 80-01 complete (1/1) — commits e884fd8, 9992176; gate `80-check-groups.js --exact` passes
+Phase: 81 — Mage Armors and Familiar Scrolls (plan executed; awaiting phase verification)
+Plan: 81-01 complete (1/1) — commits 7451564, 227430b; gate `81-check.js` passes
 Status: Executing (roadmap: Phases 80-85, 22/22 requirements mapped)
-Last activity: 2026-11-09 — 80-01 executed: Salvation/Light retired, Forever group block with nine §12.3 calls
+Last activity: 2026-11-09 — 81-01 executed: Ice/Mage Armor rows + armor group, familiar row + tier group, familiar click uses the best usable scroll (CLICK-07)
 
 Progress: [░░░░░░░░░░] 0% (0/6 phases)
 

@@ -361,7 +361,7 @@ not tested keep "(unverified in game)" in their trailing comment.
   3. Out of combat, clicking the familiar reminder uses the highest-tier scroll in the bags that the player's level allows (Cat 277493 at 25, then Frog 277483 at 16, then Rat 275069 at 5); after a bag change the choice is made again, and with no usable scroll the icon shows with no click action
   4. Every other reminder's click is unchanged on both clients: out of combat it casts its spell, in combat it does nothing, and a reminder whose spell is not known gets no click
 **Plans**: 1 plan
-- [ ] 81-01-PLAN.md — Ice Armor, Mage Armor and familiar rows with their Forever-block groups and `useItems`; the familiar overlay uses the best usable scroll (`type1 = "item"`), re-picked on `BAG_UPDATE_DELAYED`; gate `81-check.js`
+- [x] 81-01-PLAN.md — Ice Armor, Mage Armor and familiar rows with their Forever-block groups and `useItems`; the familiar overlay uses the best usable scroll (`type1 = "item"`), re-picked on `BAG_UPDATE_DELAYED`; gate `81-check.js`
 **Notes**: Scope rule above applies; CLICK-07 is the milestone's only new behaviour. Shape per research §11.2-§11.3: `castID = false`, `knownID = 1296017`, an ordered `useItems` list (never sorted by ID), the item picked in `ReminderClick.lua`'s out-of-combat `Flush`, `type1 = "item"` written only for that overlay, one `ns:MarkReminderClicksDirty()` call in the existing `BAG_UPDATE_DELAYED` branch. Mage rows stay "(unverified in game)" until Phase 85.
 
 ### Phase 82: Other Class Rows
@@ -476,7 +476,7 @@ not tested keep "(unverified in game)" in their trailing comment.
 | 78. Human Testing | v0.5.3 | — | Complete — PASSED on retail; gap fix: buff follows its live aura (`469ff35`); #14 skipped | 2026-10-23 |
 | 79. Buff Countdown Display Fix | v0.5.4 | 1/1 | Complete — verified in game on retail; one `/reload` miss not reproduced (fluke) | 2026-10-24 |
 | 80. Forever Group Block, Group Buffs and Rank Coverage | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
-| 81. Mage Armors and Familiar Scrolls | v0.5.6 | 0/TBD | Not started | - |
+| 81. Mage Armors and Familiar Scrolls | v0.5.6 | 1/1 | Plan executed; awaiting phase verification | - |
 | 82. Other Class Rows | v0.5.6 | 0/TBD | Not started | - |
 | 83. Reminder Review Doc | v0.5.6 | 0/TBD | Not started | - |
 | 84. Cleanup | v0.5.6 | 0/TBD | Not started | - |

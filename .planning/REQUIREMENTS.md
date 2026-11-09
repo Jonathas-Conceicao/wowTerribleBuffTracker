@@ -58,17 +58,17 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 
 ### Mage armors (priority)
 
-- [ ] **MREM-07**: A Forever mage is offered Ice Armor (10220) and Mage Armor (22783) reminders,
+- [x] **MREM-07**: A Forever mage is offered Ice Armor (10220) and Mage Armor (22783) reminders,
   30 min each, and Frost Armor (7301), Ice Armor and Mage Armor form one group: any armor up hides
   every armor reminder.
 
 ### Mage familiar scrolls (the one new behaviour)
 
-- [ ] **MREM-18**: A Forever mage who knows Comprehend Scroll (1296017) is offered one familiar
+- [x] **MREM-18**: A Forever mage who knows Comprehend Scroll (1296017) is offered one familiar
   reminder, 60 min. Any tier's aura satisfies it: Cat 1302303, Frog 1302285, Rat 1296202. Using a
   scroll starts its timer through the existing cast path. It is not grouped with Arcane Intellect
   or the armors.
-- [ ] **CLICK-07**: Clicking the familiar reminder uses the highest-tier scroll in the bags that the
+- [x] **CLICK-07**: Clicking the familiar reminder uses the highest-tier scroll in the bags that the
   player can use: Cat (item 277493, level 25), then Frog (277483, level 16), then Rat (275069,
   level 5). The scroll is picked again out of combat after a bag change. With no usable scroll in
   the bags, the icon shows with no click action. Every other reminder's click is unchanged.
@@ -147,9 +147,9 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 | RALT-06 | Phase 80 | Complete |
 | RALT-07 | Phase 80 | Complete |
 | MREM-06 | Phase 80 | Complete |
-| MREM-07 | Phase 81 | Pending |
-| MREM-18 | Phase 81 | Pending |
-| CLICK-07 | Phase 81 | Pending |
+| MREM-07 | Phase 81 | Complete |
+| MREM-18 | Phase 81 | Complete |
+| CLICK-07 | Phase 81 | Complete |
 | MREM-08 | Phase 82 | Pending |
 | MREM-09 | Phase 82 | Pending |
 | MREM-10 | Phase 82 | Pending |
