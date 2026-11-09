@@ -6,11 +6,11 @@ More built-in reminders for WoW Forever, and group buffs or another
 player's rank of a buff now count as the buff being up.
 
 ### New Features
-- Mage: Ice Armor and Mage Armor reminders; any one armor up hides
-  all three armor reminders
+- Mage: Armor reminders; any one armor up hides all three armor
+  reminders
 - Mage: Familiar reminder; clicking it uses the best familiar scroll
   in your bags for your level
-- Mage: Amplify Magic and Dampen Magic reminders
+- Mage: Amplify Magic / Dampen Magic reminders
 - Warlock: Demon Armor / Demon Skin and Demonic Sacrifice reminders
 - Shaman: Lightning Shield / Water Shield reminders
 - Priest: Inner Fire, Shadowguard and Shadow Protection reminders
