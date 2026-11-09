@@ -1,4 +1,4 @@
-# Research Summary: v0.6 More Forever Reminders
+# Research Summary: v0.5.9 More Forever Reminders
 
 **Researched:** 2026-11-09. Full catalogue: [`FOREVER-REMINDERS.md`](FOREVER-REMINDERS.md). This
 replaces the v0.3 summary, which stays in git history.

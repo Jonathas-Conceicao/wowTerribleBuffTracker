@@ -8,13 +8,16 @@ A WoW addon for manually tracking buff and cooldown timers, running on both **Mi
 
 Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
 
-## Current Milestone: v0.6 More Forever Reminders
+## Current Milestone: v0.5.9 More Forever Reminders
 
 **Goal:** TBT suggests more Forever class-buff reminders, and buffs that cannot be up together are
 grouped so any one present satisfies the others, as the five paladin blessings already are.
 
+**Named v0.5.9, not v0.6 (user, 2026-11-09, at roadmap approval):** no major feature ships, so it
+stays a patch-line release. The kickoff, research and requirements commits still say "v0.6".
+
 **Phases start at 80.** Numbering continues from v0.5.4's Phase 79 (v0.5.5 was done outside GSD
-and used no phase). Branch: `milestone/v0.6-more-forever-reminders`, cut from `main` (`21c018d`) on
+and used no phase). Branch: `milestone/v0.5.9-more-forever-reminders`, cut from `main` (`21c018d`) on
 2026-11-09. Research: one focused researcher builds the candidate catalogue (Forever spell IDs,
 ranks, durations, exclusive groups, Wowhead links) instead of the 4-way fan-out (user decision).
 
@@ -460,7 +463,7 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 
 ### Active
 
-v0.6 More Forever Reminders — see `.planning/REQUIREMENTS.md`. Earlier milestones' requirements
+v0.5.9 More Forever Reminders — see `.planning/REQUIREMENTS.md`. Earlier milestones' requirements
 are archived under `.planning/milestones/`.
 
 Still open in the backlog:
@@ -572,7 +575,7 @@ client-side bug — see Context.
 | Trinket and Pot meta-trackers stay as-is | TBT's version has custom durations and bar display, and META-01 already hides them on Forever. Whatever the CDM now does natively, the trackers keep a reason to exist | Decided 2026-09-20 — closes the product half of 999.2. Only the public copy changes |
 | A cooldown's buff duration is typed, never looked up | The 2026-10-22 retail probe found no API that returns a buff's duration; description and tooltip text is English-only, holds several numbers and grammar escapes, and is often empty of any number. The user chose explicit config over a learn-from-aura scheme | Decided 2026-10-22 (v0.5.3 kickoff). Opt-in per tracker, off by default; aura ID pre-filled with the spell ID for spells, empty for items. ✓ Shipped v0.5.3 |
 | A read never rewrites a value the user typed | Asked to "auto-correct" a buff whose live duration differed, a first build overwrote the saved Duration. A live aura can be longer than one use (two flasks stacked = 2h), and the setting is the user's | Decided 2026-10-22 by the user (Phase 78). Live data drives only the running timer (`SyncProcToAura`); `ns.db` is never written from an aura read |
-| Group buffs satisfy their single-target class-buff reminder | Reverses the 2026-09-29 exclusion: a raid buff (Arcane Brilliance, Prayer of Fortitude, Gift of the Wild, a Greater Blessing) on the player means the single-target buff is not needed | Decided 2026-11-09 by the user (v0.6 kickoff). Through the existing alternatives lists; user input still never reaches a built-in's alternatives |
+| Group buffs satisfy their single-target class-buff reminder | Reverses the 2026-09-29 exclusion: a raid buff (Arcane Brilliance, Prayer of Fortitude, Gift of the Wild, a Greater Blessing) on the player means the single-target buff is not needed | Decided 2026-11-09 by the user (v0.5.9 kickoff). Through the existing alternatives lists; user input still never reaches a built-in's alternatives |
 | A cooldown's buff has no "End when the aura is lost" opt-out | A buff that never lands readably (wrong Aura ID, ally-targeted) ending the timer is for the user to fix in the Aura ID box | Decided 2026-10-22 (Phase 74 review WR-02); also covers the read-sync shortening a timer (v0.5.3 audit warning 2). ✓ Shipped v0.5.3 |
 
 ## Evolution
@@ -593,4 +596,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-09, at v0.6 More Forever Reminders kickoff*
+*Last updated: 2026-11-09, at v0.5.9 More Forever Reminders kickoff*

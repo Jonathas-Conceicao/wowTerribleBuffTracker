@@ -1,12 +1,12 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.6
+milestone: v0.5.9
 milestone_name: "More Forever Reminders"
 status: planning
 last_updated: "2026-11-09"
-last_activity: 2026-11-09 — Milestone v0.6 started
+last_activity: 2026-11-09 — Roadmap created (Phases 80-85)
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,16 +20,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** v0.6 More Forever Reminders — more Forever class-buff reminder suggestions with exclusive groups (mage armors first), group buffs as alternatives, and `docs/REMINDERS.md` for human review.
+**Current focus:** v0.5.9 More Forever Reminders — more Forever class-buff reminder suggestions with exclusive groups (mage armors first), group buffs as alternatives, and `docs/REMINDERS.md` for human review.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 80 — Forever Group Block, Group Buffs and Rank Coverage (next; not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-11-09 — Milestone v0.6 started
+Status: Ready to plan (roadmap created: Phases 80-85, 22/22 requirements mapped)
+Last activity: 2026-11-09 — Roadmap created
 
-- Branch: `milestone/v0.6-more-forever-reminders`, cut from `main` (`21c018d`) on 2026-11-09.
+Progress: [░░░░░░░░░░] 0% (0/6 phases)
+
+- Branch: `milestone/v0.5.9-more-forever-reminders`, cut from `main` (`21c018d`) on 2026-11-09.
 - Phases start at **80** (v0.5.4 ended at Phase 79; v0.5.5 used no phase; numbering never restarts).
 - Forever IDs and `wowhead.com/forever/` links only — never Classic's (user, 2026-11-09).
 - v0.5.4's phase directory is archived at `.planning/milestones/v0.5.4-phases/`. v0.5.3's phase directories are archived at `.planning/milestones/v0.5.3-phases/`; its review notes

@@ -1,4 +1,4 @@
-# Forever Reminder Catalogue (v0.6 More Forever Reminders)
+# Forever Reminder Catalogue (v0.5.9 More Forever Reminders)
 
 **Researched:** 2026-11-09 (Forever launched 2026-11-04; build 1.60.1.x, interface 16001).
 Follow-ups the same day: §11 (mage familiar scrolls) and §12 (rank coverage, after the user's "these ids need to group the different ranks").
@@ -55,7 +55,7 @@ Sacrifice). The user confirms each in game with TBT's ID tooltip, as for existin
 ## 2. How alternatives resolve in the code, and what that means for the rows
 
 Read from `Providers.lua` 101–160, 330–447, 1106–1193 and `Core.lua` 890–1003, 1478–1500,
-1535–1607, 1652–1714. This is a description of current behaviour, which v0.6 leaves unchanged.
+1535–1607, 1652–1714. This is a description of current behaviour, which v0.5.9 leaves unchanged.
 
 1. **An alternative ID is expanded through `ns:CastRuleFamily(altID)`.** On Forever
    (`ns.CLIENT_HAS_SPELL_RANKS`) that is `ns:ResolveRankFamily(altID)`: the ID itself, its
@@ -77,7 +77,7 @@ Read from `Providers.lua` 101–160, 330–447, 1106–1193 and `Core.lua` 890�
    be in exactly one group call. The five blessings' existing call must be **replaced** by one
    longer call, not followed by a second one.
 5. **`MetaReminderGroup` runs on both clients, but rows only register on their own client.**
-   This is a **live trap for v0.6:** `21562` is Prayer of Fortitude rank 1 on Forever **and** the
+   This is a **live trap for v0.5.9:** `21562` is Prayer of Fortitude rank 1 on Forever **and** the
    retail Power Word: Fortitude row. An ungated `MetaReminderGroup(10938, 21562, 21564)` running on
    retail finds the retail 21562 row and gives it `{10938, 21564}` as alternatives. That would
    change retail behaviour, which the scope constraint forbids. Likewise:
@@ -333,7 +333,7 @@ and it is exactly why §2.5's Forever block is needed.)
    before their timer. Existing aura-loss handling ends the timer; the user should see the
    reminder return after the charges are spent, which is correct.
 7. **Permanent rows (0 min)** have no lead window, the same as retail Devotion Aura.
-8. **The familiar row is the only new code** (the item click, §11.3); everything else in v0.6 is
+8. **The familiar row is the only new code** (the item click, §11.3); everything else in v0.5.9 is
    table data.
 
 ---

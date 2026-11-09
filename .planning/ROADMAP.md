@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [ ] **v0.5.9 More Forever Reminders** — Phases 80-85 (in progress, started 2026-11-09)
 - [x] **v0.5.5 Fresh-login buff time fix** — no phases, done outside GSD (shipped 2026-10-27, `6f976e8`) — see `MILESTONES.md`
 - [x] **v0.5.4 Buff countdown display fix** — Phase 79 (shipped 2026-10-24) — [archive](milestones/v0.5.4-ROADMAP.md)
 - [x] **v0.5.3 Display buff duration alongside cooldowns** — Phases 73-78 (shipped 2026-10-23) — [archive](milestones/v0.5.3-ROADMAP.md)
@@ -17,6 +18,25 @@
 - [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
+
+### v0.5.9 More Forever Reminders (Phases 80-85) — IN PROGRESS
+
+Started 2026-11-09 on `milestone/v0.5.9-more-forever-reminders`. Research:
+[`research/FOREVER-REMINDERS.md`](research/FOREVER-REMINDERS.md) (§12.3 is the final group-call
+list), summary in [`research/SUMMARY.md`](research/SUMMARY.md).
+
+**Order.** The Forever block and the group-buff and rank data come first, because every later group
+call sits inside that block. Mage armors and familiar scrolls next (the user tests these, and the
+familiar item click is the milestone's only new behaviour). The other class rows follow, Demonic
+Sacrifice last as the only row with a separate aura ID. Then the review doc, cleanup, and the user's
+Forever testing pass as the literal last phase.
+
+- [ ] **Phase 80: Forever Group Block, Group Buffs and Rank Coverage** — one Forever-only block of group calls; group buffs, Greater Blessings and every rank count as alternatives; Salvation and Light retired
+- [ ] **Phase 81: Mage Armors and Familiar Scrolls** — Ice Armor and Mage Armor join Frost Armor as one group; one familiar reminder whose click uses the best scroll in the bags
+- [ ] **Phase 82: Other Class Rows** — warlock, shaman, priest, paladin and hunter rows plus the situational buffs, Demonic Sacrifice last
+- [ ] **Phase 83: Reminder Review Doc** — `docs/REMINDERS.md` lists every built-in reminder with Wowhead links, cross-checked against `Providers.lua`, not shipped
+- [ ] **Phase 84: Cleanup** — the milestone's own unused code and duplication, touched hot paths, stylua, release scripts
+- [ ] **Phase 85: Forever Testing Pass** — the user checks the new rows and groups in game; testing pass, no plans; the last phase of the milestone
 
 <details>
 <summary>✅ v0.5.4 Buff countdown display fix (Phase 79) — SHIPPED 2026-10-24</summary>
@@ -309,9 +329,91 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 is [`v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md), which carries the full detail for Phase 79;
 [`v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md) covers Phases 73-78.*
 
+**Scope rule for every v0.5.9 phase (user, 2026-11-09).** Nothing may work differently from today,
+except the familiar-scroll item click (CLICK-07). Every row and group is data through the existing
+`MetaReminderRow` / `MetaReminderGroup`; matching, watch and cast code is not changed. Every Forever
+ID comes from `research/FOREVER-REMINDERS.md` only, is WoW Forever's own, and its link is
+`https://www.wowhead.com/forever/spell=<id>` (items: `/forever/item=<id>`). No Classic ID and no
+Classic page as evidence. New rows are Forever only; retail rows do not change. Rows the user has
+not tested keep "(unverified in game)" in their trailing comment.
+
+### Phase 80: Forever Group Block, Group Buffs and Rank Coverage
+**Goal**: On Forever, a group buff, a Greater Blessing or any rank of a class buff on the player hides its reminder, while every retail reminder behaves exactly as before
+**Depends on**: Nothing (first phase of the milestone)
+**Requirements**: RALT-04, RALT-05, RALT-06, RALT-07, MREM-06
+**Success Criteria** (what must be TRUE):
+  1. On Forever, a player carrying Arcane Brilliance (23028), Prayer of Fortitude (21562, 21564), Prayer of Spirit (27681) or Gift of the Wild (21849, 21850) does not see the matching Arcane Intellect, Power Word: Fortitude, Divine Spirit or Mark of the Wild reminder
+  2. On Forever, any blessing or Greater Blessing (Kings 25898, Might 25782/25916, Wisdom 25894/25918) on the player hides every blessing reminder
+  3. On Forever, a rank the player does not know hides its reminder for every existing row in research §12.3 (Arcane Intellect, Fortitude, Divine Spirit, Mark of the Wild, Thorns, Battle Shout, Trueshot Aura, Blood Pact, the blessings): e.g. another mage's Arcane Intellect 10157 on a level-30 mage
+  4. Blessing of Salvation (1038) and Blessing of Light (19979) are no longer offered in Suggested; one already placed shows greyed as "no longer offered" with its saved data kept; `Providers.lua` carries an internal note recording Salvation, Light and Revoker as removed from Forever
+  5. On retail, every reminder, including the rows on 21562, 1459, 1126, 6673 and 465, shows and hides exactly as before and gains no alternative; all v0.5.9 group calls sit in one `if ns.CLIENT_IS_FOREVER then … end` block and `MetaReminderGroup` itself is unchanged
+**Plans**: TBD
+**Notes**: Scope rule above applies. Rank lists are research §12.2/§12.3 verbatim. Blood Pact's extra data IDs (7871-7873 and others) are not added (RALT-07: only if the in-game ID tooltip shows one). The blessings call replaces the existing one, without 1038/19979. Keep comments out of the middle of multi-line calls (stylua CR trap).
+
+### Phase 81: Mage Armors and Familiar Scrolls
+**Goal**: A Forever mage is reminded of a missing armor and a missing familiar, and clicking the familiar reminder uses the best scroll in the bags
+**Depends on**: Phase 80
+**Requirements**: MREM-07, MREM-18, CLICK-07
+**Success Criteria** (what must be TRUE):
+  1. A Forever mage is offered Ice Armor (10220) and Mage Armor (22783) reminders, 30 min each, and with any of Frost Armor, Ice Armor or Mage Armor up, no armor reminder shows
+  2. A Forever mage who knows Comprehend Scroll (1296017) is offered one familiar reminder, 60 min; any of Cat (1302303), Frog (1302285) or Rat (1296202) on the player hides it, using any scroll starts its timer, and it is not grouped with Arcane Intellect or the armors
+  3. Out of combat, clicking the familiar reminder uses the highest-tier scroll in the bags that the player's level allows (Cat 277493 at 25, then Frog 277483 at 16, then Rat 275069 at 5); after a bag change the choice is made again, and with no usable scroll the icon shows with no click action
+  4. Every other reminder's click is unchanged on both clients: out of combat it casts its spell, in combat it does nothing, and a reminder whose spell is not known gets no click
+**Plans**: TBD
+**Notes**: Scope rule above applies; CLICK-07 is the milestone's only new behaviour. Shape per research §11.2-§11.3: `castID = false`, `knownID = 1296017`, an ordered `useItems` list (never sorted by ID), the item picked in `ReminderClick.lua`'s out-of-combat `Flush`, `type1 = "item"` written only for that overlay, one `ns:MarkReminderClicksDirty()` call in the existing `BAG_UPDATE_DELAYED` branch. Mage rows stay "(unverified in game)" until Phase 85.
+
+### Phase 82: Other Class Rows
+**Goal**: Forever warlocks, shamans, priests, paladins and hunters are offered reminders for their maintained self buffs, with exclusive buffs grouped so any one up hides the others
+**Depends on**: Phase 80
+**Requirements**: MREM-08, MREM-09, MREM-10, MREM-11, MREM-12, MREM-13, MREM-14, MREM-15, MREM-16, MREM-17
+**Success Criteria** (what must be TRUE):
+  1. A Forever warlock sees Demon Armor (11735) and Demon Skin (696) as one group, a shaman sees Lightning Shield (10432) and Water Shield (408510) as one group, and a priest sees Inner Fire (10952, 10 min), Shadowform (15473, no timer, shown once the aura is gone) and, only if they know it, Shadowguard (19312)
+  2. A Forever paladin sees one Devotion Aura (10293) reminder that any rank of Devotion, Retribution, Concentration or the three resistance auras hides; a hunter sees one Aspect of the Hawk (25296) reminder that Monkey, Cheetah, Pack, Wild or Beast hides, and that Viper or Falcon never hides
+  3. Situational rows on Forever: a mage's Amplify Magic (10170) and Dampen Magic (10174) form one group; a priest's Shadow Protection (10958) is hidden by Prayer of Shadow Protection (27683) or a lower rank another priest cast; a warlock's one Detect Invisibility reminder is hidden by any of 132, 2970 and 11743
+  4. A Forever warlock sees Demonic Sacrifice (18788), 120 min, which watches aura 18789 and is hidden by any of 18790, 18791 or 18792
+  5. On retail no new reminder is offered and every existing reminder is unchanged
+**Plans**: TBD
+**Notes**: Scope rule above applies. Group calls go inside Phase 80's Forever block. Rows another player can apply get every rank listed per RALT-07 (research §12.2: Shadow Protection 976, 10957; Amplify 1008, 8455, 10169; Dampen 604, 8450, 8451, 10173). 465 is the retail Devotion row and only appears inside the Forever block. Demonic Sacrifice lands last, as the only row with a separate aura ID.
+
+### Phase 83: Reminder Review Doc
+**Goal**: A human can review every built-in reminder, Forever and retail, in one document kept in step with the code
+**Depends on**: Phase 82
+**Requirements**: DOC-06, DOC-07
+**Success Criteria** (what must be TRUE):
+  1. `docs/REMINDERS.md` lists every built-in reminder, Forever and retail, existing and new, with class, spell, ID, duration, group and alternatives, client and verified-in-game status, each with a Wowhead link (`/forever/` for Forever, the retail path for retail)
+  2. The doc lists every candidate left out, each with a reason
+  3. Every ID in the doc matches a row or alternative in `Providers.lua` and every row or alternative ID in `Providers.lua` appears in the doc, with zero mismatches; the reminder table's comment points at the doc
+  4. The packaged zip contains no `docs/` (`.pkgmeta` ignores it)
+**Plans**: TBD
+**Notes**: Scope rule above applies; no code behaviour changes here, only the pointer comment. Salvation, Light and Revoker stay out of this doc (MREM-06); they live in the internal note in `Providers.lua`. Lifted from research §5, §7, §8 and §11-§12.
+
+### Phase 84: Cleanup
+**Goal**: The milestone's code leaves no dead code, duplication or hot-path cost behind, and the release scripts still hold
+**Depends on**: Phase 83
+**Requirements**: CLEAN-01
+**Success Criteria** (what must be TRUE):
+  1. No unused code or duplicated behaviour introduced by Phases 80-83 remains; code that predates the milestone is not refactored
+  2. The hot paths the new rows, groups and familiar click touch (the reminder aura refresh, the reminder click flush, the bag-update branch) do no new per-frame or per-event allocation
+  3. `stylua .` leaves no diff and `git ls-files --eol` shows CRLF for every touched Lua file; the release scripts are reviewed
+  4. The doc-to-code ID check from DOC-07 is re-run after cleanup and still finds zero mismatches
+**Plans**: TBD
+**Notes**: Scope rule above applies. Process only; the costs research §12.4 lists are noted, not optimised.
+
+### Phase 85: Forever Testing Pass
+**Goal**: The user confirms the new reminders and groups on WoW Forever, and that retail is unchanged
+**Depends on**: Phase 84
+**Requirements**: VER-15
+**Success Criteria** (what must be TRUE):
+  1. On Forever, each mage armor's ID tooltip matches its row, and one armor up hides the others
+  2. The familiar reminder is checked in game: each tier's buff ID, the click using the highest scroll in the bags, whether a new tier replaces a lower one, and whether it stacks with Arcane Intellect
+  3. A group buff hides its single-target reminder where one can be had, and any other class the user can reach is checked; rows not checked keep "(unverified in game)"
+  4. A retail sanity pass confirms no retail reminder changed
+**Plans**: None (testing pass by the user)
+**Notes**: Scope rule above applies. The literal last phase of the milestone, as in earlier milestones.
+
 ## Progress
 
-**Execution order:** no milestone in progress (v0.5.4 ran 79)
+**Execution order:** 80 → 81 → 82 → 83 → 84 → 85 (v0.5.9)
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -370,6 +472,12 @@ is [`v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md), which carries the full d
 | 77. Cleanup | v0.5.3 | 2/2 | Complete | 2026-10-22 |
 | 78. Human Testing | v0.5.3 | — | Complete — PASSED on retail; gap fix: buff follows its live aura (`469ff35`); #14 skipped | 2026-10-23 |
 | 79. Buff Countdown Display Fix | v0.5.4 | 1/1 | Complete — verified in game on retail; one `/reload` miss not reproduced (fluke) | 2026-10-24 |
+| 80. Forever Group Block, Group Buffs and Rank Coverage | v0.5.9 | 0/TBD | Not started | - |
+| 81. Mage Armors and Familiar Scrolls | v0.5.9 | 0/TBD | Not started | - |
+| 82. Other Class Rows | v0.5.9 | 0/TBD | Not started | - |
+| 83. Reminder Review Doc | v0.5.9 | 0/TBD | Not started | - |
+| 84. Cleanup | v0.5.9 | 0/TBD | Not started | - |
+| 85. Forever Testing Pass | v0.5.9 | — | Not started | - |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*
@@ -928,6 +1036,15 @@ are the starting point. The refresh and the cancellation scan would merge into t
 follows it (`syncedAt` in `ns:StartReminderFromCast`); cooldown buffs do not. If the aura event
 arrives just before the cast, the cast resets the timer to the typed Duration for about half a
 second, until the post-cast re-check moves it back.
+
+**999.29 — Weapon-enchant reminders.** Intake 2026-11-09, user request, raised at the v0.5.9
+kickoff. **Not for now:** the user asked for it to be noted only.
+
+Reminders for weapon enchants: shaman imbues (60 min on Forever), rogue poisons, oils, sharpening
+stones and the like. They are weapon enchants with no aura, so the reminder aura path
+(`ns:ReadPlayerAura`, `ns:RefreshAuraStates`) cannot see them; they would need a
+`GetWeaponEnchantInfo` path. Research: `.planning/research/FOREVER-REMINDERS.md` §6, where they are
+excluded from v0.5.9 for this reason.
 
 *The four original backlog phases — 999.1 (Edit Mode mouse-down), 999.2 (README and store copy),
 999.3 (single-TOC migration) and 999.4 (`@project-version@` in dev installs) — were promoted into
