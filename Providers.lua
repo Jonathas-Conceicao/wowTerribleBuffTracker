@@ -1203,7 +1203,7 @@ MetaReminderRow(15473, 0) -- Priest: Shadowform (MREM-10; Shadow talent; permane
 MetaReminderRow(19312, 10) -- Priest: Shadowguard (MREM-14; Troll; the known-spell rule offers it only to a priest who knows it) (unverified in game)
 MetaReminderRow(10958, 10) -- Priest: Shadow Protection (MREM-16; situational) (unverified in game)
 -- Paladin aura (Phase 82, MREM-11): one "any aura" row; every aura rank is listed in the Forever block.
-MetaReminderRow(10293, 0) -- Paladin: Devotion Aura, any paladin aura satisfies it (MREM-11; permanent; the row is 10293, never the retail row's 465, which is only an alternative here) (unverified in game)
+MetaReminderRow(10293, 0) -- Paladin: Devotion Aura, any paladin aura satisfies it (MREM-11; permanent; keyed on 10293, never the retail Devotion row's ID, which is only an alternative here) (unverified in game)
 -- Hunter aspect (Phase 82, MREM-12): one "any aspect" row; the aspects are listed in the Forever block.
 MetaReminderRow(25296, 0) -- Hunter: Aspect of the Hawk, any aspect satisfies it (MREM-12; permanent; Viper and Falcon never count) (unverified in game)
 -- Mage situational pair (Phase 82, MREM-15): Amplify Magic and Dampen Magic; grouped in the Forever block.
