@@ -373,7 +373,8 @@ not tested keep "(unverified in game)" in their trailing comment.
   3. Situational rows on Forever: a mage's Amplify Magic (10170) and Dampen Magic (10174) form one group; a priest's Shadow Protection (10958) is hidden by Prayer of Shadow Protection (27683) or a lower rank another priest cast; no detection or tracking skill (Detect Invisibility, Track Beasts and the like) is offered
   4. A Forever warlock sees Demonic Sacrifice (18788), 120 min, which watches aura 18789 and is hidden by any of 18790, 18791 or 18792
   5. On retail no new reminder is offered and every existing reminder is unchanged
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 82-01-PLAN.md — thirteen Forever rows above the retail rows and seven group calls appended to the Forever block, Demonic Sacrifice last; gate `82-check-rows.js`
 **Notes**: Scope rule above applies. Group calls go inside Phase 80's Forever block. Rows another player can apply get every rank listed per RALT-07 (research §12.2: Shadow Protection 976, 10957; Amplify 1008, 8455, 10169; Dampen 604, 8450, 8451, 10173). 465 is the retail Devotion row and only appears inside the Forever block. Demonic Sacrifice lands last, as the only row with a separate aura ID.
 
 ### Phase 83: Reminder Review Doc
