@@ -1178,9 +1178,6 @@ MetaReminderRow(25291, 60) -- Paladin: Blessing of Might
 MetaReminderRow(25290, 60) -- Paladin: Blessing of Wisdom
 MetaReminderRow(25780, 30) -- Paladin: Righteous Fury (aura ID = spell ID, unverified)
 
--- RALT-03: the five blessings satisfy each other -- a paladin holds one own blessing per target.
-MetaReminderGroup(20217, 25291, 25290, 1038, 19979)
-
 -- The retail rows (user data 2026-09-30, MREM-04/MREM-05).
 -- Arcane Familiar trade-off: a cast of 1459 starts only the Arcane Intellect row (the cast index
 -- holds one owner per spell), so the familiar's reminder hides through its aura 210126 (UNIT_AURA
@@ -1200,6 +1197,56 @@ MetaReminderRow(465, 0, nil, nil, nil, { client = "retail" }) -- Paladin: Devoti
 -- Per the user decision, Concentration Aura 317920 or Crusader Aura 32223 satisfies Devotion Aura;
 -- they are alternatives only (not rows), so only 465 receives the list, and Devotion stays the cast spell.
 MetaReminderGroup(465, 317920, 32223)
+
+-- The Forever group block (RALT-04, Phase 80): every Forever group call lives in this one block.
+-- 21562, 1459, 1126, 6673 and 465 are Forever ranks and also retail row IDs (1459 is a `both`
+-- row), so an ungated call would give retail rows Forever alternatives. Phases 81-82 add their
+-- groups inside this block (mage armors, familiar scrolls, the other class rows).
+-- MetaReminderGroup gives each listed ID that has a row the others as alternatives; an ID without
+-- a row is a one-way alternative. IDs are from research §12.3.
+if ns.CLIENT_IS_FOREVER then
+	-- Arcane Intellect: ranks 1-5 and Arcane Brilliance (RALT-05, RALT-07)
+	MetaReminderGroup(1459, 1460, 1461, 10156, 10157, 23028)
+	-- Power Word: Fortitude: ranks 1-6 and Prayer of Fortitude ranks 1-2
+	MetaReminderGroup(10938, 1243, 1244, 1245, 2791, 10937, 21562, 21564)
+	-- Divine Spirit: ranks 1-4 and Prayer of Spirit
+	MetaReminderGroup(27841, 14752, 14818, 14819, 27681)
+	-- Mark of the Wild: ranks 1-7 and Gift of the Wild ranks 1-2
+	MetaReminderGroup(9885, 1126, 5232, 6756, 5234, 8907, 9884, 21849, 21850)
+	-- Thorns: ranks 1-6
+	MetaReminderGroup(9910, 467, 782, 1075, 8914, 9756)
+	-- Battle Shout: ranks 1-7
+	MetaReminderGroup(25289, 6673, 5242, 6192, 11549, 11550, 11551)
+	-- Trueshot Aura: ranks 1-3
+	MetaReminderGroup(20906, 19506, 20905)
+	-- Blood Pact: ranks 1-5; the extra data IDs (7871-7873 and others) are left out until an
+	-- in-game ID tooltip shows one on the player (RALT-07)
+	MetaReminderGroup(11767, 6307, 7804, 7805, 11766)
+	-- The blessings (RALT-06): Kings, Might, Wisdom, the Might ranks, the Wisdom ranks, Greater
+	-- Kings, Greater Might, Greater Wisdom. Any one satisfies every blessing reminder; a paladin
+	-- holds one own blessing per target. 1038/19979 are retired (see the note in the header).
+	MetaReminderGroup(
+		20217,
+		25291,
+		25290,
+		19740,
+		19834,
+		19835,
+		19836,
+		19837,
+		19838,
+		19742,
+		19850,
+		19852,
+		19853,
+		19854,
+		25898,
+		25782,
+		25916,
+		25894,
+		25918
+	)
+end
 
 -- The table row for a class-buff spell ID, or nil. One map read.
 function ns:MetaReminderDef(spellID)
