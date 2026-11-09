@@ -1,28 +1,46 @@
 // DOC-07: docs/REMINDERS.md is the human-review list of every built-in reminder. This check proves
-// that the doc and the reminder table in Providers.lua name the same IDs, per client and overall,
-// so the doc cannot drift from the code without the check going red.
+// that the doc and the reminder table in Providers.lua name the same IDs per client (and so
+// overall, since every ID belongs to a client), and that each row's "Also satisfied by" cell is the
+// group the row is really in, so the doc cannot drift from the code without the check going red.
 //
 //   node scripts/reminders-doc-check.js              -- check Providers.lua against docs/REMINDERS.md,
 //                                                       exit 1 on any mismatch
 //   node scripts/reminders-doc-check.js --selftest   -- run the checker against embedded fixtures
 //   --code <path> / --doc <path>                     -- read another file instead (for gates)
+//   any other argument, or --code / --doc with no value, exits 2 without checking anything.
 //
 // Code side: every MetaReminderRow first argument, auraID and useItems item ID, and every
 // MetaReminderGroup ID. Comments are stripped first, so an ID named in prose (the retired-blessings
-// note) is never counted. A row's client is its opts.client ("forever" when absent); a group inside
-// an `if ns.CLIENT_IS_FOREVER then ... end` block counts on Forever only, a group outside one counts
-// on every client where one of its IDs is a row.
+// note) is never counted. A row's client is its opts.client ("forever" when absent); a group
+// directly inside the `if ns.CLIENT_IS_FOREVER then ... end` block counts on Forever only, a group
+// at file top level counts on every client where one of its IDs is a row. Anything this cannot
+// classify fails rather than being guessed: a group in any other block (another if, a function, a
+// loop), an else / elseif branch on the Forever block, a row not at file top level, and a group,
+// auraID or useItems value that is not an integer literal. A second row for the same ID on an
+// overlapping client fails, and so does a row named by two groups on one client (at runtime the
+// later group REPLACES the earlier one's alternatives).
 //
 // Doc side: every wowhead link under `## Forever` and `## Retail`. Forever links must be
 // /forever/spell= or /forever/item=, retail links spell= or item=; any other path fails. Links
 // under `## Not included` are not collected, but one to a row ID fails. Each row also needs a table
-// line in its section, under its class, with the right Duration and Verified cells.
+// line in its section, under its class, with the right Duration, Verified and "Also satisfied by"
+// cells. "Also satisfied by" must link exactly the other IDs of the row's group, say `none` when
+// the row has no group, or say `<Name> group, below` when a `**<Name> group**` paragraph under the
+// same class links the group's IDs (the row's own ID may be linked there or not).
 //
 // Known limits (static text, not a Lua evaluator): a row or group built at runtime (a loop, a
 // variable holding an ID) cannot be seen. The row's class and verified status are read from its
 // trailing `-- <Class>: <name>` comment, which is a convention, not code.
+//
+// Verified (review WR-06): a row is `unverified` when its trailing comment contains the word
+// "unverified" anywhere, and `yes` otherwise. The rule is kept on purpose, so read it as a contract
+// on the comments: every new row MUST carry "(unverified in game)" until someone checks it in game,
+// and no row comment may use the word for anything else ("was unverified until ..." flips a
+// verified row). Whether a `yes` row really was checked in game (it predates v0.5.6) is not in the
+// code at all, so this check cannot prove it; the human review pass owns that.
 const fs = require('fs');
 const path = require('path');
+const childProcess = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const DEFAULT_CODE = path.join(ROOT, 'Providers.lua');
@@ -31,6 +49,7 @@ const DEFAULT_DOC = path.join(ROOT, 'docs', 'REMINDERS.md');
 const CLIENTS = ['forever', 'retail'];
 const CLIENT_LABEL = { forever: 'Forever', retail: 'Retail' };
 const VALID_CLIENTS = new Set(['forever', 'retail', 'both']);
+const W = 'https://www.wowhead.com/';
 
 // --- Lua lexing ----------------------------------------------------------------------------------
 function longBracketLevel(text, i) {
@@ -167,37 +186,66 @@ function splitArgs(blank, from, to) {
   return ranges;
 }
 
-function integersIn(s) {
-  return (s.match(/\b\d+\b/g) || []).map(Number);
+// Every block in the file as { start, end, forever, branchAt }, found by keyword depth: function /
+// if / do / repeat open, end / until close (for and while open through their do; `elseif` never
+// matches \bif\b). Only the exact `if ns.CLIENT_IS_FOREVER then` opener is a Forever block; any other
+// gate (`== true`, `not`, a local alias) is an ordinary if, so a group under it is reported as
+// unclassifiable instead of being counted on every client. branchAt is the offset of the Forever
+// block's first else / elseif: a call after it runs on the OTHER client, so it is never Forever.
+const FOREVER_IF_RE = /if\s+ns\.CLIENT_IS_FOREVER\s+then\b/y;
+
+function luaBlocks(blank, problems) {
+  const blocks = [];
+  const stack = [];
+  const kw = /\b(function|if|do|repeat|end|until|else|elseif)\b/g;
+  let k;
+  while ((k = kw.exec(blank))) {
+    const word = k[1];
+    if (word === 'end' || word === 'until') {
+      const b = stack.pop();
+      if (!b) {
+        problems.push(`Providers.lua line ${lineAt(blank, k.index)}: "${word}" closes no block`);
+        continue;
+      }
+      b.end = k.index + word.length;
+      blocks.push(b);
+    } else if (word === 'else' || word === 'elseif') {
+      const b = stack[stack.length - 1];
+      if (b && b.forever && b.branchAt === null) {
+        b.branchAt = k.index;
+        problems.push(
+          `Providers.lua line ${lineAt(blank, k.index)}: the Forever block has an ${word} branch; ` +
+            'a group there runs on the other client, which this check cannot classify'
+        );
+      }
+    } else {
+      FOREVER_IF_RE.lastIndex = k.index;
+      stack.push({ start: k.index, end: blank.length, forever: word === 'if' && FOREVER_IF_RE.test(blank), branchAt: null });
+    }
+  }
+  for (const b of stack) {
+    problems.push(`Providers.lua line ${lineAt(blank, b.start)}: a block opened here never closes`);
+    blocks.push(b);
+  }
+  return blocks;
 }
 
-// [start, end) spans of every `if ns.CLIENT_IS_FOREVER then ... end` block, found by keyword
-// depth: function / if / do / repeat open, end / until close (for and while open through their do).
-function foreverBlocks(blank, problems) {
-  const spans = [];
-  const open = /\bif\s+ns\.CLIENT_IS_FOREVER\s+then\b/g;
-  let m;
-  while ((m = open.exec(blank))) {
-    const kw = /\b(function|if|do|repeat|end|until)\b/g;
-    kw.lastIndex = m.index;
-    let depth = 0;
-    let end = -1;
-    let k;
-    while ((k = kw.exec(blank))) {
-      depth += k[1] === 'end' || k[1] === 'until' ? -1 : 1;
-      if (depth === 0) {
-        end = k.index + k[0].length;
-        break;
-      }
-    }
-    if (end < 0) {
-      problems.push(`Providers.lua line ${lineAt(blank, m.index)}: the Forever block never closes`);
-      end = blank.length;
-    }
-    spans.push([m.index, end]);
-    open.lastIndex = end;
+// Where a call at `offset` runs: 'top' (file top level), 'forever' (directly in the Forever block,
+// before any else branch), or null (anywhere else, which this check cannot classify).
+function placement(blocks, offset) {
+  const around = blocks.filter(b => offset > b.start && offset < b.end);
+  if (around.length === 0) {
+    return 'top';
   }
-  return spans;
+  const b = around[0];
+  if (around.length === 1 && b.forever && (b.branchAt === null || offset < b.branchAt)) {
+    return 'forever';
+  }
+  return null;
+}
+
+function overlaps(a, b) {
+  return a === b || a === 'both' || b === 'both';
 }
 
 // --- code side -----------------------------------------------------------------------------------
@@ -207,7 +255,7 @@ function parseCode(text) {
   const problems = [];
   const rows = [];
   const groups = [];
-  const blocks = foreverBlocks(blank, problems);
+  const blocks = luaBlocks(blank, problems);
 
   const callRe = /\b(MetaReminderRow|MetaReminderGroup)\s*\(/g;
   let m;
@@ -226,18 +274,41 @@ function parseCode(text) {
     callRe.lastIndex = close;
     const args = splitArgs(blank, open + 1, close);
     const argBlank = r => blank.slice(r[0], r[1]);
+    const where = placement(blocks, m.index);
 
     if (m[1] === 'MetaReminderGroup') {
-      const ids = integersIn(blank.slice(open + 1, close));
+      if (where === null) {
+        problems.push(
+          `Providers.lua line ${line}: MetaReminderGroup sits in a block other than the Forever block's ` +
+            'main branch (another if, a function, a loop, an else), so its client cannot be classified'
+        );
+        continue;
+      }
+      // Every argument must be a decimal literal: an identifier or a hex literal would be a member
+      // the runtime has and this check cannot see.
+      const ids = [];
+      for (const r of args) {
+        const a = argBlank(r).trim();
+        if (/^\d+$/.test(a)) {
+          ids.push(Number(a));
+        } else {
+          problems.push(
+            `Providers.lua line ${line}: MetaReminderGroup argument "${noComments.slice(r[0], r[1]).trim()}" is not an integer literal`
+          );
+        }
+      }
       if (ids.length === 0) {
         problems.push(`Providers.lua line ${line}: MetaReminderGroup names no ID`);
         continue;
       }
-      const inForever = blocks.some(s => m.index >= s[0] && m.index < s[1]);
-      groups.push({ ids, inForever, line });
+      groups.push({ ids, inForever: where === 'forever', line });
       continue;
     }
 
+    if (where !== 'top') {
+      problems.push(`Providers.lua line ${line}: MetaReminderRow is not at file top level, so its client cannot be classified`);
+      continue;
+    }
     const idArg = args[0] && argBlank(args[0]).trim();
     const minArg = args[1] && argBlank(args[1]).trim();
     if (!/^\d+$/.test(idArg || '') || !/^\d+$/.test(minArg || '')) {
@@ -266,25 +337,34 @@ function parseCode(text) {
         }
         row.client = value;
       }
-      const am = optsBlank.match(/\bauraID\s*=\s*(\d+)/);
-      if (am) {
-        row.auraID = Number(am[1]);
+      if (/\bauraID\s*=/.test(optsBlank)) {
+        const am = optsBlank.match(/\bauraID\s*=\s*(\d+)\s*(?=[,;}])/);
+        if (am) {
+          row.auraID = Number(am[1]);
+        } else {
+          problems.push(`row ${row.spellID} (line ${line}): auraID is not an integer literal`);
+        }
       }
-      const um = /\buseItems\s*=\s*\{/.exec(optsBlank);
-      if (um) {
-        const uOpen = um.index + um[0].length - 1;
-        const uClose = matchClose(optsBlank, uOpen);
-        const inner = optsBlank.slice(uOpen + 1, uClose < 0 ? optsBlank.length : uClose);
-        if (inner.includes('{')) {
-          // { { itemID, minLevel }, ... }: only the FIRST number of each pair is an item ID.
-          for (const pair of inner.match(/\{[^{}]*\}/g) || []) {
-            const first = integersIn(pair)[0];
-            if (first !== undefined) {
-              row.useItems.push(first);
+      if (/\buseItems\s*=/.test(optsBlank)) {
+        const um = /\buseItems\s*=\s*\{/.exec(optsBlank);
+        const uOpen = um ? um.index + um[0].length - 1 : -1;
+        const uClose = um ? matchClose(optsBlank, uOpen) : -1;
+        if (uClose < 0) {
+          problems.push(`row ${row.spellID} (line ${line}): useItems is not a table literal`);
+        } else {
+          // { itemID, ... } or { { itemID, minLevel }, ... }: only the FIRST value of a pair is an
+          // item ID, and each one must be an integer literal.
+          for (const [s, e] of splitArgs(optsBlank, uOpen + 1, uClose)) {
+            const pair = optsBlank.slice(s, e).trim().match(/^\{([^{}]*)\}$/);
+            const item = pair ? pair[1].split(',')[0].trim() : optsBlank.slice(s, e).trim();
+            if (/^\d+$/.test(item)) {
+              row.useItems.push(Number(item));
+            } else {
+              problems.push(
+                `row ${row.spellID} (line ${line}): useItems entry "${optsRaw.slice(s, e).trim()}" has no integer literal item ID`
+              );
             }
           }
-        } else {
-          row.useItems = integersIn(inner);
         }
       }
     }
@@ -298,7 +378,17 @@ function parseCode(text) {
       continue;
     }
     row.cls = cm[1];
+    // See the header (WR-06): the word anywhere in the comment makes the row unverified.
     row.verified = /unverified/i.test(tail) ? 'unverified' : 'yes';
+    // A second row for the same ID on an overlapping client appends a second def, and the later
+    // one wins at runtime; report that instead of the misleading cell mismatches it would cause.
+    const dup = rows.find(r => r.spellID === row.spellID && overlaps(r.client, row.client));
+    if (dup) {
+      problems.push(
+        `row ${row.spellID} (line ${line}) duplicates the row at line ${dup.line} on an overlapping client; the later one wins at runtime`
+      );
+      continue;
+    }
     rows.push(row);
   }
   return { rows, groups, problems };
@@ -319,9 +409,15 @@ function rowCountLine(code) {
   )}), GROUPS ${code.groups.length}`;
 }
 
-// { forever, retail }: Map of `spell:<id>` / `item:<id>` -> where the ID comes from; plus problems.
+// { forever, retail }: Map of `spell:<id>` / `item:<id>` -> where the ID comes from; groupOf, per
+// client, the group that sets each row's alternatives at runtime (the LAST one naming it); problems.
 function codeSets(code) {
-  const sets = { forever: new Map(), retail: new Map(), problems: [] };
+  const sets = {
+    forever: new Map(),
+    retail: new Map(),
+    groupOf: { forever: new Map(), retail: new Map() },
+    problems: [],
+  };
   const add = (client, key, origin) => {
     if (!sets[client].has(key)) {
       sets[client].set(key, origin);
@@ -352,6 +448,18 @@ function codeSets(code) {
       for (const id of g.ids) {
         add(c, `spell:${id}`, `group of ${owner}`);
       }
+      // MetaReminderGroup overwrites def.alternatives, so a row named by a second group on the same
+      // client silently loses the first group's members.
+      for (const id of g.ids.filter(x => isRow(code, c, x))) {
+        const prev = sets.groupOf[c].get(id);
+        if (prev) {
+          sets.problems.push(
+            `row ${id} is named by the groups at lines ${prev.line} and ${g.line} on ${CLIENT_LABEL[c]}; ` +
+              'the later one REPLACES the earlier one at runtime'
+          );
+        }
+        sets.groupOf[c].set(id, g);
+      }
     }
   }
   return sets;
@@ -369,11 +477,14 @@ function parseDoc(text) {
     headings: [],
     links: { forever: new Map(), retail: new Map() },
     rows: { forever: new Map(), retail: new Map() },
+    // `<class>|<name>` -> { links: Set of keys, ln } for each "**<name> group**" paragraph.
+    groupParas: { forever: new Map(), retail: new Map() },
     notIncludedLinks: [],
     problems: [],
   };
   let section = null;
   let cls = null;
+  let para = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const ln = i + 1;
@@ -382,12 +493,27 @@ function parseDoc(text) {
       doc.headings.push(h2[1]);
       section = SECTION_KEYS[h2[1]] || 'other';
       cls = null;
+      para = null;
       continue;
     }
     const h3 = line.match(/^### (.*?)\s*$/);
     if (h3) {
       cls = h3[1];
+      para = null;
       continue;
+    }
+    if (line.trim() === '') {
+      para = null;
+      continue;
+    }
+    const gp = line.match(/^\*\*(.+?) group\*\*/);
+    if (gp && (section === 'forever' || section === 'retail')) {
+      const pkey = `${cls}|${gp[1]}`;
+      if (doc.groupParas[section].has(pkey)) {
+        doc.problems.push(`docs line ${ln}: "${gp[1]} group" paragraph twice under ### ${cls}`);
+      }
+      para = { links: new Set(), ln };
+      doc.groupParas[section].set(pkey, para);
     }
 
     let m;
@@ -421,6 +547,9 @@ function parseDoc(text) {
       if (!doc.links[section].has(key)) {
         doc.links[section].set(key, ln);
       }
+      if (para) {
+        para.links.add(key);
+      }
     }
 
     if (/^\s*\|/.test(line) && (section === 'forever' || section === 'retail')) {
@@ -438,10 +567,20 @@ function parseDoc(text) {
         doc.problems.push(`docs line ${ln}: Row ID ${id} listed twice in ${CLIENT_LABEL[section]}`);
         continue;
       }
+      const altCell = cells[3] || '';
+      const altLinks = new Set();
+      for (const am of altCell.matchAll(LINK_RE)) {
+        const pm = am[1].match(PATH_RE);
+        if (pm) {
+          altLinks.add(`${pm[2]}:${pm[3]}`);
+        }
+      }
       doc.rows[section].set(id, {
         cls,
         spellCell: cells[0],
         duration: cells[2],
+        altCell,
+        altLinks,
         verified: cells[cells.length - 1],
         ln,
       });
@@ -459,40 +598,54 @@ function parseDoc(text) {
 }
 
 // --- comparison ----------------------------------------------------------------------------------
+function keyList(keys) {
+  const ids = [...keys].map(k => k.replace(/^spell:/, '')).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+  return ids.length ? ids.join(', ') : 'none';
+}
+
+// Why a row's "Also satisfied by" cell is not the row's runtime group, or null when it is. The
+// expected set is the other IDs of the group naming the row on this client (empty: no group).
+function alternativesProblem(r, d, groupOf, groupParas) {
+  const g = groupOf.get(r.spellID);
+  const expected = new Set(g ? g.ids.filter(id => id !== r.spellID).map(id => `spell:${id}`) : []);
+  let got;
+  const ref = d.altCell.match(/^(.+) group, below$/);
+  if (ref) {
+    const para = groupParas.get(`${d.cls}|${ref[1]}`);
+    if (!para) {
+      return `names the "${ref[1]} group", but no "**${ref[1]} group**" paragraph follows under ### ${d.cls}`;
+    }
+    got = new Set([...para.links].filter(k => k !== `spell:${r.spellID}`));
+  } else if (d.altCell === 'none') {
+    got = new Set();
+  } else if (d.altLinks.size === 0) {
+    return `is "${d.altCell}"; write none, link the alternatives, or name a group below`;
+  } else {
+    got = d.altLinks;
+  }
+  if (got.size === expected.size && [...got].every(k => expected.has(k))) {
+    return null;
+  }
+  return `links ${keyList(got)}, expected ${keyList(expected)}${g ? ` (group at Providers.lua line ${g.line})` : ''}`;
+}
+
 function compare(code, doc) {
   const sets = codeSets(code);
   const problems = [...code.problems, ...sets.problems, ...doc.problems];
-  const reported = new Set();
 
-  // Per client section, both ways.
+  // Per client section, both ways. This also covers the overall contract: every code ID belongs to
+  // a client's set and every doc link to a client's section, so an overall gap is a section gap.
   for (const c of CLIENTS) {
     const label = CLIENT_LABEL[c];
     for (const [key, origin] of sets[c]) {
       if (!doc.links[c].has(key)) {
         problems.push(`missing from docs (${label}): ${key} (${origin})`);
-        reported.add(`doc ${key}`);
       }
     }
     for (const [key, ln] of doc.links[c]) {
       if (!sets[c].has(key)) {
         problems.push(`missing from Providers.lua (${label}): ${key} (docs line ${ln})`);
-        reported.add(`code ${key}`);
       }
-    }
-  }
-
-  // Overall, the stated contract checked directly; anything here is already reported above
-  // unless the per-section check has a gap.
-  const codeAll = new Set([...sets.forever.keys(), ...sets.retail.keys()]);
-  const docAll = new Set([...doc.links.forever.keys(), ...doc.links.retail.keys()]);
-  for (const key of codeAll) {
-    if (!docAll.has(key) && !reported.has(`doc ${key}`)) {
-      problems.push(`missing from docs: ${key}`);
-    }
-  }
-  for (const key of docAll) {
-    if (!codeAll.has(key) && !reported.has(`code ${key}`)) {
-      problems.push(`missing from Providers.lua: ${key}`);
     }
   }
 
@@ -524,6 +677,10 @@ function compare(code, doc) {
       if (d.verified !== r.verified) {
         problems.push(`row ${r.spellID} (docs line ${d.ln}): Verified "${d.verified}", expected "${r.verified}"`);
       }
+      const altProblem = alternativesProblem(r, d, sets.groupOf[c], doc.groupParas[c]);
+      if (altProblem) {
+        problems.push(`row ${r.spellID} (docs line ${d.ln}): "Also satisfied by" ${altProblem}`);
+      }
     }
     for (const [id, d] of doc.rows[c]) {
       if (!isRow(code, c, id)) {
@@ -535,9 +692,28 @@ function compare(code, doc) {
 }
 
 // --- gate --------------------------------------------------------------------------------------
-function argValue(name) {
-  const i = process.argv.indexOf(name);
-  return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : null;
+// { selftest, code, doc, error }. A typo'd flag or a --code / --doc with no value is an error, never
+// a silent fall-back to the default gate: a plan gate meant to run something else must not PASS.
+function parseArgs(argv) {
+  const opts = { selftest: false, code: null, doc: null, error: null };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--selftest') {
+      opts.selftest = true;
+    } else if (a === '--code' || a === '--doc') {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('--')) {
+        opts.error = `${a} needs a path`;
+        return opts;
+      }
+      opts[a.slice(2)] = value;
+      i++;
+    } else {
+      opts.error = `unknown argument "${a}"`;
+      return opts;
+    }
+  }
+  return opts;
 }
 
 function readOrNull(file) {
@@ -548,9 +724,9 @@ function readOrNull(file) {
   }
 }
 
-function runGate() {
-  const codePath = argValue('--code') || DEFAULT_CODE;
-  const docPath = argValue('--doc') || DEFAULT_DOC;
+function runGate(cli) {
+  const codePath = cli.code || DEFAULT_CODE;
+  const docPath = cli.doc || DEFAULT_DOC;
 
   const codeText = readOrNull(codePath);
   if (codeText === null) {
@@ -583,8 +759,6 @@ function runGate() {
 }
 
 // --- --selftest: embedded fixtures and hard assertions ----------------------------------------
-const W = 'https://www.wowhead.com/';
-
 const LUA_FIXTURE = [
   '-- Header prose names 1038, 19979 and 20914; none of them is a row.',
   '--[[ MetaReminderGroup(1038, 19979) ]]',
@@ -597,6 +771,8 @@ const LUA_FIXTURE = [
   'MetaReminderRow(7301, 30) -- Mage: Frost Armor (unverified in game)',
   'MetaReminderRow(1302303, 60, 1296017, nil, false, { useItems = { { 277493, 25 }, { 277483, 16 }, { 275069, 5 } } }) -- Mage: Familiar scroll; loads when 1296017 is known (unverified in game)',
   'MetaReminderRow(15473, 0) -- Priest: Shadowform (unverified in game)',
+  'MetaReminderRow(10170, 10) -- Mage: Amplify Magic (unverified in game)',
+  'MetaReminderRow(10174, 10) -- Mage: Dampen Magic (unverified in game)',
   '-- MetaReminderRow(1038, 60) -- Paladin: Blessing of Salvation',
   'MetaReminderRow(474750, 60, nil, nil, nil, { client = "retail", auraID = 474754, allyCast = true }) -- Druid: Symbiotic Relationship',
   'MetaReminderRow(465, 0, nil, nil, nil, { client = "retail" }) -- Paladin: Devotion Aura',
@@ -612,6 +788,7 @@ const LUA_FIXTURE = [
   '\t\t22783',
   '\t)',
   '\tMetaReminderGroup(1302303, 1302285)',
+  '\tMetaReminderGroup(10170, 10174, 1008)',
   'end',
   '',
 ].join('\r\n');
@@ -630,6 +807,11 @@ const DOC_FIXTURE = [
   `| [Arcane Intellect](${W}forever/spell=1459) | 1459 | 60 min | [1460](${W}forever/spell=1460), [23028](${W}forever/spell=23028) | yes |`,
   `| [Frost Armor](${W}forever/spell=7301) | 7301 | 30 min | [10220](${W}forever/spell=10220), [22783](${W}forever/spell=22783) | unverified |`,
   `| [Familiar](${W}forever/spell=1302303): [Cat](${W}forever/item=277493), [Frog](${W}forever/item=277483), [Rat](${W}forever/item=275069) | 1302303 | 60 min | [1302285](${W}forever/spell=1302285) | unverified |`,
+  `| [Amplify Magic](${W}forever/spell=10170) | 10170 | 10 min | Amplify and Dampen group, below | unverified |`,
+  `| [Dampen Magic](${W}forever/spell=10174) | 10174 | 10 min | Amplify and Dampen group, below | unverified |`,
+  '',
+  `**Amplify and Dampen group** (any one up hides both): [10170](${W}forever/spell=10170),`,
+  `[10174](${W}forever/spell=10174), [1008](${W}forever/spell=1008).`,
   '',
   '### Priest',
   '',
@@ -732,10 +914,10 @@ function selftest() {
     for (const id of [277493, 277483, 275069]) {
       expect(sets.forever.has(`item:${id}`), `item:${id} not collected`);
     }
-    expect(parsed.rows.length === 6, `expected 6 rows, got ${parsed.rows.length}`);
-    expect(parsed.groups.length === 4, `expected 4 groups, got ${parsed.groups.length}`);
+    expect(parsed.rows.length === 8, `expected 8 rows, got ${parsed.rows.length}`);
+    expect(parsed.groups.length === 5, `expected 5 groups, got ${parsed.groups.length}`);
     expect(
-      rowCountLine(parsed) === 'CODE ROWS 6 (forever 3, retail 2, both 1), GROUPS 4',
+      rowCountLine(parsed) === 'CODE ROWS 8 (forever 5, retail 2, both 1), GROUPS 5',
       `row count line: ${rowCountLine(parsed)}`
     );
   });
@@ -749,13 +931,17 @@ function selftest() {
     expect(sets.retail.has('spell:474754'), 'auraID 474754 not collected');
   });
 
-  runCase('ID removed from the doc -> one "missing from docs" problem', expect => {
+  runCase('ID removed from the doc -> "missing from docs" and the row\'s alternatives cell', expect => {
     const doc = edit(DOC_FIXTURE, `, [23028](${W}forever/spell=23028)`, '');
-    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'missing from docs (Forever): spell:23028');
+    expectProblems(expect, check(LUA_FIXTURE, doc), 2, 'missing from docs (Forever): spell:23028', 'row 1459');
   });
 
   runCase('extra ID linked in the doc -> one "missing from Providers.lua" problem', expect => {
-    const doc = edit(DOC_FIXTURE, '| 30 min | [10220]', `| 30 min | [99999](${W}forever/spell=99999), [10220]`);
+    const doc = edit(
+      DOC_FIXTURE,
+      `| [Frost Armor](${W}forever/spell=7301) |`,
+      `| [Frost Armor](${W}forever/spell=7301), see [99999](${W}forever/spell=99999) |`
+    );
     expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'missing from Providers.lua (Forever): spell:99999');
   });
 
@@ -828,8 +1014,8 @@ function selftest() {
   runCase('Spell cell not linking the row ID -> one problem', expect => {
     const doc = edit(
       DOC_FIXTURE,
-      `| [Shadowform](${W}forever/spell=15473) | 15473 | permanent | none |`,
-      `| Shadowform | 15473 | permanent | [15473](${W}forever/spell=15473) |`
+      `| [Shadowform](${W}forever/spell=15473) | 15473 | permanent | none | unverified |`,
+      `| Shadowform | 15473 | permanent | none | unverified |\n\nShadowform is [15473](${W}forever/spell=15473).`
     );
     expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 15473', 'Spell cell');
   });
@@ -869,6 +1055,129 @@ function selftest() {
     expectSome(expect, check(lua, DOC_FIXTURE), 'client "classic"');
   });
 
+  // WR-01: a row named by two groups on one client.
+  runCase('row in two groups on one client -> a "REPLACES" problem', expect => {
+    const lua = edit(LUA_FIXTURE, '\tMetaReminderGroup(1302303, 1302285)', '\tMetaReminderGroup(1302303, 1302285)\r\n\tMetaReminderGroup(7301, 1302285)');
+    expectSome(expect, check(lua, DOC_FIXTURE), 'row 7301 is named by the groups', 'REPLACES');
+  });
+
+  // WR-02: the "Also satisfied by" cell against the row's group.
+  runCase('alternative moved into another row\'s cell -> a problem for both rows', expect => {
+    let doc = edit(DOC_FIXTURE, `, [23028](${W}forever/spell=23028)`, '');
+    doc = edit(doc, '| 30 min | [10220]', `| 30 min | [23028](${W}forever/spell=23028), [10220]`);
+    expectProblems(expect, check(LUA_FIXTURE, doc), 2, 'row 1459', 'row 7301', 'Also satisfied by');
+  });
+
+  runCase('"none" on a grouped row -> a problem', expect => {
+    const doc = edit(DOC_FIXTURE, `| 60 min | [1302285](${W}forever/spell=1302285) |`, '| 60 min | none |');
+    expectSome(expect, check(LUA_FIXTURE, doc), 'row 1302303', 'Also satisfied by');
+  });
+
+  runCase('wrong "group, below" reference -> one problem', expect => {
+    const doc = edit(DOC_FIXTURE, '| 10174 | 10 min | Amplify and Dampen group, below |', '| 10174 | 10 min | Blessings group, below |');
+    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 10174', 'Blessings group');
+  });
+
+  runCase('group paragraph missing a member -> a problem for its rows', expect => {
+    const doc = edit(DOC_FIXTURE, `, [1008](${W}forever/spell=1008)`, '');
+    expectSome(expect, check(LUA_FIXTURE, doc), 'row 10170', 'row 10174', 'Also satisfied by');
+  });
+
+  runCase('empty alternatives cell -> one problem', expect => {
+    const doc = edit(DOC_FIXTURE, '| 15473 | permanent | none |', '| 15473 | permanent |  |');
+    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 15473', 'write none');
+  });
+
+  // WR-03: gating the check cannot classify fails loudly.
+  for (const branch of ['else', 'elseif ns.SOMETHING then']) {
+    runCase(`"${branch.split(' ')[0]}" branch on the Forever block -> a problem`, expect => {
+      const lua = edit(
+        LUA_FIXTURE,
+        '\tMetaReminderGroup(10170, 10174, 1008)\r\nend',
+        `\tMetaReminderGroup(10170, 10174, 1008)\r\n${branch}\r\n\tMetaReminderGroup(465, 317920)\r\nend`
+      );
+      expectSome(expect, check(lua, DOC_FIXTURE), `${branch.split(' ')[0]} branch`, 'cannot be classified');
+    });
+  }
+
+  runCase('"if ns.CLIENT_IS_FOREVER == true then" -> its groups cannot be classified', expect => {
+    const lua = edit(LUA_FIXTURE, 'if ns.CLIENT_IS_FOREVER then', 'if ns.CLIENT_IS_FOREVER == true then');
+    expectSome(expect, check(lua, DOC_FIXTURE), 'cannot be classified');
+  });
+
+  runCase('group under "if not ns.CLIENT_IS_FOREVER" -> cannot be classified', expect => {
+    const lua = edit(
+      LUA_FIXTURE,
+      'MetaReminderGroup(465, 317920, 32223)\r\n',
+      'if not ns.CLIENT_IS_FOREVER then\r\n\tMetaReminderGroup(465, 317920, 32223)\r\nend\r\n'
+    );
+    expectSome(expect, check(lua, DOC_FIXTURE), 'cannot be classified');
+  });
+
+  runCase('Forever gate through a local alias -> cannot be classified', expect => {
+    const lua = edit(LUA_FIXTURE, 'if ns.CLIENT_IS_FOREVER then', 'local isForever = ns.CLIENT_IS_FOREVER\r\nif isForever then');
+    expectSome(expect, check(lua, DOC_FIXTURE), 'cannot be classified');
+  });
+
+  // WR-04: values the check cannot read.
+  for (const bad of ['CRUSADER', '0x7DDF']) {
+    runCase(`group argument ${bad} -> a problem`, expect => {
+      const lua = edit(LUA_FIXTURE, 'MetaReminderGroup(465, 317920, 32223)', `MetaReminderGroup(465, 317920, ${bad})`);
+      expectSome(expect, check(lua, DOC_FIXTURE), `"${bad}" is not an integer literal`);
+    });
+  }
+
+  runCase('non-literal auraID -> a problem', expect => {
+    const lua = edit(LUA_FIXTURE, 'auraID = 474754', 'auraID = SYMBIOSIS_AURA');
+    expectSome(expect, check(lua, DOC_FIXTURE), 'row 474750', 'auraID is not an integer literal');
+  });
+
+  runCase('non-literal useItems table -> a problem', expect => {
+    const lua = edit(LUA_FIXTURE, 'useItems = { { 277493, 25 }, { 277483, 16 }, { 275069, 5 } }', 'useItems = SCROLLS');
+    expectSome(expect, check(lua, DOC_FIXTURE), 'row 1302303', 'useItems is not a table literal');
+  });
+
+  runCase('non-literal useItems item ID -> a problem', expect => {
+    const lua = edit(LUA_FIXTURE, '{ 277493, 25 }', '{ CAT_SCROLL, 25 }');
+    expectSome(expect, check(lua, DOC_FIXTURE), 'CAT_SCROLL');
+  });
+
+  // WR-07: duplicate rows.
+  runCase('second row for the same ID and client -> one "duplicates" problem', expect => {
+    const row = 'MetaReminderRow(15473, 0) -- Priest: Shadowform (unverified in game)';
+    const lua = edit(LUA_FIXTURE, row, `${row}\r\nMetaReminderRow(15473, 60) -- Priest: Shadowform (unverified in game)`);
+    expectProblems(expect, check(lua, DOC_FIXTURE), 1, 'row 15473', 'duplicates');
+  });
+
+  runCase('retail row for a "both" row\'s ID -> one "duplicates" problem', expect => {
+    const lua = edit(
+      LUA_FIXTURE,
+      'MetaReminderRow(7301, 30)',
+      'MetaReminderRow(1459, 60, nil, nil, nil, { client = "retail" }) -- Mage: Arcane Intellect\r\nMetaReminderRow(7301, 30)'
+    );
+    expectProblems(expect, check(lua, DOC_FIXTURE), 1, 'row 1459', 'duplicates');
+  });
+
+  // WR-05: argument parsing, and the exit codes of the real process.
+  runCase('arguments: unknown flag and valueless --code / --doc are errors', expect => {
+    expect(/--selftst/.test(parseArgs(['--selftst']).error || ''), 'typo flag not rejected');
+    expect(/--code needs a path/.test(parseArgs(['--code']).error || ''), 'valueless --code not rejected');
+    expect(/--code needs a path/.test(parseArgs(['--code', '--doc', 'x.md']).error || ''), '--code followed by a flag not rejected');
+    expect(/unknown argument "stray"/.test(parseArgs(['stray']).error || ''), 'stray positional not rejected');
+    const ok = parseArgs(['--doc', 'a.md', '--code', 'b.lua']);
+    expect(ok.error === null && ok.doc === 'a.md' && ok.code === 'b.lua' && !ok.selftest, `valid args: ${JSON.stringify(ok)}`);
+  });
+
+  runCase('process: a typo flag exits 2 without PASS; an unreadable file exits 1', expect => {
+    const run = args => childProcess.spawnSync(process.execPath, [__filename, ...args], { encoding: 'utf8' });
+    const typo = run(['--selftst']);
+    expect(typo.status === 2, `typo flag exit ${typo.status}`);
+    expect(!/PASS/.test(typo.stdout), `typo flag printed PASS: ${typo.stdout}`);
+    const missing = run(['--code', path.join(ROOT, 'no-such-file.lua')]);
+    expect(missing.status === 1, `unreadable file exit ${missing.status}`);
+    expect(/FAIL cannot read/.test(missing.stdout), `unreadable file output: ${missing.stdout}`);
+  });
+
   if (failures === 0) {
     console.log(`REMINDERS-DOC SELFTEST PASS (${caseCount} cases)`);
     process.exitCode = 0;
@@ -879,8 +1188,12 @@ function selftest() {
 }
 
 // --- CLI ---------------------------------------------------------------------------------------
-if (process.argv.includes('--selftest')) {
+const cli = parseArgs(process.argv.slice(2));
+if (cli.error) {
+  console.log(`USAGE ERROR ${cli.error}; expected [--selftest] [--code <path>] [--doc <path>]`);
+  process.exitCode = 2;
+} else if (cli.selftest) {
   selftest();
 } else {
-  runGate();
+  runGate(cli);
 }
