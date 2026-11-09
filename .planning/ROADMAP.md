@@ -375,7 +375,7 @@ not tested keep "(unverified in game)" in their trailing comment.
   4. A Forever warlock sees Demonic Sacrifice (18788), 120 min, which watches aura 18789 and is hidden by any of 18790, 18791 or 18792
   5. On retail no new reminder is offered and every existing reminder is unchanged
 **Plans**: 1 plan
-- [ ] 82-01-PLAN.md — thirteen Forever rows above the retail rows and seven group calls appended to the Forever block, Demonic Sacrifice last; gate `82-check-rows.js`
+- [x] 82-01-PLAN.md — thirteen Forever rows above the retail rows and seven group calls appended to the Forever block, Demonic Sacrifice last; gate `82-check-rows.js`
 **Notes**: Scope rule above applies. Group calls go inside Phase 80's Forever block. Rows another player can apply get every rank listed per RALT-07 (research §12.2: Shadow Protection 976, 10957; Amplify 1008, 8455, 10169; Dampen 604, 8450, 8451, 10173). 465 is the retail Devotion row and only appears inside the Forever block. Demonic Sacrifice lands last, as the only row with a separate aura ID.
 
 ### Phase 83: Reminder Review Doc
@@ -478,7 +478,7 @@ not tested keep "(unverified in game)" in their trailing comment.
 | 79. Buff Countdown Display Fix | v0.5.4 | 1/1 | Complete — verified in game on retail; one `/reload` miss not reproduced (fluke) | 2026-10-24 |
 | 80. Forever Group Block, Group Buffs and Rank Coverage | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
 | 81. Mage Armors and Familiar Scrolls | v0.5.6 | 1/1 | Plan executed; awaiting phase verification | - |
-| 82. Other Class Rows | v0.5.6 | 0/TBD | Not started | - |
+| 82. Other Class Rows | v0.5.6 | 1/1 | Plan executed; awaiting phase verification | - |
 | 83. Reminder Review Doc | v0.5.6 | 0/TBD | Not started | - |
 | 84. Cleanup | v0.5.6 | 0/TBD | Not started | - |
 | 85. Forever Testing Pass | v0.5.6 | — | Not started | - |

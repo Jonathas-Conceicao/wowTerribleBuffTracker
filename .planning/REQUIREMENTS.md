@@ -75,23 +75,23 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 
 ### Other class rows (Forever)
 
-- [ ] **MREM-08**: Warlock: Demon Armor (11735) and Demon Skin (696), 30 min each, grouped.
-- [ ] **MREM-09**: Shaman: Lightning Shield (10432) and Water Shield (408510), 10 min each, grouped.
-- [ ] **MREM-10**: Priest: Inner Fire (10952, 10 min) and Shadowform (15473, permanent: no timer,
+- [x] **MREM-08**: Warlock: Demon Armor (11735) and Demon Skin (696), 30 min each, grouped.
+- [x] **MREM-09**: Shaman: Lightning Shield (10432) and Water Shield (408510), 10 min each, grouped.
+- [x] **MREM-10**: Priest: Inner Fire (10952, 10 min) and Shadowform (15473, permanent: no timer,
   shown once the aura is gone).
-- [ ] **MREM-11**: Paladin: one "any aura" reminder named Devotion Aura (10293, never 465),
+- [x] **MREM-11**: Paladin: one "any aura" reminder named Devotion Aura (10293, never 465),
   permanent; Retribution, Concentration and the three resistance auras satisfy it.
-- [ ] **MREM-12**: Hunter: one "any aspect" reminder named Aspect of the Hawk (25296), permanent;
+- [x] **MREM-12**: Hunter: one "any aspect" reminder named Aspect of the Hawk (25296), permanent;
   every other Forever aspect satisfies it (Monkey, Cheetah, Pack, Wild, Beast; never Viper or
   Falcon).
-- [ ] **MREM-13**: Warlock: Demonic Sacrifice (18788), 120 min, watching its aura 18789; any of the
+- [x] **MREM-13**: Warlock: Demonic Sacrifice (18788), 120 min, watching its aura 18789; any of the
   other three sacrifice buffs (18790, 18791, 18792) satisfies it.
-- [ ] **MREM-14**: Priest: Shadowguard (19312), 10 min, offered only to a priest who knows it (Troll).
+- [x] **MREM-14**: Priest: Shadowguard (19312), 10 min, offered only to a priest who knows it (Troll).
 
 ### Situational buffs (user decision: include)
 
-- [ ] **MREM-15**: Mage: Amplify Magic (10170) and Dampen Magic (10174), 10 min each, grouped.
-- [ ] **MREM-16**: Priest: Shadow Protection (10958), 10 min; Prayer of Shadow Protection (27683)
+- [x] **MREM-15**: Mage: Amplify Magic (10170) and Dampen Magic (10174), 10 min each, grouped.
+- [x] **MREM-16**: Priest: Shadow Protection (10958), 10 min; Prayer of Shadow Protection (27683)
   satisfies it.
 - ~~**MREM-17**: Warlock: one Detect Invisibility reminder~~ — **Dropped 2026-11-09 (user, at the
   autonomous kickoff):** "let's drop all hunter (or other) track skills". Detection and tracking
@@ -150,15 +150,15 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 | MREM-07 | Phase 81 | Complete |
 | MREM-18 | Phase 81 | Complete |
 | CLICK-07 | Phase 81 | Complete |
-| MREM-08 | Phase 82 | Pending |
-| MREM-09 | Phase 82 | Pending |
-| MREM-10 | Phase 82 | Pending |
-| MREM-11 | Phase 82 | Pending |
-| MREM-12 | Phase 82 | Pending |
-| MREM-13 | Phase 82 | Pending |
-| MREM-14 | Phase 82 | Pending |
-| MREM-15 | Phase 82 | Pending |
-| MREM-16 | Phase 82 | Pending |
+| MREM-08 | Phase 82 | Complete |
+| MREM-09 | Phase 82 | Complete |
+| MREM-10 | Phase 82 | Complete |
+| MREM-11 | Phase 82 | Complete |
+| MREM-12 | Phase 82 | Complete |
+| MREM-13 | Phase 82 | Complete |
+| MREM-14 | Phase 82 | Complete |
+| MREM-15 | Phase 82 | Complete |
+| MREM-16 | Phase 82 | Complete |
 | MREM-17 | — | Dropped (user, 2026-11-09) |
 | DOC-06 | Phase 83 | Pending |
 | DOC-07 | Phase 83 | Pending |

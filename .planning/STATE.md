@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 81 — Mage Armors and Familiar Scrolls (plan executed; awaiting phase verification)
-Plan: 81-01 complete (1/1) — commits 7451564, 227430b; gate `81-check.js` passes
+Phase: 82 — Other Class Rows (plan executed; awaiting phase verification)
+Plan: 82-01 complete (1/1) — commits f2d9416, eed9197; gate `82-check-rows.js` passes
 Status: Executing (roadmap: Phases 80-85, 22/22 requirements mapped)
-Last activity: 2026-11-09 — 81-01 executed: Ice/Mage Armor rows + armor group, familiar row + tier group, familiar click uses the best usable scroll (CLICK-07)
+Last activity: 2026-11-09 — 82-01 executed: thirteen Forever rows (warlock, shaman, priest, paladin, hunter, mage; Demonic Sacrifice last) and seven Forever-block group calls (MREM-08..16)
 
 Progress: [░░░░░░░░░░] 0% (0/6 phases)
 
