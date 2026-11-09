@@ -34,7 +34,7 @@ Forever testing pass as the literal last phase.
 - [x] **Phase 80: Forever Group Block, Group Buffs and Rank Coverage** — one Forever-only block of group calls; group buffs, Greater Blessings and every rank count as alternatives; Salvation and Light retired
 - [x] **Phase 81: Mage Armors and Familiar Scrolls** — Ice Armor and Mage Armor join Frost Armor as one group; one familiar reminder whose click uses the best scroll in the bags
 - [x] **Phase 82: Other Class Rows** — warlock, shaman, priest, paladin and hunter rows plus the situational buffs, Demonic Sacrifice last
-- [ ] **Phase 83: Reminder Review Doc** — `docs/REMINDERS.md` lists every built-in reminder with Wowhead links, cross-checked against `Providers.lua`, not shipped
+- [x] **Phase 83: Reminder Review Doc** — `docs/REMINDERS.md` lists every built-in reminder with Wowhead links, cross-checked against `Providers.lua`, not shipped
 - [ ] **Phase 84: Cleanup** — the milestone's own unused code and duplication, touched hot paths, stylua, release scripts
 - [ ] **Phase 85: Forever Testing Pass** — the user checks the new rows and groups in game; testing pass, no plans; the last phase of the milestone
 
@@ -480,7 +480,7 @@ not tested keep "(unverified in game)" in their trailing comment.
 | 80. Forever Group Block, Group Buffs and Rank Coverage | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
 | 81. Mage Armors and Familiar Scrolls | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
 | 82. Other Class Rows | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
-| 83. Reminder Review Doc | v0.5.6 | 1/1 | Plan executed; awaiting phase verification | - |
+| 83. Reminder Review Doc | v0.5.6 | 1/1 | Complete | 2026-11-09 |
 | 84. Cleanup | v0.5.6 | 1/1 | Plan executed; awaiting phase verification | - |
 | 85. Forever Testing Pass | v0.5.6 | — | Not started | - |
 
