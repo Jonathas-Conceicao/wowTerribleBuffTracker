@@ -8,12 +8,35 @@ A WoW addon for manually tracking buff and cooldown timers, running on both **Mi
 
 Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
 
-## Next Milestone
+## Current Milestone: v0.6 More Forever Reminders
 
-Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 80. **v0.5.5 was
-done outside GSD** (see Current State), so the next milestone is v0.5.6 or later, and Phase 80 is
-still free. Open candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27,
-999.28).
+**Goal:** TBT suggests more Forever class-buff reminders, and buffs that cannot be up together are
+grouped so any one present satisfies the others, as the five paladin blessings already are.
+
+**Phases start at 80.** Numbering continues from v0.5.4's Phase 79 (v0.5.5 was done outside GSD
+and used no phase). Branch: `milestone/v0.6-more-forever-reminders`, cut from `main` (`21c018d`) on
+2026-11-09. Research: one focused researcher builds the candidate catalogue (Forever spell IDs,
+ranks, durations, exclusive groups, Wowhead links) instead of the 4-way fan-out (user decision).
+
+**Target features (set by the user at kickoff, 2026-11-09):**
+
+- **Mage armors, the main one.** Frost Armor (7301) already ships; Ice Armor and Mage Armor (and
+  Molten Armor, if Forever has it) join it as one exclusive group, so any armor up satisfies the
+  reminder. The user plays a mage on Forever and tests these in game.
+- **More Forever class/self buffs, found by research**, each with the right exclusive group
+  (`MetaReminderGroup`, as the blessings use). Rows the user cannot test stay marked
+  "(unverified in game)" in their comment, as the existing rows are.
+- **Group buffs count as alternatives.** Arcane Brilliance, Prayer of Fortitude, Gift of the Wild
+  and the Greater Blessings satisfy their single-target reminder. This reverses the 2026-09-29
+  decision that they do not count (user decision, 2026-11-09).
+- **A human-review doc**, `docs/REMINDERS.md`, listing every recommended reminder, Forever and
+  retail, old and new, with Wowhead links, kept in the repo next to the code and not shipped.
+- **Forever IDs and Forever links only (user, 2026-11-09).** Every new spell ID must be WoW
+  Forever's own, not Classic Era's or Classic's, and every Forever link uses Wowhead's `/forever/`
+  path (`https://www.wowhead.com/forever/spell=<id>`). Retail links use the plain retail path.
+  A Classic page is not evidence for a Forever ID.
+- **Forever only.** New rows are Forever rows; retail rows are unchanged and appear only in the doc.
+- The usual cleanup phase, then one Forever testing pass by the user.
 
 <details>
 <summary>v0.5.4 Buff countdown display fix — SHIPPED 2026-10-24</summary>
@@ -437,8 +460,8 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 
 ### Active
 
-No milestone in progress. Earlier milestones' requirements are archived under
-`.planning/milestones/`; the next set is written by `/gsd-new-milestone`.
+v0.6 More Forever Reminders — see `.planning/REQUIREMENTS.md`. Earlier milestones' requirements
+are archived under `.planning/milestones/`.
 
 Still open in the backlog:
 
@@ -549,6 +572,7 @@ client-side bug — see Context.
 | Trinket and Pot meta-trackers stay as-is | TBT's version has custom durations and bar display, and META-01 already hides them on Forever. Whatever the CDM now does natively, the trackers keep a reason to exist | Decided 2026-09-20 — closes the product half of 999.2. Only the public copy changes |
 | A cooldown's buff duration is typed, never looked up | The 2026-10-22 retail probe found no API that returns a buff's duration; description and tooltip text is English-only, holds several numbers and grammar escapes, and is often empty of any number. The user chose explicit config over a learn-from-aura scheme | Decided 2026-10-22 (v0.5.3 kickoff). Opt-in per tracker, off by default; aura ID pre-filled with the spell ID for spells, empty for items. ✓ Shipped v0.5.3 |
 | A read never rewrites a value the user typed | Asked to "auto-correct" a buff whose live duration differed, a first build overwrote the saved Duration. A live aura can be longer than one use (two flasks stacked = 2h), and the setting is the user's | Decided 2026-10-22 by the user (Phase 78). Live data drives only the running timer (`SyncProcToAura`); `ns.db` is never written from an aura read |
+| Group buffs satisfy their single-target class-buff reminder | Reverses the 2026-09-29 exclusion: a raid buff (Arcane Brilliance, Prayer of Fortitude, Gift of the Wild, a Greater Blessing) on the player means the single-target buff is not needed | Decided 2026-11-09 by the user (v0.6 kickoff). Through the existing alternatives lists; user input still never reaches a built-in's alternatives |
 | A cooldown's buff has no "End when the aura is lost" opt-out | A buff that never lands readably (wrong Aura ID, ally-targeted) ending the timer is for the user to fix in the Aura ID box | Decided 2026-10-22 (Phase 74 review WR-02); also covers the read-sync shortening a timer (v0.5.3 audit warning 2). ✓ Shipped v0.5.3 |
 
 ## Evolution
@@ -569,4 +593,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-27, recording v0.5.5 (done outside GSD)*
+*Last updated: 2026-11-09, at v0.6 More Forever Reminders kickoff*

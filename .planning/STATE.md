@@ -1,48 +1,38 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.5.4
-milestone_name: "Buff countdown display fix"
-status: complete
-last_updated: "2026-10-24"
-last_activity: 2026-10-27 — v0.5.5 fixed outside GSD (`6f976e8`); recorded in MILESTONES.md and PROJECT.md
+milestone: v0.6
+milestone_name: "More Forever Reminders"
+status: planning
+last_updated: "2026-11-09"
+last_activity: 2026-11-09 — Milestone v0.6 started
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-24)
+See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** No milestone in progress. v0.5.4 shipped 2026-10-24. **v0.5.5 was done outside GSD** on 2026-10-27: one commit, `6f976e8`, the fresh-login buff time fix, recorded in `MILESTONES.md` and `PROJECT.md`. It also corrects v0.5.4's cause. Next: `/gsd-new-milestone` for v0.5.6 or later (phases continue at 80).
+**Current focus:** v0.6 More Forever Reminders — more Forever class-buff reminder suggestions with exclusive groups (mage armors first), group buffs as alternatives, and `docs/REMINDERS.md` for human review.
 
 ## Current Position
 
-Phase: 79 — Buff Countdown Display Fix (complete)
-Plan: 79-01 (complete; `cbc4008`, review notes `bde1da4`)
-Status: Phase 79 verified (code trace, plus the user in game on retail). One `/reload` miss, not
-reproduced, was called a fluke by the user. Milestone audit PASSED (`.planning/v0.5.4-MILESTONE-AUDIT.md`).
-Last activity: 2026-10-24 — milestone archived and squash-merged
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-11-09 — Milestone v0.6 started
 
-Progress: [██████████] 100% (1/1 phases)
-
-- Branch: `milestone/v0.5.4-login-buff-duration-fix`, cut from `main` (`1807c5c`) on 2026-10-24.
-- Phases start at **79** (v0.5.3 ended at Phase 78; numbering never restarts).
-- One phase only, by user decision: the user's in-game check (a real logout and login) is part of
-  Phase 79; there is no separate testing phase. Research skipped.
-- The bug, as first reported: on a cold login, a reminder and a cooldown buff, both on a buff with
-  about 1h left, showed "2h" while the game showed about 1h. It then survived a `/reload`, and a
-  buff with 6m left showed "2h" on another character. Re-scoped (user decision, 2026-10-24) to the
-  icon's countdown text: TBT's buff icons use the cooldown format, which rounds hours up; the CDM's
-  buff icons call `SetUseAuraDisplayTime(true)`. The "6m shows 2h" case is not explained by this
-  and is part of the in-game check.
-- v0.5.3's phase directories are archived at `.planning/milestones/v0.5.3-phases/`; its review notes
+- Branch: `milestone/v0.6-more-forever-reminders`, cut from `main` (`21c018d`) on 2026-11-09.
+- Phases start at **80** (v0.5.4 ended at Phase 79; v0.5.5 used no phase; numbering never restarts).
+- Forever IDs and `wowhead.com/forever/` links only — never Classic's (user, 2026-11-09).
+- v0.5.4's phase directory is archived at `.planning/milestones/v0.5.4-phases/`. v0.5.3's phase directories are archived at `.planning/milestones/v0.5.3-phases/`; its review notes
   are in `.planning/milestones/v0.5.3-ROADMAP.md` and `.planning/v0.5.3-MILESTONE-AUDIT.md`.
 - v0.5.2's phase log is archived at `.planning/milestones/v0.5.2-STATE-phase-log.md` and its phase
   directories at `.planning/milestones/v0.5.2-phases/`.
