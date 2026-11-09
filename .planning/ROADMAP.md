@@ -31,7 +31,7 @@ familiar item click is the milestone's only new behaviour). The other class rows
 Sacrifice last as the only row with a separate aura ID. Then the review doc, cleanup, and the user's
 Forever testing pass as the literal last phase.
 
-- [ ] **Phase 80: Forever Group Block, Group Buffs and Rank Coverage** — one Forever-only block of group calls; group buffs, Greater Blessings and every rank count as alternatives; Salvation and Light retired
+- [x] **Phase 80: Forever Group Block, Group Buffs and Rank Coverage** — one Forever-only block of group calls; group buffs, Greater Blessings and every rank count as alternatives; Salvation and Light retired
 - [ ] **Phase 81: Mage Armors and Familiar Scrolls** — Ice Armor and Mage Armor join Frost Armor as one group; one familiar reminder whose click uses the best scroll in the bags
 - [ ] **Phase 82: Other Class Rows** — warlock, shaman, priest, paladin and hunter rows plus the situational buffs, Demonic Sacrifice last
 - [ ] **Phase 83: Reminder Review Doc** — `docs/REMINDERS.md` lists every built-in reminder with Wowhead links, cross-checked against `Providers.lua`, not shipped
@@ -473,7 +473,7 @@ not tested keep "(unverified in game)" in their trailing comment.
 | 77. Cleanup | v0.5.3 | 2/2 | Complete | 2026-10-22 |
 | 78. Human Testing | v0.5.3 | — | Complete — PASSED on retail; gap fix: buff follows its live aura (`469ff35`); #14 skipped | 2026-10-23 |
 | 79. Buff Countdown Display Fix | v0.5.4 | 1/1 | Complete — verified in game on retail; one `/reload` miss not reproduced (fluke) | 2026-10-24 |
-| 80. Forever Group Block, Group Buffs and Rank Coverage | v0.5.6 | 1/1 | Executed, awaiting verification | - |
+| 80. Forever Group Block, Group Buffs and Rank Coverage | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
 | 81. Mage Armors and Familiar Scrolls | v0.5.6 | 0/TBD | Not started | - |
 | 82. Other Class Rows | v0.5.6 | 0/TBD | Not started | - |
 | 83. Reminder Review Doc | v0.5.6 | 0/TBD | Not started | - |
