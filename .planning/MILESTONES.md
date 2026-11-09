@@ -1,5 +1,21 @@
 # Milestones
 
+## v0.5.6 More Forever Reminders (Shipped: 2026-11-09)
+
+**Scope:** More built-in Forever class-buff reminders, with buffs that cannot be up together grouped so any one present hides every member's reminder, and group buffs counting as their single-target buff. A human-review doc of every built-in reminder. Named v0.5.6, a patch, because no major feature ships (user decision).
+**Phases:** 6 (80-85), 5 plans; Phase 85 was the user's in-game pass.
+**Timeline:** 1 day (2026-11-09), 62 commits before the close. Outside `.planning/`: 9 files, +1534 / -24.
+**Verified on:** WoW Forever, by the user: the mage armors and the familiar scroll click. Every other new row ships on community feedback (user decision). Retail is unchanged by construction.
+**Requirements:** 21 / 21 closed; MREM-17 (Detect Invisibility) dropped by the user, along with every tracking skill.
+**Known deferred items at close:** the untested rows' open questions (Water Shield's reused ID 408510; Battle Shout, Demonic Sacrifice and Divine Spirit durations; whether Amplify and Dampen Magic stack), tracked in `research/REMINDERS-NOT-INCLUDED.md`. Weapon imbues, poisons and oils went to backlog 999.29. See `milestones/v0.5.6-ROADMAP.md`.
+
+### Key accomplishments
+
+- **Forever-only group block.** One `if ns.CLIENT_IS_FOREVER then … end` block of `MetaReminderGroup` calls; Arcane Brilliance, Prayer of Fortitude/Spirit, Gift of the Wild, the Greater Blessings and every rank another player can apply now satisfy the single-target reminder. Salvation and Light retired (orphans; restore note kept in `Providers.lua`).
+- **Mage armors and the familiar.** Ice Armor and Mage Armor grouped with Frost Armor; one familiar reminder whose click uses the best usable scroll in the bags (`type1 = "item"`, the milestone's only new behaviour), re-picked on a bag change only while it shows.
+- **Other classes.** Warlock armors and Demonic Sacrifice, shaman shields, priest Inner Fire / Shadowguard / Shadow Protection, one "any aura" paladin row, one "any aspect" hunter row, Amplify/Dampen Magic. Shadowform shipped and was then dropped at review.
+- **Review doc and its check.** `docs/REMINDERS.md` (one table per client, sorted by class, `/forever/` Wowhead links) and `scripts/reminders-doc-check.js`, which fails if the doc and `Providers.lua` disagree on any ID, group, class or duration.
+
 ## v0.5.5 Fresh-login buff time fix (Shipped: 2026-10-27, outside GSD)
 
 **Scope:** One bug fix, done outside the GSD workflow: no milestone, phase, requirements or audit. One commit, `6f976e8`, on `topic/dev` (hard-reset to `main` first), fast-forwarded to `main` by the user. Phase numbering is untouched; the next GSD milestone still starts at Phase 80.

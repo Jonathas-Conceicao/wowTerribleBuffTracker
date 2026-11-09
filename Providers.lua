@@ -1073,36 +1073,60 @@ local MetaSkillLustProvider = CreateFromMixins(SpellProviderBaseMixin, MetaSkill
 -- reference on the code"). The aura ID is the row's auraID, else its spell ID (Phase 64: 474750
 -- watches 474754, 364342 watches 381748); the user verifies each in game with TBT's ID tooltip.
 --
--- Deliberately NOT here (user decisions 2026-09-29):
---   - group versions (Arcane Brilliance, Prayer of Fortitude, Gift of the Wild, the Greater
---     Blessings) do not count as the buff being present, for now;
---   - the shaman totems Strength of Earth (25361) and Windfury (10609) are left out because their
---     auras have different IDs from the casts.
+-- Deliberately NOT here (user decision 2026-09-29): the shaman totems Strength of Earth (25361)
+-- and Windfury (10609) are left out because their auras have different IDs from the casts.
+--
+-- Also not here (user, 2026-11-09, Phase 82): detection and tracking skills such as Detect
+-- Invisibility, Track Beasts and Find Herbs/Minerals (MREM-17 was dropped); Soul Link, which needs
+-- a "pet is out" load rule; and Sanctity Aura, which is not on the Forever paladin list and is
+-- added only if a Forever paladin sees it.
+--
+-- Group versions count (user, 2026-11-09, RALT-05/06): the 2026-09-29 decision that group versions
+-- do not count was reversed. On Forever, Arcane Brilliance, Prayer of Fortitude, Prayer of Spirit,
+-- Gift of the Wild and the Greater Blessings now count as the buff being present, and every rank
+-- another player can apply is listed too (RALT-07), as alternatives in the Forever block after the
+-- rows. IDs are from research §12.2/§12.3 (.planning/research/FOREVER-REMINDERS.md).
 --
 -- On Forever every rank the character knows counts, through the rank family (ns:ResolveRankFamily;
 -- a metaReminder is rank-covering wherever ns.CLIENT_HAS_SPELL_RANKS). Retail has no ranks, so a
 -- retail row watches its single aura ID (Phase 64 review CR-01/WR-01). A row's duration is in
 -- minutes; 0 = no timer (aura only).
 --
--- In-game verification (user, 2026-09-29): the Mage, Paladin and Warlock rows were tested in
--- game (57.4-HUMAN-UAT). The other classes are being tested now, and their rows keep
--- "(unverified in game)" in their trailing comment until reported. Righteous Fury (25780, added
--- in Phase 57.5) assumes its aura ID equals its spell ID; the user verifies it.
+-- In-game verification (internal notes only; the public doc carries no verified column): the
+-- original Mage, Paladin and Warlock rows were tested in game on 2026-09-29 (57.4-HUMAN-UAT), and
+-- Ice Armor, Mage Armor and the familiar scroll on 2026-11-09 (Phase 85). Every other row keeps
+-- "(unverified in game)" in its trailing comment; the v0.5.6 rows ship on community feedback.
+-- Righteous Fury (25780, added in Phase 57.5) assumes its aura ID equals its spell ID.
+--
+-- Shadowform (15473) was dropped on 2026-11-09 (Phase 85): it is a form like a druid's, not a buff
+-- to be reminded of. A placed one is an orphan per the WR-02 rule below.
 --
 -- Blessing of Sanctuary (20914) was removed on 2026-09-29 (Phase 57.5, RALT-03): it no longer
 -- exists on Forever. A placed one is an orphan per the WR-02 rule below -- greyed, "no longer
 -- offered", with no data deleted.
 --
+-- Blessing of Salvation (1038; Greater Blessing of Salvation 25895) and Blessing of Light (19979;
+-- Greater Blessing of Light 25890) were removed on 2026-11-09 (Phase 80, MREM-06): they no longer
+-- exist on Forever. Revoker, a blessing that existed only on Forever for a while (no spell ID
+-- recorded), is gone as well. A placed 1038 or 19979 is an orphan per the WR-02 rule below --
+-- greyed, "no longer offered", with no data deleted. This note exists so they can be restored if
+-- Blizzard brings them back; they are deliberately kept out of the public reminders doc.
+--
 -- Alternatives (RALT-03, Phase 57.5): a MetaReminderGroup after the rows makes its members list
 -- each other as alternatives ("Also satisfied by", RALT-01), so any one member present or cast
 -- satisfies every member's reminder. ns:ApplyMetaReminderDef applies them from here; user input
--- never reaches a built-in's alternatives.
+-- never reaches a built-in's alternatives. The v0.5.6 group calls are Forever-only and live in one
+-- `if ns.CLIENT_IS_FOREVER then ... end` block after the rows (RALT-04).
 --
 -- This table is a metaReminder's one source of truth: ns:ApplyMetaReminderDef rewrites the entry's
 -- derived fields from it at every ns:RebuildCastIndex, so a changed row needs no migration.
 -- Changing a row's spell ID (or removing a row) is different: the key is "metaReminder:<spellID>",
 -- so a saved entry for the old ID becomes an orphan. It is not loaded and its TBT tab tile says
 -- to remove it (review WR-02); the new ID is offered in Suggested as a separate reminder.
+--
+-- Review doc (DOC-07): docs/REMINDERS.md lists every row, group member and alternative here with
+-- Wowhead links for human review. A row or group change updates that file too, and
+-- `node scripts/reminders-doc-check.js` proves the two agree (Phase 84 re-runs it).
 local META_REMINDER_DEFS = {}
 local metaReminderDefsBySpellID = {}
 
@@ -1110,7 +1134,11 @@ local metaReminderDefsBySpellID = {}
 -- Suggested offer ask (the buff itself unless named); petBook adds the pet spellbook to the
 -- row's rank family; castID is the spell a click casts (nil = the row's own spellID, false = none).
 -- opts is nil or a load-time table: client ("forever", "retail" or "both"; nil = "forever"), auraID
--- (nil = the aura is the spell ID) and allyCast (true = a click does not force the player as unit).
+-- (nil = the aura is the spell ID) and allyCast (true = a click does not force the player as unit),
+-- and useItems: an ordered list of { itemID, minLevel } pairs, highest tier first and never sorted,
+-- that a click on the reminder picks from (the first one in the bags the player's level allows,
+-- CLICK-07); nil for every other row. Each pair's third field, the "item:<id>" click attribute,
+-- is filled in here at load, so ReminderClick.lua's PickUseItem builds no string per flush.
 -- This is the ONE point where a row is kept off a client: an unregistered row is neither offered
 -- nor loaded (an already-placed entry for it is an orphan via ns:IsOrphanMetaReminder). Existing
 -- Forever rows need no argument because nil means forever.
@@ -1120,9 +1148,16 @@ local function MetaReminderRow(spellID, minutes, knownID, petBook, castID, opts)
 	if not (client == "both" or (client == "forever" and isForever) or (client == "retail" and not isForever)) then
 		return
 	end
+	local useItems = opts and opts.useItems or nil
+	if useItems then
+		for i = 1, #useItems do
+			useItems[i][3] = "item:" .. useItems[i][1]
+		end
+	end
 	local def = {
 		auraID = opts and opts.auraID or nil,
 		allyCast = opts ~= nil and opts.allyCast == true,
+		useItems = useItems,
 		spellID = spellID,
 		duration = minutes > 0 and minutes * 60 or nil,
 		knownID = knownID or spellID,
@@ -1155,6 +1190,9 @@ end
 
 MetaReminderRow(1459, 60, nil, nil, nil, { client = "both" }) -- Mage: Arcane Intellect, same ID and duration on Forever and retail
 MetaReminderRow(7301, 30) -- Mage: Frost Armor
+MetaReminderRow(10220, 30) -- Mage: Ice Armor
+MetaReminderRow(22783, 30) -- Mage: Mage Armor
+MetaReminderRow(1302303, 60, 1296017, nil, false, { useItems = { { 277493, 25 }, { 277483, 16 }, { 275069, 5 } } }) -- Mage: Familiar scroll; keyed on the Cat aura 1302303; any tier (Cat 1302303, Frog 1302285, Rat 1296202) satisfies it; loads when Comprehend Scroll 1296017 is known (no familiar is a known spell); no cast spell, a click uses the best usable scroll in the bags (CLICK-07)
 MetaReminderRow(10938, 60) -- Priest: Power Word: Fortitude (unverified in game)
 MetaReminderRow(27841, 60) -- Priest: Divine Spirit (top vanilla rank; ranks 14752, 14818, 14819 resolve through the rank family by name; Discipline talent, so the row is offered only to a priest who knows a rank; 60 min per the user, unverified in game)
 MetaReminderRow(9885, 60) -- Druid: Mark of the Wild (unverified in game)
@@ -1165,12 +1203,28 @@ MetaReminderRow(11767, 0, 688, true, false) -- Warlock: Blood Pact (the imp's; l
 MetaReminderRow(20217, 60) -- Paladin: Blessing of Kings
 MetaReminderRow(25291, 60) -- Paladin: Blessing of Might
 MetaReminderRow(25290, 60) -- Paladin: Blessing of Wisdom
-MetaReminderRow(1038, 60) -- Paladin: Blessing of Salvation
-MetaReminderRow(19979, 60) -- Paladin: Blessing of Light
 MetaReminderRow(25780, 30) -- Paladin: Righteous Fury (aura ID = spell ID, unverified)
 
--- RALT-03: the five blessings satisfy each other -- a paladin holds one own blessing per target.
-MetaReminderGroup(20217, 25291, 25290, 1038, 19979)
+-- Warlock armors (Phase 82, MREM-08): Demon Armor and Demon Skin; grouped in the Forever block.
+MetaReminderRow(11735, 30) -- Warlock: Demon Armor (MREM-08) (unverified in game)
+MetaReminderRow(696, 30) -- Warlock: Demon Skin (MREM-08) (unverified in game)
+-- Shaman shields (Phase 82, MREM-09): Lightning Shield and Water Shield; grouped in the Forever block.
+MetaReminderRow(10432, 10) -- Shaman: Lightning Shield (MREM-09; 3 charges, so it can drop before the timer) (unverified in game)
+MetaReminderRow(408510, 10) -- Shaman: Water Shield (MREM-09; Restoration talent; a reused ID, check in game) (unverified in game)
+-- Priest buffs (Phase 82, MREM-10/14/16): Inner Fire and Shadowguard are self-only; Shadow
+-- Protection can come from another priest, so its ranks are listed in the Forever block.
+MetaReminderRow(10952, 10) -- Priest: Inner Fire (MREM-10) (unverified in game)
+MetaReminderRow(19312, 10) -- Priest: Shadowguard (MREM-14; Troll; the known-spell rule offers it only to a priest who knows it) (unverified in game)
+MetaReminderRow(10958, 10) -- Priest: Shadow Protection (MREM-16; situational) (unverified in game)
+-- Paladin aura (Phase 82, MREM-11): one "any aura" row; every aura rank is listed in the Forever block.
+MetaReminderRow(10293, 0) -- Paladin: Devotion Aura, any paladin aura satisfies it (MREM-11; permanent; keyed on 10293, never the retail Devotion row's ID, which is only an alternative here) (unverified in game)
+-- Hunter aspect (Phase 82, MREM-12): one "any aspect" row; the aspects are listed in the Forever block.
+MetaReminderRow(25296, 0) -- Hunter: Aspect of the Hawk, any aspect satisfies it (MREM-12; permanent; Viper and Falcon never count) (unverified in game)
+-- Mage situational pair (Phase 82, MREM-15): Amplify Magic and Dampen Magic; grouped in the Forever block.
+MetaReminderRow(10170, 10) -- Mage: Amplify Magic (MREM-15; situational) (unverified in game)
+MetaReminderRow(10174, 10) -- Mage: Dampen Magic (MREM-15; situational) (unverified in game)
+-- Demonic Sacrifice (Phase 82, MREM-13): last, the only row with a separate aura ID.
+MetaReminderRow(18788, 120, nil, nil, nil, { auraID = 18789 }) -- Warlock: Demonic Sacrifice (MREM-13; the cast 18788 carries no buff, the row watches aura 18789; a click casts 18788) (unverified in game)
 
 -- The retail rows (user data 2026-09-30, MREM-04/MREM-05).
 -- Arcane Familiar trade-off: a cast of 1459 starts only the Arcane Intellect row (the cast index
@@ -1191,6 +1245,105 @@ MetaReminderRow(465, 0, nil, nil, nil, { client = "retail" }) -- Paladin: Devoti
 -- Per the user decision, Concentration Aura 317920 or Crusader Aura 32223 satisfies Devotion Aura;
 -- they are alternatives only (not rows), so only 465 receives the list, and Devotion stays the cast spell.
 MetaReminderGroup(465, 317920, 32223)
+
+-- The Forever group block (RALT-04, Phase 80): every Forever group call lives in this one block.
+-- 21562, 1459, 1126, 6673 and 465 are Forever ranks and also retail row IDs (1459 is a `both`
+-- row), so an ungated call would give retail rows Forever alternatives. Phases 81-82 add their
+-- groups inside this block (mage armors, familiar scrolls, the other class rows).
+-- MetaReminderGroup gives each listed ID that has a row the others as alternatives; an ID without
+-- a row is a one-way alternative. A second call naming the same row REPLACES its alternatives, so
+-- a row ID appears in exactly one call here. IDs are from research §12.2/§12.3.
+if ns.CLIENT_IS_FOREVER then
+	-- Arcane Intellect: ranks 1-5 and Arcane Brilliance (RALT-05, RALT-07)
+	MetaReminderGroup(1459, 1460, 1461, 10156, 10157, 23028)
+	-- Power Word: Fortitude: ranks 1-6 and Prayer of Fortitude ranks 1-2
+	MetaReminderGroup(10938, 1243, 1244, 1245, 2791, 10937, 21562, 21564)
+	-- Divine Spirit: ranks 1-4 and Prayer of Spirit
+	MetaReminderGroup(27841, 14752, 14818, 14819, 27681)
+	-- Mark of the Wild: ranks 1-7 and Gift of the Wild ranks 1-2
+	MetaReminderGroup(9885, 1126, 5232, 6756, 5234, 8907, 9884, 21849, 21850)
+	-- Thorns: ranks 1-6
+	MetaReminderGroup(9910, 467, 782, 1075, 8914, 9756)
+	-- Battle Shout: ranks 1-7
+	MetaReminderGroup(25289, 6673, 5242, 6192, 11549, 11550, 11551)
+	-- Trueshot Aura: ranks 1-3
+	MetaReminderGroup(20906, 19506, 20905)
+	-- Blood Pact: ranks 1-5; the extra data IDs (7871-7873 and others) are left out until an
+	-- in-game ID tooltip shows one on the player (RALT-07)
+	MetaReminderGroup(11767, 6307, 7804, 7805, 11766)
+	-- The blessings (RALT-06): Kings, Might, Wisdom, the Might ranks, the Wisdom ranks, Greater
+	-- Kings, Greater Might, Greater Wisdom. Any one satisfies every blessing reminder; a paladin
+	-- holds one own blessing per target. 1038/19979 are retired (see the note in the header).
+	MetaReminderGroup(
+		20217,
+		25291,
+		25290,
+		19740,
+		19834,
+		19835,
+		19836,
+		19837,
+		19838,
+		19742,
+		19850,
+		19852,
+		19853,
+		19854,
+		25898,
+		25782,
+		25916,
+		25894,
+		25918
+	)
+	-- The mage armors (MREM-07): Frost, Ice and Mage Armor are mutual alternatives, the game allows
+	-- one armor at a time; the rank family covers each armor's lower ranks (they are self-only).
+	-- Molten Armor is not learnable on Forever.
+	MetaReminderGroup(7301, 10220, 22783)
+	-- The familiar (MREM-18): any tier (Cat, Frog, Rat) hides the familiar reminder; 1302285 and
+	-- 1296202 have no row, so they are one-way alternatives. Not grouped with Arcane Intellect or
+	-- the armors.
+	MetaReminderGroup(1302303, 1302285, 1296202)
+	-- Warlock armors (MREM-08): Demon Armor and Demon Skin are mutual, one armor at a time
+	MetaReminderGroup(11735, 696)
+	-- Shaman shields (MREM-09): only one elemental shield at a time
+	MetaReminderGroup(10432, 408510)
+	-- Shadow Protection (MREM-16, RALT-07): ranks 1-2 and Prayer of Shadow Protection, one-way
+	MetaReminderGroup(10958, 976, 10957, 27683)
+	-- Paladin auras (MREM-11, RALT-07): any aura satisfies the Devotion Aura row, one-way. Devotion
+	-- ranks (465 is rank 1 here and the retail row's ID, which is why it is only in this block),
+	-- Retribution ranks, Concentration, Shadow/Frost/Fire Resistance ranks. Sanctity Aura is not listed.
+	MetaReminderGroup(
+		10293,
+		465,
+		10290,
+		643,
+		10291,
+		1032,
+		10292,
+		7294,
+		10298,
+		10299,
+		10300,
+		10301,
+		19746,
+		19876,
+		19895,
+		19896,
+		19888,
+		19897,
+		19898,
+		19891,
+		19899,
+		19900
+	)
+	-- Hunter aspects (MREM-12): any aspect satisfies the Aspect of the Hawk row, one-way: Monkey,
+	-- Cheetah, Pack, Wild, Beast. Viper and Falcon are deliberately not listed.
+	MetaReminderGroup(25296, 13163, 5118, 13159, 20043, 20190, 13161)
+	-- Amplify Magic and Dampen Magic with every rank (MREM-15, RALT-07): any one up hides both
+	MetaReminderGroup(10170, 10174, 1008, 8455, 10169, 604, 8450, 8451, 10173)
+	-- Demonic Sacrifice, last (MREM-13): the other three sacrifice buffs, one-way; the row watches aura 18789
+	MetaReminderGroup(18788, 18790, 18791, 18792)
+end
 
 -- The table row for a class-buff spell ID, or nil. One map read.
 function ns:MetaReminderDef(spellID)
@@ -1238,6 +1391,18 @@ function ns:ReminderCastID(entry)
 		return nil
 	end
 	return id
+end
+
+-- The ordered { itemID, minLevel } list a click on a reminder picks an item from (CLICK-07), or
+-- nil; each pair's third field is its "item:<id>" click attribute, built once by MetaReminderRow,
+-- the only place a useItems list is built. Only a built-in row carries one (the familiar
+-- scrolls). Called by ReminderClick.lua's Flush; one map read, no allocation.
+function ns:ReminderUseItems(entry)
+	if entry.trackerType ~= ns.KIND.META_REMINDER then
+		return nil
+	end
+	local def = metaReminderDefsBySpellID[entry.spellID]
+	return def and def.useItems or nil
 end
 
 -- Whether a click on a reminder should force the player as the cast unit: nil for the ally-cast

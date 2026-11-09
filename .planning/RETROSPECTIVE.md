@@ -2,6 +2,42 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v0.5.6 — More Forever Reminders
+
+**Shipped:** 2026-11-09 (archived and squash-merged; changelog and tag by the user)
+**Phases:** 6 (80-85) | **Plans:** 5 | **Commits:** 62 before the close | **Span:** 1 day
+
+### What Was Built
+
+- A Forever-only block of reminder groups; group buffs and other players' ranks count as the buff.
+- Mage armors grouped, and a familiar reminder whose click uses the best scroll in the bags.
+- Rows for warlock, shaman, priest, paladin, hunter and the mage situational buffs.
+- `docs/REMINDERS.md` with Wowhead `/forever/` links, and a script that keeps it in step with the code.
+
+### What Worked
+
+- **Data-only rows.** Everything except the familiar click went through the existing
+  `MetaReminderRow` / `MetaReminderGroup`, so the "nothing works differently" rule was easy to keep.
+- **Gate scripts that fail first.** Each phase's gate was run against the old source before
+  execution; two regexes that would have passed on a `fix(8x):` commit were caught that way.
+- **Front-loaded questions at the autonomous kickoff** (tracking skills dropped, script for the doc
+  check) let Phases 80-84 run without a stop.
+
+### What Was Inefficient
+
+- **The version name changed three times** (v0.6, v0.5.9, v0.5.6), leaving three names in commits.
+- **The doc was shaped before the user saw it.** Per-class tables, a verified column and a Not
+  included table were built and checked by the script, then restructured at review.
+- **The first doc check could pass while wrong** (a row in two groups, cells not tied to groups);
+  the review found it, not the selftest.
+
+### Key Lessons
+
+- Ask what a human-review doc should look like (columns, grouping, what is internal) before
+  building the checker around it.
+- A row that is a form or a stance (Shadowform) is not a reminder; screen candidates for that.
+- A row a later group call names loses its earlier group: keep one group per row and check it.
+
 ## v0.5.5 — Fresh-login buff time fix (outside GSD, 2026-10-27)
 
 One commit (`6f976e8`), no milestone. It records the real cause of v0.5.4's bug.

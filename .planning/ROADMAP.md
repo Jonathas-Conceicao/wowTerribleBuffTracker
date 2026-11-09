@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [x] **v0.5.6 More Forever Reminders** — Phases 80-85 (shipped 2026-11-09) — [archive](milestones/v0.5.6-ROADMAP.md)
 - [x] **v0.5.5 Fresh-login buff time fix** — no phases, done outside GSD (shipped 2026-10-27, `6f976e8`) — see `MILESTONES.md`
 - [x] **v0.5.4 Buff countdown display fix** — Phase 79 (shipped 2026-10-24) — [archive](milestones/v0.5.4-ROADMAP.md)
 - [x] **v0.5.3 Display buff duration alongside cooldowns** — Phases 73-78 (shipped 2026-10-23) — [archive](milestones/v0.5.3-ROADMAP.md)
@@ -17,6 +18,21 @@
 - [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
+
+<details>
+<summary>✅ v0.5.6 More Forever Reminders (Phases 80-85) — SHIPPED 2026-11-09</summary>
+
+Full detail archived at [`milestones/v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md); requirements
+at [`milestones/v0.5.6-REQUIREMENTS.md`](milestones/v0.5.6-REQUIREMENTS.md).
+
+- [x] Phase 80: Forever Group Block, Group Buffs and Rank Coverage — one Forever-only block of group calls; group buffs, Greater Blessings and every rank count as alternatives; Salvation and Light retired
+- [x] Phase 81: Mage Armors and Familiar Scrolls — Ice Armor and Mage Armor join Frost Armor as one group; one familiar reminder whose click uses the best scroll in the bags
+- [x] Phase 82: Other Class Rows — warlock, shaman, priest, paladin and hunter rows plus the situational buffs, Demonic Sacrifice last
+- [x] Phase 83: Reminder Review Doc — `docs/REMINDERS.md` lists every built-in reminder with Wowhead links, cross-checked against `Providers.lua`, not shipped
+- [x] Phase 84: Cleanup — the milestone's own unused code and duplication, touched hot paths, stylua, release scripts
+- [x] Phase 85: Forever Testing Pass — the user checks the new rows and groups in game; testing pass, no plans; the last phase of the milestone
+
+</details>
 
 <details>
 <summary>✅ v0.5.4 Buff countdown display fix (Phase 79) — SHIPPED 2026-10-24</summary>
@@ -305,13 +321,10 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 
 ## Phase Details
 
-*Every phase through v0.5.4 (Phases 1-79) is archived under `.planning/milestones/`. The most recent
-is [`v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md), which carries the full detail for Phase 79;
-[`v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md) covers Phases 73-78.*
+*Every phase through v0.5.6 (Phases 1-85) is archived under `.planning/milestones/`. The most recent
+is [`v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md), which carries the full detail for Phases 80-85.*
 
 ## Progress
-
-**Execution order:** no milestone in progress (v0.5.4 ran 79)
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -370,6 +383,12 @@ is [`v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md), which carries the full d
 | 77. Cleanup | v0.5.3 | 2/2 | Complete | 2026-10-22 |
 | 78. Human Testing | v0.5.3 | — | Complete — PASSED on retail; gap fix: buff follows its live aura (`469ff35`); #14 skipped | 2026-10-23 |
 | 79. Buff Countdown Display Fix | v0.5.4 | 1/1 | Complete — verified in game on retail; one `/reload` miss not reproduced (fluke) | 2026-10-24 |
+| 80. Forever Group Block, Group Buffs and Rank Coverage | v0.5.6 | 1/1 | Complete | 2026-11-09 |
+| 81. Mage Armors and Familiar Scrolls | v0.5.6 | 1/1 | Complete | 2026-11-09 |
+| 82. Other Class Rows | v0.5.6 | 1/1 | Complete | 2026-11-09 |
+| 83. Reminder Review Doc | v0.5.6 | 1/1 | Complete | 2026-11-09 |
+| 84. Cleanup | v0.5.6 | 1/1 | Complete | 2026-11-09 |
+| 85. Forever Testing Pass | v0.5.6 | — | Complete (mage verified in game; rest ships on feedback) | 2026-11-09 |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*
@@ -928,6 +947,15 @@ are the starting point. The refresh and the cancellation scan would merge into t
 follows it (`syncedAt` in `ns:StartReminderFromCast`); cooldown buffs do not. If the aura event
 arrives just before the cast, the cast resets the timer to the typed Duration for about half a
 second, until the post-cast re-check moves it back.
+
+**999.29 — Weapon-enchant reminders.** Intake 2026-11-09, user request, raised at the v0.5.6
+kickoff. **Not for now:** the user asked for it to be noted only.
+
+Reminders for weapon enchants: shaman imbues (60 min on Forever), rogue poisons, oils, sharpening
+stones and the like. They are weapon enchants with no aura, so the reminder aura path
+(`ns:ReadPlayerAura`, `ns:RefreshAuraStates`) cannot see them; they would need a
+`GetWeaponEnchantInfo` path. Research: `.planning/research/FOREVER-REMINDERS.md` §6, where they are
+excluded from v0.5.6 for this reason.
 
 *The four original backlog phases — 999.1 (Edit Mode mouse-down), 999.2 (README and store copy),
 999.3 (single-TOC migration) and 999.4 (`@project-version@` in dev installs) — were promoted into

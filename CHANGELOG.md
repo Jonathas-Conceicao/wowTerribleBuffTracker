@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.6 — More Forever Reminders
+
+More built-in reminders for WoW Forever, and group buffs or another
+player's rank of a buff now count as the buff being up.
+
+### New Features
+- Mage: Armor reminders; any one armor up hides all three armor
+  reminders
+- Mage: Familiar reminder; clicking it uses the best familiar scroll
+  in your bags for your level
+- Mage: Amplify Magic / Dampen Magic reminders
+- Warlock: Demon Armor / Demon Skin and Demonic Sacrifice reminders
+- Shaman: Lightning Shield / Water Shield reminders
+- Priest: Inner Fire, Shadowguard and Shadow Protection reminders
+- Paladin: one aura reminder, satisfied by any paladin aura
+- Hunter: one aspect reminder, satisfied by any aspect
+- Arcane Brilliance, Prayer of Fortitude, Prayer of Spirit, Gift of
+  the Wild and the Greater Blessings now satisfy their single-target
+  reminders, as do lower ranks cast on you by another player
+
+### Removed
+- Blessing of Salvation and Blessing of Light reminders on Forever,
+  as they no longer exist there
+
 ## v0.5.5 — Buff countdown display fix (again)
 
 ### Bug Fixes

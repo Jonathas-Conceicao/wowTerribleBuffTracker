@@ -1036,6 +1036,10 @@ end
 -- Exactly three callers: the CDMTab.lua right-click menu, CDMTab.lua dialog.OpenForEdit, and
 -- ns:UpdateTrackedBuff, which routes a bag item to the buff-only path before any spell-keyed
 -- logic. Nil-safe.
+-- Review 80 IN-04: since Phase 80 a built-in class-buff reminder carries up to 18 "Also satisfied
+-- by" IDs (the Forever blessings), while the edit dialog's ns:ParseSpellIDList rejects more than
+-- MAX_CAST_RULE_IDS (8, CDMTab.lua). Making a built-in editable, or copying one into a user
+-- reminder, needs that cap raised first.
 function ns:IsEditableTracker(entry)
 	if entry == nil then
 		return false
@@ -1880,8 +1884,8 @@ function ns:ReadableAuraExpiry(aura, now)
 	return duration, expirationTime
 end
 
--- RALT-01 (Phase 57.5): reminders with alternatives overlap -- the five blessing reminders' watch
--- lists share the same IDs -- so ns:RefreshAuraStates reads each watched ID once per call through
+-- RALT-01 (Phase 57.5): reminders with alternatives overlap -- the blessing reminders' watch lists
+-- share the same IDs -- so ns:RefreshAuraStates reads each watched ID once per call through
 -- this memo. [id] = the aura table or false, and [id] = readable (true/false). Wiped at the start
 -- of every call, never rebuilt, and valid only within one call. Still ns:ReadPlayerAura
 -- underneath, so an unreadable aura is never absent (DTRK-06).

@@ -1120,7 +1120,8 @@ ns.endKeysBySpell = {}
 
 -- RALT-01 (Phase 57.5): [spellID] = { reminderKey, ... }, every loaded reminder that lists spellID
 -- (or a rank or override of it) as an alternative ("Also satisfied by"). One-to-many, because the
--- five paladin blessings each list the other four. The outer table and inner arrays are fresh per
+-- Forever blessing reminders share one list (each other, their ranks and the Greater Blessings,
+-- Phase 80). The outer table and inner arrays are fresh per
 -- rebuild in ns:RebuildDetailedRuleIndex and never mutated afterwards. The cast path reads it with
 -- one lookup.
 ns.alternativeKeysBySpell = {}
@@ -2193,6 +2194,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		-- event that fires on every gear change.
 		if event == "BAG_UPDATE_DELAYED" then
 			ns:ReconcileTrackedItemCounts()
+			-- CLICK-07: a bag change can change which familiar scroll a reminder click uses; the flush is
+			-- coalesced and deferred in combat. Review 81 WR-01: only while a shown reminder uses an item.
+			if ns.reminderItemClickActive then
+				ns:MarkReminderClicksDirty()
+			end
 		end
 	end
 end)

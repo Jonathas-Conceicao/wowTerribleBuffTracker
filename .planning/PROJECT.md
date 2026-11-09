@@ -10,10 +10,53 @@ Players can see countdown timers for buffs/cooldowns that the game no longer sur
 
 ## Next Milestone
 
-Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 80. **v0.5.5 was
-done outside GSD** (see Current State), so the next milestone is v0.5.6 or later, and Phase 80 is
-still free. Open candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27,
-999.28).
+Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 86. Open
+candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27, 999.28, 999.29), plus
+community feedback on the untested v0.5.6 Forever rows.
+
+<details>
+<summary>v0.5.6 More Forever Reminders — SHIPPED 2026-11-09</summary>
+
+6 phases (80-85), 5 plans, 21/21 requirements (MREM-17 dropped). New Forever class-buff reminders
+with exclusive groups; group buffs and other players' ranks satisfy the single-target reminder;
+the familiar reminder's click uses the best scroll in the bags; `docs/REMINDERS.md` plus
+`scripts/reminders-doc-check.js`. Mage armors and the familiar verified in game; the rest ships on
+community feedback. Archives: [`milestones/v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md) and
+[`milestones/v0.5.6-REQUIREMENTS.md`](milestones/v0.5.6-REQUIREMENTS.md). Kickoff notes follow.
+
+**Goal:** TBT suggests more Forever class-buff reminders, and buffs that cannot be up together are
+grouped so any one present satisfies the others, as the five paladin blessings already are.
+
+**Named v0.5.6, not v0.6 (user, 2026-11-09, at roadmap approval):** no major feature ships, so it
+is a patch to the current version (v0.5.5). The kickoff, research and requirements commits still
+say "v0.6", and the roadmap commit says "v0.5.9", an interim name the user corrected.
+
+**Phases start at 80.** Numbering continues from v0.5.4's Phase 79 (v0.5.5 was done outside GSD
+and used no phase). Branch: `milestone/v0.5.6-more-forever-reminders`, cut from `main` (`21c018d`) on
+2026-11-09. Research: one focused researcher builds the candidate catalogue (Forever spell IDs,
+ranks, durations, exclusive groups, Wowhead links) instead of the 4-way fan-out (user decision).
+
+**Target features (set by the user at kickoff, 2026-11-09):**
+
+- **Mage armors, the main one.** Frost Armor (7301) already ships; Ice Armor and Mage Armor (and
+  Molten Armor, if Forever has it) join it as one exclusive group, so any armor up satisfies the
+  reminder. The user plays a mage on Forever and tests these in game.
+- **More Forever class/self buffs, found by research**, each with the right exclusive group
+  (`MetaReminderGroup`, as the blessings use). Rows the user cannot test stay marked
+  "(unverified in game)" in their comment, as the existing rows are.
+- **Group buffs count as alternatives.** Arcane Brilliance, Prayer of Fortitude, Gift of the Wild
+  and the Greater Blessings satisfy their single-target reminder. This reverses the 2026-09-29
+  decision that they do not count (user decision, 2026-11-09).
+- **A human-review doc**, `docs/REMINDERS.md`, listing every recommended reminder, Forever and
+  retail, old and new, with Wowhead links, kept in the repo next to the code and not shipped.
+- **Forever IDs and Forever links only (user, 2026-11-09).** Every new spell ID must be WoW
+  Forever's own, not Classic Era's or Classic's, and every Forever link uses Wowhead's `/forever/`
+  path (`https://www.wowhead.com/forever/spell=<id>`). Retail links use the plain retail path.
+  A Classic page is not evidence for a Forever ID.
+- **Forever only.** New rows are Forever rows; retail rows are unchanged and appear only in the doc.
+- The usual cleanup phase, then one Forever testing pass by the user.
+
+</details>
 
 <details>
 <summary>v0.5.4 Buff countdown display fix — SHIPPED 2026-10-24</summary>
@@ -435,10 +478,14 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 - Buff timer icons count down in the aura format (`SetUseAuraDisplayTime(true)`), as the CDM's buff icons do; real cooldowns keep the cooldown format — v0.5.4 Phase 79 (BUFFTIME-01..03). **v0.5.4 named the wrong cause** for the "2h for 1h" bug; the real one was fixed in v0.5.5 (next line)
 - A buff applied before the client launched (a flask still up at a fresh login) shows its real time: the timer branch draws its sweep with `SetCooldownFromExpirationTime`, because the start time (`expiresAt - duration`) is negative while `GetTime()` is small, and `SetCooldown` wraps a negative start to ~2^32 ms ahead — v0.5.5 (`6f976e8`, outside GSD)
 
+- More Forever class-buff reminders with exclusive groups (mage, warlock and shaman armors/shields, priest buffs, any paladin aura, any hunter aspect, Amplify/Dampen Magic, Demonic Sacrifice); group buffs and other players' ranks satisfy the single-target reminder; Salvation and Light retired — v0.5.6 Phases 80-82 (RALT-04..07, MREM-06..16, MREM-18)
+- The familiar reminder's click uses the best usable scroll in the bags — v0.5.6 Phase 81 (CLICK-07), verified in game
+- `docs/REMINDERS.md`, kept in step with `Providers.lua` by `scripts/reminders-doc-check.js` — v0.5.6 Phase 83 (DOC-06, DOC-07)
+
 ### Active
 
-No milestone in progress. Earlier milestones' requirements are archived under
-`.planning/milestones/`; the next set is written by `/gsd-new-milestone`.
+None until the next milestone. Earlier milestones' requirements are archived under
+`.planning/milestones/`.
 
 Still open in the backlog:
 
@@ -447,6 +494,7 @@ Still open in the backlog:
 - **999.27** — custom cooldown trackers keep a stale charge count after a spec change.
 - **999.28** — one aura pass for buffs, reminders and cooldown buffs, with a buff option (on for new
   buffs, off for existing ones and debuffs) to take presence and duration from the game.
+- **999.29** — weapon enchant reminders (shaman imbues, rogue poisons, oils).
 
 ## Current State
 
@@ -456,7 +504,9 @@ Still open in the backlog:
 
 **v0.5.5 Fresh-login buff time fix (outside GSD, 2026-10-27)** — a buff already up at a fresh login (a flask with 40m left) showed its whole duration ("1h", or "2h" when stacked) until renewed, and following the aura through an engineering extension did not help. Found with a state dump that ran automatically 5s after login: the timer was right (2041s left), but the icon's countdown frame held a start 4,293,145s ahead. `GetTime()` counts from the client's launch, so a buff applied before it has a negative start once synced to the aura, and `SetCooldown` stores the start as unsigned milliseconds (a wrap to ~49.7 days). A `/reload` keeps `GetTime()` counting, which is why only a fresh login showed it. This was also the real cause of v0.5.4's "2h"; v0.5.4's rounding explanation was wrong. Fix: `SetTimerSweep` in `Display.lua` uses `SetCooldownFromExpirationTime`, with a clamp-at-zero fallback where the method is missing.
 
-**v0.5.4 Buff countdown display fix shipped 2026-10-24** — 1 phase (79), 1 plan, 4/4 requirements, verified in game on Midnight retail; squash-merged to `main`, CHANGELOG and tag by the user. See [`milestones/v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md).
+**v0.5.6 More Forever Reminders shipped 2026-11-09** — 6 phases (80-85), 5 plans, 21/21 requirements (MREM-17 dropped). Mage armors and the familiar click verified in game on Forever; the other new rows ship on community feedback. Squash-merged to `main`; CHANGELOG, release and tag by the user. See [`milestones/v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md).
+
+**Earlier —** **v0.5.4 Buff countdown display fix shipped 2026-10-24** — 1 phase (79), 1 plan, 4/4 requirements, verified in game on Midnight retail; squash-merged to `main`, CHANGELOG and tag by the user. See [`milestones/v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md).
 
 **Earlier —** **v0.5.3 Display buff duration alongside cooldowns shipped 2026-10-23** — 6 phases (73-78), 8 plans, 15/15 requirements, verified in game on Midnight retail (Forever not tested, servers down); the user squash-merges to `main`, writes the CHANGELOG entry and tags the release. See [`milestones/v0.5.3-ROADMAP.md`](milestones/v0.5.3-ROADMAP.md).
 
@@ -549,6 +599,9 @@ client-side bug — see Context.
 | Trinket and Pot meta-trackers stay as-is | TBT's version has custom durations and bar display, and META-01 already hides them on Forever. Whatever the CDM now does natively, the trackers keep a reason to exist | Decided 2026-09-20 — closes the product half of 999.2. Only the public copy changes |
 | A cooldown's buff duration is typed, never looked up | The 2026-10-22 retail probe found no API that returns a buff's duration; description and tooltip text is English-only, holds several numbers and grammar escapes, and is often empty of any number. The user chose explicit config over a learn-from-aura scheme | Decided 2026-10-22 (v0.5.3 kickoff). Opt-in per tracker, off by default; aura ID pre-filled with the spell ID for spells, empty for items. ✓ Shipped v0.5.3 |
 | A read never rewrites a value the user typed | Asked to "auto-correct" a buff whose live duration differed, a first build overwrote the saved Duration. A live aura can be longer than one use (two flasks stacked = 2h), and the setting is the user's | Decided 2026-10-22 by the user (Phase 78). Live data drives only the running timer (`SyncProcToAura`); `ns.db` is never written from an aura read |
+| Group buffs satisfy their single-target class-buff reminder | Reverses the 2026-09-29 exclusion: a raid buff (Arcane Brilliance, Prayer of Fortitude, Gift of the Wild, a Greater Blessing) on the player means the single-target buff is not needed | Decided 2026-11-09 by the user (v0.5.6 kickoff). Through the existing alternatives lists; user input still never reaches a built-in's alternatives. ✓ Shipped v0.5.6 |
+| Untested built-in reminder rows ship and are fixed on community feedback | The user can test only a mage on Forever; holding every other class's rows for in-game checks would block the release indefinitely | Decided 2026-11-09 by the user (Phase 85). Rows keep "(unverified in game)" in their `Providers.lua` comment; the public doc has no verified column |
+| Forms and stances are not reminders | Shadowform, like a druid form or a warrior stance, is toggled on purpose, so a "missing" icon is noise | Decided 2026-11-09 by the user (Phase 85); Shadowform dropped |
 | A cooldown's buff has no "End when the aura is lost" opt-out | A buff that never lands readably (wrong Aura ID, ally-targeted) ending the timer is for the user to fix in the Aura ID box | Decided 2026-10-22 (Phase 74 review WR-02); also covers the read-sync shortening a timer (v0.5.3 audit warning 2). ✓ Shipped v0.5.3 |
 
 ## Evolution
@@ -569,4 +622,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-27, recording v0.5.5 (done outside GSD)*
+*Last updated: 2026-11-09 after v0.5.6 More Forever Reminders milestone*

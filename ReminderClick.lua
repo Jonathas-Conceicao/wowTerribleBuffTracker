@@ -3,6 +3,8 @@
 -- One pooled SecureActionButtonTemplate button per clickable reminder icon.
 -- A click casts on the player, except the ally-cast rows (ns:ReminderCastUnit), which leave the
 -- unit unset so the game's default targeting applies.
+-- One reminder, the familiar scroll, uses an item instead of casting: its overlay's type1 is
+-- "item" with the first usable scroll in the bags (CLICK-07).
 -- Invariants:
 --   1. An overlay is never anchored to a TBT frame (only to UIParent, in screen
 --      coordinates), so TBT's display tree never becomes protected.
@@ -48,6 +50,31 @@ local function ResolveCastName(spellID)
 	return name
 end
 
+-- CLICK-07: picks the first usable entry of an ordered { itemID, minLevel } list (highest tier
+-- first, never sorted) and returns its "item:<id>" attribute value, the string MetaReminderRow
+-- built at row load (pair field 3), so it allocates nothing; or nil. Called only from
+-- Flush, so out of combat; guarded like the pot scan against a missing API and secret values.
+-- The level is tested before the count, so a scroll the player is too low for falls through.
+local function PickUseItem(useItems)
+	if not (C_Item and C_Item.GetItemCount) then
+		return nil
+	end
+	local level = UnitLevel("player")
+	if issecretvalue(level) or type(level) ~= "number" then
+		return nil
+	end
+	for i = 1, #useItems do
+		local minLevel = useItems[i][2]
+		if level >= minLevel then
+			local ok, count = pcall(C_Item.GetItemCount, useItems[i][1])
+			if ok and not issecretvalue(count) and type(count) == "number" and count > 0 then
+				return useItems[i][3]
+			end
+		end
+	end
+	return nil
+end
+
 local function OverlayOnEnter(self)
 	local icon = self.tbtIcon
 	if icon and ns.containerTooltipsShown[icon.containerKey] then
@@ -69,6 +96,7 @@ local function CreateOverlay()
 	-- SecureActionButton_OnClick falls back to that CVar (on by default) and ignores an up-click.
 	overlay:SetAttribute("useOnKeyDown", false)
 	overlay:SetAttribute("type1", "spell")
+	overlay._actionType = "spell"
 	local highlight = overlay:CreateTexture(nil, "HIGHLIGHT")
 	highlight:SetAllPoints()
 	highlight:SetTexture(HIGHLIGHT_TEXTURE)
@@ -91,7 +119,7 @@ local function Retire(overlay)
 	overlay.tbtIcon = nil
 end
 
-local function Place(overlay, icon, castName, unit)
+local function Place(overlay, icon, castName, itemAttr, unit)
 	local left, bottom, width, height = icon:GetRect()
 	-- Review WR-04: a rect or scale with a secret aspect is never compared or multiplied; the icon
 	-- is skipped this pass. Secrets are tested before the nil test: nothing compares a secret.
@@ -120,9 +148,22 @@ local function Place(overlay, icon, castName, unit)
 		overlay:SetFrameLevel(level)
 		overlay._level = level
 	end
-	if overlay._castName ~= castName then
-		overlay:SetAttribute("spell", castName)
-		overlay._castName = castName
+	-- CLICK-07: type1 is written here, on change only, because pooled overlays are reused across
+	-- reminders; the action attribute the overlay does not use is cleared (nil), so a reused overlay
+	-- never keeps the other one.
+	local actionType = itemAttr and "item" or "spell"
+	local spellAttr = not itemAttr and castName or nil
+	if overlay._actionType ~= actionType then
+		overlay:SetAttribute("type1", actionType)
+		overlay._actionType = actionType
+	end
+	if overlay._spellAttr ~= spellAttr then
+		overlay:SetAttribute("spell", spellAttr)
+		overlay._spellAttr = spellAttr
+	end
+	if overlay._itemAttr ~= itemAttr then
+		overlay:SetAttribute("item", itemAttr)
+		overlay._itemAttr = itemAttr
 	end
 	-- nil leaves the game's default targeting (a friendly target receives the cast); "player" is the
 	-- Phase 63 self-cast. Written on change only; Place is only reached out of combat (Flush's
@@ -147,6 +188,7 @@ local function Flush()
 	dirty = false
 	local used = 0
 	local skipped = 0
+	local sawItemReminder = false
 	if not editModeOpen and not ns.editModeActive and ns.db ~= nil then
 		local count, hidden = ns:CollectReminderClickIcons(clickIcons)
 		skipped = hidden
@@ -161,9 +203,15 @@ local function Flush()
 				castID = nil
 			end
 			local castName = castID and ResolveCastName(castID)
-			if castName then
+			-- CLICK-07: an item reminder (the familiar scrolls) clicks the first usable scroll.
+			local useItems = entry and ns:ReminderUseItems(entry)
+			if useItems then
+				sawItemReminder = true
+			end
+			local itemAttr = useItems and PickUseItem(useItems)
+			if castName or itemAttr then
 				local overlay = overlays[used + 1] or CreateOverlay()
-				if Place(overlay, icon, castName, ns:ReminderCastUnit(entry)) then
+				if Place(overlay, icon, castName, itemAttr, ns:ReminderCastUnit(entry)) then
 					used = used + 1
 				else
 					skipped = skipped + 1
@@ -177,6 +225,9 @@ local function Flush()
 	for i = used + 1, #overlays do
 		Retire(overlays[i])
 	end
+	-- Review 81 WR-01: Core's BAG_UPDATE_DELAYED branch re-marks only while a shown reminder uses an
+	-- item (the familiar), so a bag change costs every other character nothing, exactly as before.
+	ns.reminderItemClickActive = sawItemReminder
 	if skipped > 0 and not retrySpent and not retryScheduled then
 		retrySpent = true
 		retryScheduled = true
