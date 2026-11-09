@@ -1288,6 +1288,46 @@ if ns.CLIENT_IS_FOREVER then
 	-- 1296202 have no row, so they are one-way alternatives. Not grouped with Arcane Intellect or
 	-- the armors.
 	MetaReminderGroup(1302303, 1302285, 1296202)
+	-- Warlock armors (MREM-08): Demon Armor and Demon Skin are mutual, one armor at a time
+	MetaReminderGroup(11735, 696)
+	-- Shaman shields (MREM-09): only one elemental shield at a time
+	MetaReminderGroup(10432, 408510)
+	-- Shadow Protection (MREM-16, RALT-07): ranks 1-2 and Prayer of Shadow Protection, one-way
+	MetaReminderGroup(10958, 976, 10957, 27683)
+	-- Paladin auras (MREM-11, RALT-07): any aura satisfies the Devotion Aura row, one-way. Devotion
+	-- ranks (465 is rank 1 here and the retail row's ID, which is why it is only in this block),
+	-- Retribution ranks, Concentration, Shadow/Frost/Fire Resistance ranks. Sanctity Aura is not listed.
+	MetaReminderGroup(
+		10293,
+		465,
+		10290,
+		643,
+		10291,
+		1032,
+		10292,
+		7294,
+		10298,
+		10299,
+		10300,
+		10301,
+		19746,
+		19876,
+		19895,
+		19896,
+		19888,
+		19897,
+		19898,
+		19891,
+		19899,
+		19900
+	)
+	-- Hunter aspects (MREM-12): any aspect satisfies the Aspect of the Hawk row, one-way: Monkey,
+	-- Cheetah, Pack, Wild, Beast. Viper and Falcon are deliberately not listed.
+	MetaReminderGroup(25296, 13163, 5118, 13159, 20043, 20190, 13161)
+	-- Amplify Magic and Dampen Magic with every rank (MREM-15, RALT-07): any one up hides both
+	MetaReminderGroup(10170, 10174, 1008, 8455, 10169, 604, 8450, 8451, 10173)
+	-- Demonic Sacrifice, last (MREM-13): the other three sacrifice buffs, one-way; the row watches aura 18789
+	MetaReminderGroup(18788, 18790, 18791, 18792)
 end
 
 -- The table row for a class-buff spell ID, or nil. One map read.
