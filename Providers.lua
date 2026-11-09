@@ -1092,10 +1092,14 @@ local MetaSkillLustProvider = CreateFromMixins(SpellProviderBaseMixin, MetaSkill
 -- retail row watches its single aura ID (Phase 64 review CR-01/WR-01). A row's duration is in
 -- minutes; 0 = no timer (aura only).
 --
--- In-game verification (user, 2026-09-29): the original Mage, Paladin and Warlock rows were tested
--- in game (57.4-HUMAN-UAT). Every other row, the v0.5.6 rows included, keeps "(unverified in
--- game)" in its trailing comment until reported. Righteous Fury (25780, added
--- in Phase 57.5) assumes its aura ID equals its spell ID; the user verifies it.
+-- In-game verification (internal notes only; the public doc carries no verified column): the
+-- original Mage, Paladin and Warlock rows were tested in game on 2026-09-29 (57.4-HUMAN-UAT), and
+-- Ice Armor, Mage Armor and the familiar scroll on 2026-11-09 (Phase 85). Every other row keeps
+-- "(unverified in game)" in its trailing comment; the v0.5.6 rows ship on community feedback.
+-- Righteous Fury (25780, added in Phase 57.5) assumes its aura ID equals its spell ID.
+--
+-- Shadowform (15473) was dropped on 2026-11-09 (Phase 85): it is a form like a druid's, not a buff
+-- to be reminded of. A placed one is an orphan per the WR-02 rule below.
 --
 -- Blessing of Sanctuary (20914) was removed on 2026-09-29 (Phase 57.5, RALT-03): it no longer
 -- exists on Forever. A placed one is an orphan per the WR-02 rule below -- greyed, "no longer
@@ -1186,9 +1190,9 @@ end
 
 MetaReminderRow(1459, 60, nil, nil, nil, { client = "both" }) -- Mage: Arcane Intellect, same ID and duration on Forever and retail
 MetaReminderRow(7301, 30) -- Mage: Frost Armor
-MetaReminderRow(10220, 30) -- Mage: Ice Armor (unverified in game)
-MetaReminderRow(22783, 30) -- Mage: Mage Armor (unverified in game)
-MetaReminderRow(1302303, 60, 1296017, nil, false, { useItems = { { 277493, 25 }, { 277483, 16 }, { 275069, 5 } } }) -- Mage: Familiar scroll; keyed on the Cat aura 1302303; any tier (Cat 1302303, Frog 1302285, Rat 1296202) satisfies it; loads when Comprehend Scroll 1296017 is known (no familiar is a known spell); no cast spell, a click uses the best usable scroll in the bags (CLICK-07) (unverified in game)
+MetaReminderRow(10220, 30) -- Mage: Ice Armor
+MetaReminderRow(22783, 30) -- Mage: Mage Armor
+MetaReminderRow(1302303, 60, 1296017, nil, false, { useItems = { { 277493, 25 }, { 277483, 16 }, { 275069, 5 } } }) -- Mage: Familiar scroll; keyed on the Cat aura 1302303; any tier (Cat 1302303, Frog 1302285, Rat 1296202) satisfies it; loads when Comprehend Scroll 1296017 is known (no familiar is a known spell); no cast spell, a click uses the best usable scroll in the bags (CLICK-07)
 MetaReminderRow(10938, 60) -- Priest: Power Word: Fortitude (unverified in game)
 MetaReminderRow(27841, 60) -- Priest: Divine Spirit (top vanilla rank; ranks 14752, 14818, 14819 resolve through the rank family by name; Discipline talent, so the row is offered only to a priest who knows a rank; 60 min per the user, unverified in game)
 MetaReminderRow(9885, 60) -- Druid: Mark of the Wild (unverified in game)
@@ -1207,10 +1211,9 @@ MetaReminderRow(696, 30) -- Warlock: Demon Skin (MREM-08) (unverified in game)
 -- Shaman shields (Phase 82, MREM-09): Lightning Shield and Water Shield; grouped in the Forever block.
 MetaReminderRow(10432, 10) -- Shaman: Lightning Shield (MREM-09; 3 charges, so it can drop before the timer) (unverified in game)
 MetaReminderRow(408510, 10) -- Shaman: Water Shield (MREM-09; Restoration talent; a reused ID, check in game) (unverified in game)
--- Priest buffs (Phase 82, MREM-10/14/16): Inner Fire, Shadowform and Shadowguard are self-only;
--- Shadow Protection can come from another priest, so its ranks are listed in the Forever block.
+-- Priest buffs (Phase 82, MREM-10/14/16): Inner Fire and Shadowguard are self-only; Shadow
+-- Protection can come from another priest, so its ranks are listed in the Forever block.
 MetaReminderRow(10952, 10) -- Priest: Inner Fire (MREM-10) (unverified in game)
-MetaReminderRow(15473, 0) -- Priest: Shadowform (MREM-10; Shadow talent; permanent: no timer, shown once the aura is gone) (unverified in game)
 MetaReminderRow(19312, 10) -- Priest: Shadowguard (MREM-14; Troll; the known-spell rule offers it only to a priest who knows it) (unverified in game)
 MetaReminderRow(10958, 10) -- Priest: Shadow Protection (MREM-16; situational) (unverified in game)
 -- Paladin aura (Phase 82, MREM-11): one "any aura" row; every aura rank is listed in the Forever block.

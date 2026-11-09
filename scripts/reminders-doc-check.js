@@ -20,24 +20,19 @@
 // overlapping client fails, and so does a row named by two groups on one client (at runtime the
 // later group REPLACES the earlier one's alternatives).
 //
-// Doc side: every wowhead link under `## Forever` and `## Retail`. Forever links must be
-// /forever/spell= or /forever/item=, retail links spell= or item=; any other path fails. Links
-// under `## Not included` are not collected, but one to a row ID fails. Each row also needs a table
-// line in its section, under its class, with the right Duration, Verified and "Also satisfied by"
-// cells. "Also satisfied by" must link exactly the other IDs of the row's group, say `none` when
-// the row has no group, or say `<Name> group, below` when a `**<Name> group**` paragraph under the
-// same class links the group's IDs (the row's own ID may be linked there or not).
+// Doc side: every wowhead link under `## Forever` and `## Retail`, the only `## ` sections allowed
+// to hold links. Forever links must be /forever/spell= or /forever/item=, retail links spell= or
+// item=; any other path fails. Each section is ONE table, `| Class | Spell | Row ID | Duration |
+// Also satisfied by |`, sorted by class, with no `### ` headings. Each row needs a table line in its
+// section with the right Class, Duration and "Also satisfied by" cells. "Also satisfied by" must
+// link exactly the other IDs of the row's group, say `none` when the row has no group, or say
+// `<Name> group, below` when a `**<Name> group**` paragraph in the same section links the group's
+// IDs (the row's own ID may be linked there or not).
 //
 // Known limits (static text, not a Lua evaluator): a row or group built at runtime (a loop, a
-// variable holding an ID) cannot be seen. The row's class and verified status are read from its
-// trailing `-- <Class>: <name>` comment, which is a convention, not code.
-//
-// Verified (review WR-06): a row is `unverified` when its trailing comment contains the word
-// "unverified" anywhere, and `yes` otherwise. The rule is kept on purpose, so read it as a contract
-// on the comments: every new row MUST carry "(unverified in game)" until someone checks it in game,
-// and no row comment may use the word for anything else ("was unverified until ..." flips a
-// verified row). Whether a `yes` row really was checked in game (it predates v0.5.6) is not in the
-// code at all, so this check cannot prove it; the human review pass owns that.
+// variable holding an ID) cannot be seen. The row's class is read from its trailing
+// `-- <Class>: <name>` comment, which is a convention, not code. In-game verification is tracked in
+// those comments only, never in the doc, so this check does not read it.
 const fs = require('fs');
 const path = require('path');
 const childProcess = require('child_process');
@@ -322,7 +317,6 @@ function parseCode(text) {
       auraID: null,
       useItems: [],
       cls: null,
-      verified: 'yes',
       line,
     };
     if (args[5]) {
@@ -378,8 +372,6 @@ function parseCode(text) {
       continue;
     }
     row.cls = cm[1];
-    // See the header (WR-06): the word anywhere in the comment makes the row unverified.
-    row.verified = /unverified/i.test(tail) ? 'unverified' : 'yes';
     // A second row for the same ID on an overlapping client appends a second def, and the later
     // one wins at runtime; report that instead of the misleading cell mismatches it would cause.
     const dup = rows.find(r => r.spellID === row.spellID && overlaps(r.client, row.client));
@@ -466,7 +458,7 @@ function codeSets(code) {
 }
 
 // --- doc side ------------------------------------------------------------------------------------
-const SECTION_KEYS = { Forever: 'forever', Retail: 'retail', 'Not included': 'notIncluded' };
+const SECTION_KEYS = { Forever: 'forever', Retail: 'retail' };
 const LINK_RE = /https:\/\/www\.wowhead\.com\/([^\s)\]>"'<]*)/g;
 const PATH_RE = /^(forever\/)?(spell|item)=(\d+)(?:[/#?]\S*)?$/;
 const SEPARATOR_RE = /^\s*\|[\s:|-]*-[\s:|-]*$/;
@@ -477,13 +469,13 @@ function parseDoc(text) {
     headings: [],
     links: { forever: new Map(), retail: new Map() },
     rows: { forever: new Map(), retail: new Map() },
-    // `<class>|<name>` -> { links: Set of keys, ln } for each "**<name> group**" paragraph.
+    // `<name>` -> { links: Set of keys, ln } for each "**<name> group**" paragraph.
     groupParas: { forever: new Map(), retail: new Map() },
-    notIncludedLinks: [],
     problems: [],
   };
+  const tables = { forever: 0, retail: 0 };
+  const lastCls = { forever: null, retail: null };
   let section = null;
-  let cls = null;
   let para = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -492,14 +484,11 @@ function parseDoc(text) {
     if (h2) {
       doc.headings.push(h2[1]);
       section = SECTION_KEYS[h2[1]] || 'other';
-      cls = null;
       para = null;
       continue;
     }
-    const h3 = line.match(/^### (.*?)\s*$/);
-    if (h3) {
-      cls = h3[1];
-      para = null;
+    if (/^###/.test(line) && (section === 'forever' || section === 'retail')) {
+      doc.problems.push(`docs line ${ln}: no "###" headings in ${CLIENT_LABEL[section]}; the class is a table column`);
       continue;
     }
     if (line.trim() === '') {
@@ -508,12 +497,11 @@ function parseDoc(text) {
     }
     const gp = line.match(/^\*\*(.+?) group\*\*/);
     if (gp && (section === 'forever' || section === 'retail')) {
-      const pkey = `${cls}|${gp[1]}`;
-      if (doc.groupParas[section].has(pkey)) {
-        doc.problems.push(`docs line ${ln}: "${gp[1]} group" paragraph twice under ### ${cls}`);
+      if (doc.groupParas[section].has(gp[1])) {
+        doc.problems.push(`docs line ${ln}: "${gp[1]} group" paragraph twice in ${CLIENT_LABEL[section]}`);
       }
       para = { links: new Set(), ln };
-      doc.groupParas[section].set(pkey, para);
+      doc.groupParas[section].set(gp[1], para);
     }
 
     let m;
@@ -531,12 +519,8 @@ function parseDoc(text) {
       }
       const isForeverPath = pm[1] !== undefined;
       const key = `${pm[2]}:${pm[3]}`;
-      if (section === 'notIncluded') {
-        doc.notIncludedLinks.push({ kind: pm[2], id: Number(pm[3]), ln });
-        continue;
-      }
       if (section === 'other') {
-        doc.problems.push(`docs line ${ln}: link outside Forever, Retail and Not included: ${url}`);
+        doc.problems.push(`docs line ${ln}: link outside Forever and Retail: ${url}`);
         continue;
       }
       if (section === 'forever' && !isForeverPath) {
@@ -553,21 +537,35 @@ function parseDoc(text) {
     }
 
     if (/^\s*\|/.test(line) && (section === 'forever' || section === 'retail')) {
-      if (SEPARATOR_RE.test(line) || SEPARATOR_RE.test(lines[i + 1] || '')) {
-        continue; // the separator, or the header line above it
+      if (SEPARATOR_RE.test(line)) {
+        tables[section]++;
+        if (tables[section] === 2) {
+          doc.problems.push(`docs line ${ln}: a second table in ${CLIENT_LABEL[section]}; keep one table per section`);
+        }
+        continue;
+      }
+      if (SEPARATOR_RE.test(lines[i + 1] || '')) {
+        continue; // the header line above the separator
       }
       const trimmed = line.trim();
       const cells = trimmed.split('|').slice(1, trimmed.endsWith('|') ? -1 : undefined).map(c => c.trim());
-      if (!/^\d+$/.test(cells[1] || '')) {
-        doc.problems.push(`docs line ${ln}: the second cell must be the Row ID, got "${cells[1] || ''}"`);
+      if (!/^\d+$/.test(cells[2] || '')) {
+        doc.problems.push(`docs line ${ln}: the third cell must be the Row ID, got "${cells[2] || ''}"`);
         continue;
       }
-      const id = Number(cells[1]);
+      const id = Number(cells[2]);
       if (doc.rows[section].has(id)) {
         doc.problems.push(`docs line ${ln}: Row ID ${id} listed twice in ${CLIENT_LABEL[section]}`);
         continue;
       }
-      const altCell = cells[3] || '';
+      const rowCls = cells[0];
+      if (lastCls[section] !== null && rowCls.localeCompare(lastCls[section], 'en') < 0) {
+        doc.problems.push(
+          `docs line ${ln}: class "${rowCls}" after "${lastCls[section]}"; sort the ${CLIENT_LABEL[section]} table by class`
+        );
+      }
+      lastCls[section] = rowCls;
+      const altCell = cells[4] || '';
       const altLinks = new Set();
       for (const am of altCell.matchAll(LINK_RE)) {
         const pm = am[1].match(PATH_RE);
@@ -576,12 +574,11 @@ function parseDoc(text) {
         }
       }
       doc.rows[section].set(id, {
-        cls,
-        spellCell: cells[0],
-        duration: cells[2],
+        cls: rowCls,
+        spellCell: cells[1],
+        duration: cells[3],
         altCell,
         altLinks,
-        verified: cells[cells.length - 1],
         ln,
       });
     }
@@ -590,9 +587,6 @@ function parseDoc(text) {
     if (!doc.headings.includes(name)) {
       doc.problems.push(`docs: missing "## ${name}" heading`);
     }
-  }
-  if (doc.headings.includes('Not included') && doc.headings[doc.headings.length - 1] !== 'Not included') {
-    doc.problems.push('docs: "## Not included" must be the last "## " section');
   }
   return doc;
 }
@@ -611,9 +605,9 @@ function alternativesProblem(r, d, groupOf, groupParas) {
   let got;
   const ref = d.altCell.match(/^(.+) group, below$/);
   if (ref) {
-    const para = groupParas.get(`${d.cls}|${ref[1]}`);
+    const para = groupParas.get(ref[1]);
     if (!para) {
-      return `names the "${ref[1]} group", but no "**${ref[1]} group**" paragraph follows under ### ${d.cls}`;
+      return `names the "${ref[1]} group", but no "**${ref[1]} group**" paragraph is in the section`;
     }
     got = new Set([...para.links].filter(k => k !== `spell:${r.spellID}`));
   } else if (d.altCell === 'none') {
@@ -649,12 +643,6 @@ function compare(code, doc) {
     }
   }
 
-  for (const link of doc.notIncludedLinks) {
-    if (link.kind === 'spell' && code.rows.some(r => r.spellID === link.id)) {
-      problems.push(`row ${link.id} listed as not included (docs line ${link.ln})`);
-    }
-  }
-
   // Each row's table line, in each section of its client.
   for (const c of CLIENTS) {
     const label = CLIENT_LABEL[c];
@@ -665,7 +653,7 @@ function compare(code, doc) {
         continue;
       }
       if (d.cls !== r.cls) {
-        problems.push(`row ${r.spellID} (docs line ${d.ln}) sits under "### ${d.cls}", expected "### ${r.cls}"`);
+        problems.push(`row ${r.spellID} (docs line ${d.ln}): Class "${d.cls}", expected "${r.cls}"`);
       }
       if (!new RegExp(`wowhead\\.com/(?:forever/)?spell=${r.spellID}(?!\\d)`).test(d.spellCell)) {
         problems.push(`row ${r.spellID} (docs line ${d.ln}): the Spell cell does not link ${r.spellID}`);
@@ -673,9 +661,6 @@ function compare(code, doc) {
       const duration = r.minutes === 0 ? 'permanent' : `${r.minutes} min`;
       if (d.duration !== duration) {
         problems.push(`row ${r.spellID} (docs line ${d.ln}): Duration "${d.duration}", expected "${duration}"`);
-      }
-      if (d.verified !== r.verified) {
-        problems.push(`row ${r.spellID} (docs line ${d.ln}): Verified "${d.verified}", expected "${r.verified}"`);
       }
       const altProblem = alternativesProblem(r, d, sets.groupOf[c], doc.groupParas[c]);
       if (altProblem) {
@@ -770,7 +755,7 @@ const LUA_FIXTURE = [
   'MetaReminderRow(1459, 60, nil, nil, nil, { client = "both" }) -- Mage: Arcane Intellect',
   'MetaReminderRow(7301, 30) -- Mage: Frost Armor (unverified in game)',
   'MetaReminderRow(1302303, 60, 1296017, nil, false, { useItems = { { 277493, 25 }, { 277483, 16 }, { 275069, 5 } } }) -- Mage: Familiar scroll; loads when 1296017 is known (unverified in game)',
-  'MetaReminderRow(15473, 0) -- Priest: Shadowform (unverified in game)',
+  'MetaReminderRow(10952, 10) -- Priest: Inner Fire (unverified in game)',
   'MetaReminderRow(10170, 10) -- Mage: Amplify Magic (unverified in game)',
   'MetaReminderRow(10174, 10) -- Mage: Dampen Magic (unverified in game)',
   '-- MetaReminderRow(1038, 60) -- Paladin: Blessing of Salvation',
@@ -800,52 +785,30 @@ const DOC_FIXTURE = [
   '',
   '## Forever',
   '',
-  '### Mage',
-  '',
-  '| Spell | Row ID | Duration | Also satisfied by | Verified in game |',
+  '| Class | Spell | Row ID | Duration | Also satisfied by |',
   '|---|---|---|---|---|',
-  `| [Arcane Intellect](${W}forever/spell=1459) | 1459 | 60 min | [1460](${W}forever/spell=1460), [23028](${W}forever/spell=23028) | yes |`,
-  `| [Frost Armor](${W}forever/spell=7301) | 7301 | 30 min | [10220](${W}forever/spell=10220), [22783](${W}forever/spell=22783) | unverified |`,
-  `| [Familiar](${W}forever/spell=1302303): [Cat](${W}forever/item=277493), [Frog](${W}forever/item=277483), [Rat](${W}forever/item=275069) | 1302303 | 60 min | [1302285](${W}forever/spell=1302285) | unverified |`,
-  `| [Amplify Magic](${W}forever/spell=10170) | 10170 | 10 min | Amplify and Dampen group, below | unverified |`,
-  `| [Dampen Magic](${W}forever/spell=10174) | 10174 | 10 min | Amplify and Dampen group, below | unverified |`,
+  `| Mage | [Arcane Intellect](${W}forever/spell=1459) | 1459 | 60 min | [1460](${W}forever/spell=1460), [23028](${W}forever/spell=23028) |`,
+  `| Mage | [Frost Armor](${W}forever/spell=7301) | 7301 | 30 min | [10220](${W}forever/spell=10220), [22783](${W}forever/spell=22783) |`,
+  `| Mage | [Familiar](${W}forever/spell=1302303): [Cat](${W}forever/item=277493), [Frog](${W}forever/item=277483), [Rat](${W}forever/item=275069) | 1302303 | 60 min | [1302285](${W}forever/spell=1302285) |`,
+  `| Mage | [Amplify Magic](${W}forever/spell=10170) | 10170 | 10 min | Amplify and Dampen group, below |`,
+  `| Mage | [Dampen Magic](${W}forever/spell=10174) | 10174 | 10 min | Amplify and Dampen group, below |`,
+  `| Priest | [Inner Fire](${W}forever/spell=10952) | 10952 | 10 min | none |`,
   '',
   `**Amplify and Dampen group** (any one up hides both): [10170](${W}forever/spell=10170),`,
   `[10174](${W}forever/spell=10174), [1008](${W}forever/spell=1008).`,
   '',
-  '### Priest',
-  '',
-  '| Spell | Row ID | Duration | Also satisfied by | Verified in game |',
-  '|---|---|---|---|---|',
-  `| [Shadowform](${W}forever/spell=15473) | 15473 | permanent | none | unverified |`,
-  '',
   '## Retail',
   '',
-  '### Mage',
-  '',
-  '| Spell | Row ID | Duration | Also satisfied by | Verified in game |',
+  '| Class | Spell | Row ID | Duration | Also satisfied by |',
   '|---|---|---|---|---|',
-  `| [Arcane Intellect](${W}spell=1459) | 1459 | 60 min | none | yes |`,
-  '',
-  '### Druid',
-  '',
-  '| Spell | Row ID | Duration | Also satisfied by | Verified in game |',
-  '|---|---|---|---|---|',
-  `| [Symbiotic Relationship](${W}spell=474750) (watches aura [474754](${W}spell=474754)) | 474750 | 60 min | none | yes |`,
-  '',
-  '### Paladin',
-  '',
-  '| Spell | Row ID | Duration | Also satisfied by | Verified in game |',
-  '|---|---|---|---|---|',
-  `| [Devotion Aura](${W}spell=465) | 465 | permanent | [317920](${W}spell=317920), [32223](${W}spell=32223) | yes |`,
-  '',
-  '## Not included',
-  '',
-  '| Class | Candidate | Reason |',
-  '|---|---|---|',
-  `| Mage | [Molten Armor](${W}forever/spell=30482) | Not learnable on Forever. |`,
+  `| Druid | [Symbiotic Relationship](${W}spell=474750) (watches aura [474754](${W}spell=474754)) | 474750 | 60 min | none |`,
+  `| Mage | [Arcane Intellect](${W}spell=1459) | 1459 | 60 min | none |`,
+  `| Paladin | [Devotion Aura](${W}spell=465) | 465 | permanent | [317920](${W}spell=317920), [32223](${W}spell=32223) |`,
   '',
 ].join('\n');
+
+const INNER_FIRE_LINE = `| Priest | [Inner Fire](${W}forever/spell=10952) | 10952 | 10 min | none |`;
+const TABLE_HEAD = '| Class | Spell | Row ID | Duration | Also satisfied by |\n|---|---|---|---|---|\n';
 
 function selftest() {
   let failures = 0;
@@ -955,9 +918,9 @@ function selftest() {
     expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'spell=32223');
   });
 
-  runCase('/classic/ link -> one problem, even under Not included', expect => {
-    const doc = edit(DOC_FIXTURE, `${W}forever/spell=30482`, `${W}classic/spell=30482`);
-    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'classic/spell=30482');
+  runCase('/classic/ link -> a problem', expect => {
+    const doc = edit(DOC_FIXTURE, `${W}forever/spell=1460`, `${W}classic/spell=1460`);
+    expectSome(expect, check(LUA_FIXTURE, doc), 'classic/spell=1460');
   });
 
   runCase('useItems ID linked as spell= -> a problem', expect => {
@@ -965,14 +928,9 @@ function selftest() {
     expectSome(expect, check(LUA_FIXTURE, doc), 'item:277483');
   });
 
-  runCase('Not included link to a non-row ID -> ignored', expect => {
-    const doc = edit(DOC_FIXTURE, 'Not learnable on Forever. |', `Not learnable on Forever; see [12345](${W}forever/spell=12345). |`);
-    expectProblems(expect, check(LUA_FIXTURE, doc), 0);
-  });
-
-  runCase('Not included link to a row ID -> a problem', expect => {
-    const doc = edit(DOC_FIXTURE, 'Not learnable on Forever. |', `Not learnable; [x](${W}forever/spell=7301). |`);
-    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 7301 listed as not included');
+  runCase('link under another "## " section -> one problem', expect => {
+    const doc = DOC_FIXTURE + `## Notes\n\nSee [x](${W}forever/spell=12345).\n`;
+    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'outside Forever and Retail');
   });
 
   runCase('link in the intro -> a problem', expect => {
@@ -980,15 +938,27 @@ function selftest() {
     expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'before the first');
   });
 
-  for (const heading of ['Forever', 'Retail', 'Not included']) {
+  for (const heading of ['Forever', 'Retail']) {
     runCase(`missing "## ${heading}" -> a problem`, expect => {
       const doc = edit(DOC_FIXTURE, `## ${heading}\n`, `## Renamed ${heading}\n`);
       expectSome(expect, check(LUA_FIXTURE, doc), `missing "## ${heading}"`);
     });
   }
 
-  runCase('"## Not included" not last -> a problem', expect => {
-    expectSome(expect, check(LUA_FIXTURE, DOC_FIXTURE + '## Notes\n\nMore.\n'), 'must be the last');
+  runCase('"###" heading in a section -> one problem', expect => {
+    const doc = edit(DOC_FIXTURE, '## Retail\n', '## Retail\n\n### Druid\n');
+    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'no "###" headings in Retail');
+  });
+
+  runCase('second table in a section -> one problem', expect => {
+    const doc = edit(DOC_FIXTURE, '\n## Retail', `\n${TABLE_HEAD}\n## Retail`);
+    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'second table in Forever');
+  });
+
+  runCase('table not sorted by class -> one problem', expect => {
+    let doc = edit(DOC_FIXTURE, `${INNER_FIRE_LINE}\n`, '');
+    doc = edit(doc, TABLE_HEAD, `${TABLE_HEAD}${INNER_FIRE_LINE}\n`);
+    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'sort the Forever table by class');
   });
 
   runCase('wrong Duration cell -> one problem', expect => {
@@ -1001,42 +971,36 @@ function selftest() {
     expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 465', 'Duration');
   });
 
-  runCase('wrong Verified cell -> one problem', expect => {
-    const doc = edit(DOC_FIXTURE, '| 15473 | permanent | none | unverified |', '| 15473 | permanent | none | yes |');
-    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 15473', 'Verified');
-  });
-
-  runCase('row under the wrong ### class -> one problem', expect => {
-    const doc = edit(DOC_FIXTURE, '### Priest', '### Warlock');
-    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 15473', 'Priest');
+  runCase('wrong Class cell -> one problem', expect => {
+    const doc = edit(DOC_FIXTURE, '| Priest | [Inner Fire]', '| Warlock | [Inner Fire]');
+    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 10952', 'Class "Warlock", expected "Priest"');
   });
 
   runCase('Spell cell not linking the row ID -> one problem', expect => {
     const doc = edit(
       DOC_FIXTURE,
-      `| [Shadowform](${W}forever/spell=15473) | 15473 | permanent | none | unverified |`,
-      `| Shadowform | 15473 | permanent | none | unverified |\n\nShadowform is [15473](${W}forever/spell=15473).`
+      INNER_FIRE_LINE,
+      `| Priest | Inner Fire | 10952 | 10 min | none |\n\nInner Fire is [10952](${W}forever/spell=10952).`
     );
-    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 15473', 'Spell cell');
+    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 10952', 'Spell cell');
   });
 
   runCase('row with no table line in a section of its client -> a problem', expect => {
-    const doc = edit(DOC_FIXTURE, `| [Arcane Intellect](${W}spell=1459) | 1459 | 60 min | none | yes |\n`, '');
+    const doc = edit(DOC_FIXTURE, `| Mage | [Arcane Intellect](${W}spell=1459) | 1459 | 60 min | none |\n`, '');
     expectSome(expect, check(LUA_FIXTURE, doc), 'row 1459', 'no table line in Retail');
   });
 
   runCase('table line for a row of another client -> a problem', expect => {
     const doc = edit(
       DOC_FIXTURE,
-      `| [Shadowform](${W}forever/spell=15473)`,
-      `| [Devotion Aura](${W}forever/spell=465) | 465 | permanent | none | yes |\n| [Shadowform](${W}forever/spell=15473)`
+      INNER_FIRE_LINE,
+      `| Paladin | [Devotion Aura](${W}forever/spell=465) | 465 | permanent | none |\n${INNER_FIRE_LINE}`
     );
     expectSome(expect, check(LUA_FIXTURE, doc), 'Row ID 465 is not a Forever row');
   });
 
   runCase('Row ID twice in one section -> a problem', expect => {
-    const line = `| [Shadowform](${W}forever/spell=15473) | 15473 | permanent | none | unverified |`;
-    const doc = edit(DOC_FIXTURE, line, `${line}\n${line}`);
+    const doc = edit(DOC_FIXTURE, INNER_FIRE_LINE, `${INNER_FIRE_LINE}\n${INNER_FIRE_LINE}`);
     expectSome(expect, check(LUA_FIXTURE, doc), 'twice');
   });
 
@@ -1046,8 +1010,8 @@ function selftest() {
   });
 
   runCase('row with no class comment -> a problem', expect => {
-    const lua = edit(LUA_FIXTURE, 'MetaReminderRow(15473, 0) -- Priest: Shadowform (unverified in game)', 'MetaReminderRow(15473, 0)');
-    expectSome(expect, check(lua, DOC_FIXTURE), 'row 15473', 'comment');
+    const lua = edit(LUA_FIXTURE, 'MetaReminderRow(10952, 10) -- Priest: Inner Fire (unverified in game)', 'MetaReminderRow(10952, 10)');
+    expectSome(expect, check(lua, DOC_FIXTURE), 'row 10952', 'comment');
   });
 
   runCase('unknown client value -> a problem', expect => {
@@ -1084,8 +1048,8 @@ function selftest() {
   });
 
   runCase('empty alternatives cell -> one problem', expect => {
-    const doc = edit(DOC_FIXTURE, '| 15473 | permanent | none |', '| 15473 | permanent |  |');
-    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 15473', 'write none');
+    const doc = edit(DOC_FIXTURE, '| 10952 | 10 min | none |', '| 10952 | 10 min |  |');
+    expectProblems(expect, check(LUA_FIXTURE, doc), 1, 'row 10952', 'write none');
   });
 
   // WR-03: gating the check cannot classify fails loudly.
@@ -1144,9 +1108,9 @@ function selftest() {
 
   // WR-07: duplicate rows.
   runCase('second row for the same ID and client -> one "duplicates" problem', expect => {
-    const row = 'MetaReminderRow(15473, 0) -- Priest: Shadowform (unverified in game)';
-    const lua = edit(LUA_FIXTURE, row, `${row}\r\nMetaReminderRow(15473, 60) -- Priest: Shadowform (unverified in game)`);
-    expectProblems(expect, check(lua, DOC_FIXTURE), 1, 'row 15473', 'duplicates');
+    const row = 'MetaReminderRow(10952, 10) -- Priest: Inner Fire (unverified in game)';
+    const lua = edit(LUA_FIXTURE, row, `${row}\r\nMetaReminderRow(10952, 60) -- Priest: Inner Fire (unverified in game)`);
+    expectProblems(expect, check(lua, DOC_FIXTURE), 1, 'row 10952', 'duplicates');
   });
 
   runCase('retail row for a "both" row\'s ID -> one "duplicates" problem', expect => {

@@ -78,7 +78,8 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 - [x] **MREM-08**: Warlock: Demon Armor (11735) and Demon Skin (696), 30 min each, grouped.
 - [x] **MREM-09**: Shaman: Lightning Shield (10432) and Water Shield (408510), 10 min each, grouped.
 - [x] **MREM-10**: Priest: Inner Fire (10952, 10 min) and Shadowform (15473, permanent: no timer,
-  shown once the aura is gone).
+  shown once the aura is gone). Shadowform dropped by the user in Phase 85 (2026-11-09): a form,
+  not a reminder.
 - [x] **MREM-11**: Paladin: one "any aura" reminder named Devotion Aura (10293, never 465),
   permanent; Retribution, Concentration and the three resistance auras satisfy it.
 - [x] **MREM-12**: Hunter: one "any aspect" reminder named Aspect of the Hawk (25296), permanent;
@@ -103,6 +104,9 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
   new: class, spell, ID, duration, group and alternatives, client, and verified-in-game status, each
   with a Wowhead link (`/forever/` for Forever, the retail path for retail). It also lists the
   candidates left out, each with a reason. It is not shipped (`.pkgmeta` ignores it).
+  Revised in Phase 85 (user, 2026-11-09): one table per client section with a Class column, sorted
+  by class; the verified column and the Not included table moved to the internal
+  `.planning/research/REMINDERS-NOT-INCLUDED.md`.
 - [x] **DOC-07**: Every ID in `docs/REMINDERS.md` matches a row or alternative in `Providers.lua`,
   and the reverse, checked at the end of the milestone; the reminder table's comment points at the
   doc so a later row change updates it too.
@@ -111,7 +115,8 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 
 - [x] **CLEAN-01**: Cleanup per CLAUDE.md: unused code and duplication this milestone introduced,
   hot paths the new rows and groups touch, `stylua .`, and the release scripts.
-- [ ] **VER-15**: The user checks on Forever: every mage row and the armor group (each armor's ID
+- [x] **VER-15** (closed 2026-11-09: the mage armors and the familiar click verified in game; the
+  user ships the other rows on community feedback): The user checks on Forever: every mage row and the armor group (each armor's ID
   tooltip, and that one armor up hides the others), the familiar reminder (each tier's buff ID, the
   click using the highest scroll in the bags, whether a new tier replaces a lower one, and whether it
   stacks with Arcane Intellect), a group buff hiding its single-target reminder
@@ -163,6 +168,6 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 | DOC-06 | Phase 83 | Complete |
 | DOC-07 | Phase 83 | Complete |
 | CLEAN-01 | Phase 84 | Complete |
-| VER-15 | Phase 85 | Pending |
+| VER-15 | Phase 85 | Complete |
 
 **Coverage:** 22/22 v0.5.6 requirements mapped, no orphans, no duplicates (roadmap created 2026-11-09).

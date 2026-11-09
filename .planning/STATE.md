@@ -4,13 +4,13 @@ milestone: v0.5.6
 milestone_name: "More Forever Reminders"
 status: verifying
 last_updated: "2026-11-09"
-last_activity: 2026-11-09 — Phases 80-84 complete; Phase 85 (Forever testing by the user) next
+last_activity: 2026-11-09 — Phase 85 closed; changelog draft waits on the user before the merge
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 5
   completed_plans: 5
-  percent: 83
+  percent: 100
 ---
 
 # Project State
@@ -24,12 +24,13 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 85 — Forever Testing Pass (waiting on the user)
-Plan: none (testing pass); checklist `.planning/phases/85-forever-testing-pass/85-TEST-CHECKLIST.md`
-Status: Phases 80-84 complete and verified by code trace; build deployed with install.bat
-Last activity: 2026-11-09 — autonomous run 80-84 finished
+Phase: 85 — Forever Testing Pass (complete)
+Plan: none; see `.planning/phases/85-forever-testing-pass/85-SUMMARY.md`
+Status: All phases complete. Mage armors and familiar verified in game; the rest ships on feedback.
+Next: the user edits the v0.5.6 CHANGELOG draft, then audit → complete milestone → squash-merge → cleanup
+Last activity: 2026-11-09 — Phase 85 review changes (Shadowform dropped, doc restructured)
 
-Progress: [████████░░] 83% (5/6 phases)
+Progress: [██████████] 100% (6/6 phases)
 
 - Branch: `milestone/v0.5.6-more-forever-reminders`, cut from `main` (`21c018d`) on 2026-11-09.
 - Phases start at **80** (v0.5.4 ended at Phase 79; v0.5.5 used no phase; numbering never restarts).
