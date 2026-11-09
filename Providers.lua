@@ -1121,7 +1121,10 @@ local metaReminderDefsBySpellID = {}
 -- Suggested offer ask (the buff itself unless named); petBook adds the pet spellbook to the
 -- row's rank family; castID is the spell a click casts (nil = the row's own spellID, false = none).
 -- opts is nil or a load-time table: client ("forever", "retail" or "both"; nil = "forever"), auraID
--- (nil = the aura is the spell ID) and allyCast (true = a click does not force the player as unit).
+-- (nil = the aura is the spell ID) and allyCast (true = a click does not force the player as unit),
+-- and useItems: an ordered list of { itemID, minLevel } pairs, highest tier first and never sorted,
+-- that a click on the reminder picks from (the first one in the bags the player's level allows,
+-- CLICK-07); nil for every other row.
 -- This is the ONE point where a row is kept off a client: an unregistered row is neither offered
 -- nor loaded (an already-placed entry for it is an orphan via ns:IsOrphanMetaReminder). Existing
 -- Forever rows need no argument because nil means forever.
@@ -1134,6 +1137,7 @@ local function MetaReminderRow(spellID, minutes, knownID, petBook, castID, opts)
 	local def = {
 		auraID = opts and opts.auraID or nil,
 		allyCast = opts ~= nil and opts.allyCast == true,
+		useItems = opts and opts.useItems or nil,
 		spellID = spellID,
 		duration = minutes > 0 and minutes * 60 or nil,
 		knownID = knownID or spellID,
@@ -1166,6 +1170,9 @@ end
 
 MetaReminderRow(1459, 60, nil, nil, nil, { client = "both" }) -- Mage: Arcane Intellect, same ID and duration on Forever and retail
 MetaReminderRow(7301, 30) -- Mage: Frost Armor
+MetaReminderRow(10220, 30) -- Mage: Ice Armor (unverified in game)
+MetaReminderRow(22783, 30) -- Mage: Mage Armor (unverified in game)
+MetaReminderRow(1302303, 60, 1296017, nil, false, { useItems = { { 277493, 25 }, { 277483, 16 }, { 275069, 5 } } }) -- Mage: Familiar scroll; keyed on the Cat aura 1302303; any tier (Cat 1302303, Frog 1302285, Rat 1296202) satisfies it; loads when Comprehend Scroll 1296017 is known (no familiar is a known spell); no cast spell, a click uses the best usable scroll in the bags (CLICK-07) (unverified in game)
 MetaReminderRow(10938, 60) -- Priest: Power Word: Fortitude (unverified in game)
 MetaReminderRow(27841, 60) -- Priest: Divine Spirit (top vanilla rank; ranks 14752, 14818, 14819 resolve through the rank family by name; Discipline talent, so the row is offered only to a priest who knows a rank; 60 min per the user, unverified in game)
 MetaReminderRow(9885, 60) -- Druid: Mark of the Wild (unverified in game)
@@ -1247,6 +1254,14 @@ if ns.CLIENT_IS_FOREVER then
 		25894,
 		25918
 	)
+	-- The mage armors (MREM-07): Frost, Ice and Mage Armor are mutual alternatives, the game allows
+	-- one armor at a time; the rank family covers each armor's lower ranks (they are self-only).
+	-- Molten Armor is not learnable on Forever.
+	MetaReminderGroup(7301, 10220, 22783)
+	-- The familiar (MREM-18): any tier (Cat, Frog, Rat) hides the familiar reminder; 1302285 and
+	-- 1296202 have no row, so they are one-way alternatives. Not grouped with Arcane Intellect or
+	-- the armors.
+	MetaReminderGroup(1302303, 1302285, 1296202)
 end
 
 -- The table row for a class-buff spell ID, or nil. One map read.
@@ -1295,6 +1310,17 @@ function ns:ReminderCastID(entry)
 		return nil
 	end
 	return id
+end
+
+-- The ordered { itemID, minLevel } list a click on a reminder picks an item from (CLICK-07), or
+-- nil. Only a built-in row carries one (the familiar scrolls). Called by ReminderClick.lua's Flush;
+-- one map read, no allocation.
+function ns:ReminderUseItems(entry)
+	if entry.trackerType ~= ns.KIND.META_REMINDER then
+		return nil
+	end
+	local def = metaReminderDefsBySpellID[entry.spellID]
+	return def and def.useItems or nil
 end
 
 -- Whether a click on a reminder should force the player as the cast unit: nil for the ally-cast
