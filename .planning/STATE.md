@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v0.5.6
 milestone_name: "More Forever Reminders"
-status: planning
+status: executing
 last_updated: "2026-11-09"
-last_activity: 2026-11-09 — Roadmap created (Phases 80-85)
+last_activity: 2026-11-09 — Phase 80 plan 01 executed (Forever group block)
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 1
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 80 — Forever Group Block, Group Buffs and Rank Coverage (next; not started)
-Plan: —
-Status: Ready to plan (roadmap created: Phases 80-85, 22/22 requirements mapped)
-Last activity: 2026-11-09 — Roadmap created
+Phase: 80 — Forever Group Block, Group Buffs and Rank Coverage (plan executed; awaiting phase verification)
+Plan: 80-01 complete (1/1) — commits e884fd8, 9992176; gate `80-check-groups.js --exact` passes
+Status: Executing (roadmap: Phases 80-85, 22/22 requirements mapped)
+Last activity: 2026-11-09 — 80-01 executed: Salvation/Light retired, Forever group block with nine §12.3 calls
 
 Progress: [░░░░░░░░░░] 0% (0/6 phases)
 

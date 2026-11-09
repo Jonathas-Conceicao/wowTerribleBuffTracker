@@ -27,19 +27,19 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 
 ### Group gating and alternatives
 
-- [ ] **RALT-04**: Every v0.5.6 group call is Forever-only. The calls sit in one
+- [x] **RALT-04**: Every v0.5.6 group call is Forever-only. The calls sit in one
   `if ns.CLIENT_IS_FOREVER then … end` block, and `MetaReminderGroup` itself is unchanged. On retail
   no retail or `both` row gains an alternative from a Forever group. That covers 21562, 1459, 1126,
   6673 and 465, which are both Forever ranks and retail row IDs.
-- [ ] **RALT-05**: On Forever, a group buff on the player satisfies its single-target reminder:
+- [x] **RALT-05**: On Forever, a group buff on the player satisfies its single-target reminder:
   Arcane Brilliance (23028) for Arcane Intellect; Prayer of Fortitude (21562, 21564) for Power Word:
   Fortitude; Prayer of Spirit (27681) for Divine Spirit; Gift of the Wild (21849, 21850) for Mark of
   the Wild. Every rank is listed, because another player's cast is not in the player's spellbook.
-- [ ] **RALT-06**: On Forever, Greater Blessing of Kings (25898), Might (25782, 25916) and Wisdom
+- [x] **RALT-06**: On Forever, Greater Blessing of Kings (25898), Might (25782, 25916) and Wisdom
   (25894, 25918) join the existing blessings group, so any blessing or Greater Blessing satisfies
   every blessing reminder.
 
-- [ ] **RALT-07**: Every rank of a buff satisfies its reminder (user, 2026-11-09), including a
+- [x] **RALT-07**: Every rank of a buff satisfies its reminder (user, 2026-11-09), including a
   rank the player does not know. Examples: another player's higher-rank Fortitude or blessing, or a
   low-level character holding a higher rank. Where TBT's rank family cannot reach a rank (it only
   joins ranks in the player's own spellbook), that rank's Forever ID is listed as an alternative.
@@ -50,7 +50,7 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 
 ### Removed blessings
 
-- [ ] **MREM-06**: Blessing of Salvation (1038) and Blessing of Light (19979) are no longer offered;
+- [x] **MREM-06**: Blessing of Salvation (1038) and Blessing of Light (19979) are no longer offered;
   a placed one becomes an orphan (greyed, "no longer offered", no data deleted), as Sanctuary did.
   An internal note in `Providers.lua` records Salvation, Light and the Forever-only Revoker blessing
   as removed from Forever, so they can be restored if Blizzard brings them back. They are not in
@@ -142,11 +142,11 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RALT-04 | Phase 80 | Pending |
-| RALT-05 | Phase 80 | Pending |
-| RALT-06 | Phase 80 | Pending |
-| RALT-07 | Phase 80 | Pending |
-| MREM-06 | Phase 80 | Pending |
+| RALT-04 | Phase 80 | Complete |
+| RALT-05 | Phase 80 | Complete |
+| RALT-06 | Phase 80 | Complete |
+| RALT-07 | Phase 80 | Complete |
+| MREM-06 | Phase 80 | Complete |
 | MREM-07 | Phase 81 | Pending |
 | MREM-18 | Phase 81 | Pending |
 | CLICK-07 | Phase 81 | Pending |
