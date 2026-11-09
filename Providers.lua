@@ -1073,11 +1073,14 @@ local MetaSkillLustProvider = CreateFromMixins(SpellProviderBaseMixin, MetaSkill
 -- reference on the code"). The aura ID is the row's auraID, else its spell ID (Phase 64: 474750
 -- watches 474754, 364342 watches 381748); the user verifies each in game with TBT's ID tooltip.
 --
--- Deliberately NOT here (user decisions 2026-09-29):
---   - group versions (Arcane Brilliance, Prayer of Fortitude, Gift of the Wild, the Greater
---     Blessings) do not count as the buff being present, for now;
---   - the shaman totems Strength of Earth (25361) and Windfury (10609) are left out because their
---     auras have different IDs from the casts.
+-- Deliberately NOT here (user decision 2026-09-29): the shaman totems Strength of Earth (25361)
+-- and Windfury (10609) are left out because their auras have different IDs from the casts.
+--
+-- Group versions count (user, 2026-11-09, RALT-05/06): the 2026-09-29 decision that group versions
+-- do not count was reversed. On Forever, Arcane Brilliance, Prayer of Fortitude, Prayer of Spirit,
+-- Gift of the Wild and the Greater Blessings now count as the buff being present, and every rank
+-- another player can apply is listed too (RALT-07), as alternatives in the Forever block after the
+-- rows. IDs are from research §12.3 (.planning/research/FOREVER-REMINDERS.md).
 --
 -- On Forever every rank the character knows counts, through the rank family (ns:ResolveRankFamily;
 -- a metaReminder is rank-covering wherever ns.CLIENT_HAS_SPELL_RANKS). Retail has no ranks, so a
@@ -1093,10 +1096,18 @@ local MetaSkillLustProvider = CreateFromMixins(SpellProviderBaseMixin, MetaSkill
 -- exists on Forever. A placed one is an orphan per the WR-02 rule below -- greyed, "no longer
 -- offered", with no data deleted.
 --
+-- Blessing of Salvation (1038; Greater Blessing of Salvation 25895) and Blessing of Light (19979;
+-- Greater Blessing of Light 25890) were removed on 2026-11-09 (Phase 80, MREM-06): they no longer
+-- exist on Forever. Revoker, a blessing that existed only on Forever for a while (no spell ID
+-- recorded), is gone as well. A placed 1038 or 19979 is an orphan per the WR-02 rule below --
+-- greyed, "no longer offered", with no data deleted. This note exists so they can be restored if
+-- Blizzard brings them back; they are deliberately kept out of the public reminders doc.
+--
 -- Alternatives (RALT-03, Phase 57.5): a MetaReminderGroup after the rows makes its members list
 -- each other as alternatives ("Also satisfied by", RALT-01), so any one member present or cast
 -- satisfies every member's reminder. ns:ApplyMetaReminderDef applies them from here; user input
--- never reaches a built-in's alternatives.
+-- never reaches a built-in's alternatives. The v0.5.6 group calls are Forever-only and live in one
+-- `if ns.CLIENT_IS_FOREVER then ... end` block after the rows (RALT-04).
 --
 -- This table is a metaReminder's one source of truth: ns:ApplyMetaReminderDef rewrites the entry's
 -- derived fields from it at every ns:RebuildCastIndex, so a changed row needs no migration.
@@ -1165,8 +1176,6 @@ MetaReminderRow(11767, 0, 688, true, false) -- Warlock: Blood Pact (the imp's; l
 MetaReminderRow(20217, 60) -- Paladin: Blessing of Kings
 MetaReminderRow(25291, 60) -- Paladin: Blessing of Might
 MetaReminderRow(25290, 60) -- Paladin: Blessing of Wisdom
-MetaReminderRow(1038, 60) -- Paladin: Blessing of Salvation
-MetaReminderRow(19979, 60) -- Paladin: Blessing of Light
 MetaReminderRow(25780, 30) -- Paladin: Righteous Fury (aura ID = spell ID, unverified)
 
 -- RALT-03: the five blessings satisfy each other -- a paladin holds one own blessing per target.
