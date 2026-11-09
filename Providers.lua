@@ -1119,6 +1119,10 @@ local MetaSkillLustProvider = CreateFromMixins(SpellProviderBaseMixin, MetaSkill
 -- Changing a row's spell ID (or removing a row) is different: the key is "metaReminder:<spellID>",
 -- so a saved entry for the old ID becomes an orphan. It is not loaded and its TBT tab tile says
 -- to remove it (review WR-02); the new ID is offered in Suggested as a separate reminder.
+--
+-- Review doc (DOC-07): docs/REMINDERS.md lists every row, group member and alternative here with
+-- Wowhead links for human review. A row or group change updates that file too, and
+-- `node scripts/reminders-doc-check.js` proves the two agree (Phase 84 re-runs it).
 local META_REMINDER_DEFS = {}
 local metaReminderDefsBySpellID = {}
 

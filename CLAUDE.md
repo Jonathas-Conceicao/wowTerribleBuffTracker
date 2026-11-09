@@ -34,6 +34,8 @@ WoW Midnight addon (version 12.0 and up) for tracking buff/cooldown timers manua
 - `scripts/aura-read-gate.js` — static proof that every aura API reference sits inside an allowlisted reader (DTRK-06); `--selftest` runs its fixtures
 - `scripts/migrate-dryrun.js` — dry-runs the ADDON_LOADED defaults and schema migrations against a real SavedVariables file; `--selftest` runs its fixtures
 - `scripts/png2blp.js` — converts the `Media/Source` PNGs into the uncompressed BLPs in `Media/Textures`; regenerating must leave `git status --short Media/` empty
+- `scripts/reminders-doc-check.js` — proves docs/REMINDERS.md and the reminder table in Providers.lua list the same IDs per client (DOC-07); `--selftest` runs its fixtures
+- `docs/REMINDERS.md` — human-review list of every built-in reminder, Forever and retail, with Wowhead links and a Not included table; never shipped (ignored by `.pkgmeta`)
 - `tools/TBTProbe/` — throwaway API probe harness, never shipped (ignored by `.pkgmeta`)
 - `.github/workflows/release.yml` — BigWigs Packager action for CurseForge/Wago/GitHub releases
 - `.pkgmeta` — BigWigs Packager config; one config, one zip covering every interface version the TOC declares
