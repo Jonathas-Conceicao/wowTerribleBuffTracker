@@ -1,65 +1,144 @@
-# Requirements — v0.5.4 Buff countdown display fix
+# Requirements — v0.6 More Forever Reminders
 
-**Defined:** 2026-10-24, at kickoff, with the user. Research skipped by user decision. Re-scoped the
-same day, by user decision, once Phase 79's planning found the cause.
+**Defined:** 2026-11-09, at kickoff, with the user. Research: one focused researcher
+(`.planning/research/FOREVER-REMINDERS.md`, summary in `research/SUMMARY.md`).
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces
 automatically.
 
-**Scope, set by the user:** fix one bug and get a release ready. As first reported, a buff that was
-already up at a cold login showed the wrong time: a reminder and a cooldown buff, each on a buff with
-about 1h left, both showed "2h", while the game's own buff showed about 1h. The user then saw it
-survive a `/reload`, and saw a buff with 6m left show "2h" on another character. So it is not
-login-specific. The likely cause is the icon's countdown text, not the timer. TBT's buff icons use the
-cooldown countdown format, which rounds hours up. Blizzard's CDM buff icons switch to the aura format
-with `Cooldown:SetUseAuraDisplayTime(true)`
-(`Blizzard_CooldownViewer/CooldownViewer.lua:1397`; API doc: "Aura durations are displayed slightly
-differently than cooldown durations. Setting this to true will adjust the display logic to stay in
-sync with aura timers.").
+**Scope, set by the user:** more Forever class-buff reminder suggestions, with buffs that cannot be
+up together grouped so any one satisfies the others (as the blessings are). Mage armors first, since
+the user can test them. Group buffs now count as alternatives. A human-review doc lists every
+recommended reminder, Forever and retail. New rows are Forever only; retail rows are unchanged.
 
-## v0.5.4 Requirements
+**Nothing works differently (user, 2026-11-09):** "in general I don't want anything to work
+differently than it already does (other than the mage familiar scrolls, which will use an item when
+clicked instead of casting something); this milestone focuses mainly on extending the suggestions
+with more presets and adding the doc for easy human review." Every row, group and alternative goes
+through the existing `MetaReminderRow` / `MetaReminderGroup` mechanisms. The only new mechanism is
+the familiar scroll's item click and what that click needs. RALT-04 is the one exception, and it
+exists only to keep retail unchanged.
 
-### Buff countdown text
+**Hard rule (user, 2026-11-09):** every Forever spell ID is WoW Forever's own, never Classic's, and
+every Forever link uses `https://www.wowhead.com/forever/spell=<id>`. A Classic page is not evidence.
+Rows the user has not tested in game keep "(unverified in game)" in their trailing comment.
 
-- [x] **BUFFTIME-01**: The countdown on a running buff timer's icon (a buff tracker, a reminder, a
-  Trinket/Pot proc, or a cooldown's own buff) shows the remaining time the way the game's buff
-  display does: a buff with about 1h left never reads "2h".
-- [x] **BUFFTIME-02**: A real cooldown's countdown (a cooldown tracker with no buff running, Merge
-  Mode untouched) keeps the cooldown format it has today. A pooled icon that switches between a
-  buff and a cooldown always gets the right format for what it now shows.
-- [x] **BUFFTIME-03**: The fix changes nothing else. The timers themselves (start, sync to the aura,
-  end), the sweep, the yellow aura look and the bars stay as in v0.5.3, and no saved value is
-  written. On a client without `SetUseAuraDisplayTime`, the icon keeps today's format and raises no
-  error.
+## v0.6 Requirements
 
-### Verification
+### Group gating and alternatives
 
-- [x] **VER-14**: Before the release, the user checks BUFFTIME-01..03 in game on Midnight retail,
-  including a buff with more than 1h left and the "6m shows 2h" case.
+- [ ] **RALT-04**: Every v0.6 group call is Forever-only. The calls sit in one
+  `if ns.CLIENT_IS_FOREVER then … end` block, and `MetaReminderGroup` itself is unchanged. On retail
+  no retail or `both` row gains an alternative from a Forever group. That covers 21562, 1459, 1126,
+  6673 and 465, which are both Forever ranks and retail row IDs.
+- [ ] **RALT-05**: On Forever, a group buff on the player satisfies its single-target reminder:
+  Arcane Brilliance (23028) for Arcane Intellect; Prayer of Fortitude (21562, 21564) for Power Word:
+  Fortitude; Prayer of Spirit (27681) for Divine Spirit; Gift of the Wild (21849, 21850) for Mark of
+  the Wild. Every rank is listed, because another player's cast is not in the player's spellbook.
+- [ ] **RALT-06**: On Forever, Greater Blessing of Kings (25898), Might (25782, 25916) and Wisdom
+  (25894, 25918) join the existing blessings group, so any blessing or Greater Blessing satisfies
+  every blessing reminder.
+
+- [ ] **RALT-07**: Every rank of a buff satisfies its reminder (user, 2026-11-09), including a
+  rank the player does not know. Examples: another player's higher-rank Fortitude or blessing, or a
+  low-level character holding a higher rank. Where TBT's rank family cannot reach a rank (it only
+  joins ranks in the player's own spellbook), that rank's Forever ID is listed as an alternative.
+  This is data in the existing alternatives lists only. Matching code is not changed. The rank lists
+  are in research §12.3. They cover the existing rows too, and the new situational rows get the same
+  treatment. Blood Pact's extra data IDs (7871-7873 and others) are added only if the in-game ID
+  tooltip shows one on the player.
+
+### Removed blessings
+
+- [ ] **MREM-06**: Blessing of Salvation (1038) and Blessing of Light (19979) are no longer offered;
+  a placed one becomes an orphan (greyed, "no longer offered", no data deleted), as Sanctuary did.
+  An internal note in `Providers.lua` records Salvation, Light and the Forever-only Revoker blessing
+  as removed from Forever, so they can be restored if Blizzard brings them back. They are not in
+  the main reminders doc.
+
+### Mage armors (priority)
+
+- [ ] **MREM-07**: A Forever mage is offered Ice Armor (10220) and Mage Armor (22783) reminders,
+  30 min each, and Frost Armor (7301), Ice Armor and Mage Armor form one group: any armor up hides
+  every armor reminder.
+
+### Mage familiar scrolls (the one new behaviour)
+
+- [ ] **MREM-18**: A Forever mage who knows Comprehend Scroll (1296017) is offered one familiar
+  reminder, 60 min. Any tier's aura satisfies it: Cat 1302303, Frog 1302285, Rat 1296202. Using a
+  scroll starts its timer through the existing cast path. It is not grouped with Arcane Intellect
+  or the armors.
+- [ ] **CLICK-07**: Clicking the familiar reminder uses the highest-tier scroll in the bags that the
+  player can use: Cat (item 277493, level 25), then Frog (277483, level 16), then Rat (275069,
+  level 5). The scroll is picked again out of combat after a bag change. With no usable scroll in
+  the bags, the icon shows with no click action. Every other reminder's click is unchanged.
+
+### Other class rows (Forever)
+
+- [ ] **MREM-08**: Warlock: Demon Armor (11735) and Demon Skin (696), 30 min each, grouped.
+- [ ] **MREM-09**: Shaman: Lightning Shield (10432) and Water Shield (408510), 10 min each, grouped.
+- [ ] **MREM-10**: Priest: Inner Fire (10952, 10 min) and Shadowform (15473, permanent: no timer,
+  shown once the aura is gone).
+- [ ] **MREM-11**: Paladin: one "any aura" reminder named Devotion Aura (10293, never 465),
+  permanent; Retribution, Concentration and the three resistance auras satisfy it.
+- [ ] **MREM-12**: Hunter: one "any aspect" reminder named Aspect of the Hawk (25296), permanent;
+  every other Forever aspect satisfies it (Monkey, Cheetah, Pack, Wild, Beast; never Viper or
+  Falcon).
+- [ ] **MREM-13**: Warlock: Demonic Sacrifice (18788), 120 min, watching its aura 18789; any of the
+  other three sacrifice buffs (18790, 18791, 18792) satisfies it.
+- [ ] **MREM-14**: Priest: Shadowguard (19312), 10 min, offered only to a priest who knows it (Troll).
+
+### Situational buffs (user decision: include)
+
+- [ ] **MREM-15**: Mage: Amplify Magic (10170) and Dampen Magic (10174), 10 min each, grouped.
+- [ ] **MREM-16**: Priest: Shadow Protection (10958), 10 min; Prayer of Shadow Protection (27683)
+  satisfies it.
+- [ ] **MREM-17**: Warlock: one Detect Invisibility reminder, 10 min; any of Detect Lesser
+  Invisibility (132), Detect Invisibility (2970) and Detect Greater Invisibility (11743) satisfies
+  it. These are three spell names, so the rank family does not join them.
+
+### Review doc
+
+- [ ] **DOC-06**: `docs/REMINDERS.md` lists every built-in reminder, Forever and retail, existing and
+  new: class, spell, ID, duration, group and alternatives, client, and verified-in-game status, each
+  with a Wowhead link (`/forever/` for Forever, the retail path for retail). It also lists the
+  candidates left out, each with a reason. It is not shipped (`.pkgmeta` ignores it).
+- [ ] **DOC-07**: Every ID in `docs/REMINDERS.md` matches a row or alternative in `Providers.lua`,
+  and the reverse, checked at the end of the milestone; the reminder table's comment points at the
+  doc so a later row change updates it too.
+
+### Cleanup and verification
+
+- [ ] **CLEAN-01**: Cleanup per CLAUDE.md: unused code and duplication this milestone introduced,
+  hot paths the new rows and groups touch, `stylua .`, and the release scripts.
+- [ ] **VER-15**: The user checks on Forever: every mage row and the armor group (each armor's ID
+  tooltip, and that one armor up hides the others), the familiar reminder (each tier's buff ID, the
+  click using the highest scroll in the bags, whether a new tier replaces a lower one, and whether it
+  stacks with Arcane Intellect), a group buff hiding its single-target reminder
+  where one can be had, and any other class the user can reach. Rows not checked stay "(unverified
+  in game)"; a retail sanity pass confirms no retail reminder changed.
 
 ## Future Requirements
 
-None added by this milestone.
+- **Weapon-enchant reminders (backlog 999.29):** shaman imbues (60 min on Forever), rogue poisons,
+  oils, sharpening stones and the like. They are weapon enchants with no aura, so they need a
+  `GetWeaponEnchantInfo` path. User: take note, not for now.
+- **Soul Link**: needs a "pet is out" load rule TBT does not have.
+- **Sanctity Aura (20218)**: in Forever's data but not on the Forever paladin list; add to the aura
+  group only if a Forever paladin sees it.
 
 ## Out of Scope
 
 | Item | Reason |
 |------|--------|
-| Plain buff trackers reading the aura's duration | Backlog 999.28, not now (user decision) |
-| Other backlog items (999.11, 999.15, 999.16, 999.19, 999.27) | None promoted |
-| A separate human-testing phase | User decision: the in-game check is part of the fix phase |
-| Merge Mode icons | Blizzard's own frames, not TBT's |
+| New or changed retail rows | User decision: Forever only; retail appears in the doc only |
+| Molten Armor, Fel Armor, Earth Shield | Not learnable on Forever (only SoD/NPC IDs in the data) |
+| Druid forms, warrior stances | Toggled constantly or never missing |
+| Paladin seals, Fear Ward, mage wards, Omen of Clarity | Short combat buffs, or passive on Forever |
+| Shaman totems | Unchanged 2026-09-29 decision: aura IDs differ from casts |
+| Backlog 999.11, 999.15, 999.16, 999.19, 999.27, 999.28 | None promoted (user) |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BUFFTIME-01 | Phase 79 | Complete — verified in game 2026-10-24 |
-| BUFFTIME-02 | Phase 79 | Complete — code trace (79-REVIEW.md) |
-| BUFFTIME-03 | Phase 79 | Complete — code trace and aura-read gate |
-| VER-14 | Phase 79 | Complete — user sign-off 2026-10-24 |
-
-**Coverage:** 4 / 4 requirements mapped, none orphaned, none duplicated.
-
----
-*Requirements defined: 2026-10-24; re-scoped 2026-10-24*
