@@ -20,7 +20,7 @@ const root = ri >= 0 ? path.resolve(argv[ri + 1]) : repo;
 
 const sh = (cmd) => execSync(cmd, { cwd: repo, encoding: "utf8", maxBuffer: 1 << 26 });
 const baseOf = (f) => {
-	const rev = sh(`git log -1 --format=%H --invert-grep -E "--grep=^[a-z]+\\(81-" -- ${f}`).trim();
+	const rev = sh(`git log -1 --format=%H --invert-grep -E "--grep=^[a-z]+\\(81[-)]" -- ${f}`).trim();
 	return { rev: rev.slice(0, 7), text: sh(`git show ${rev}:${f}`) };
 };
 
