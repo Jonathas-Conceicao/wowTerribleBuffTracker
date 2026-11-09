@@ -1203,7 +1203,8 @@ MetaReminderGroup(465, 317920, 32223)
 -- row), so an ungated call would give retail rows Forever alternatives. Phases 81-82 add their
 -- groups inside this block (mage armors, familiar scrolls, the other class rows).
 -- MetaReminderGroup gives each listed ID that has a row the others as alternatives; an ID without
--- a row is a one-way alternative. IDs are from research §12.3.
+-- a row is a one-way alternative. A second call naming the same row REPLACES its alternatives, so
+-- a row ID appears in exactly one call here. IDs are from research §12.3.
 if ns.CLIENT_IS_FOREVER then
 	-- Arcane Intellect: ranks 1-5 and Arcane Brilliance (RALT-05, RALT-07)
 	MetaReminderGroup(1459, 1460, 1461, 10156, 10157, 23028)

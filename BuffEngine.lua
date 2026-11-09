@@ -1880,8 +1880,8 @@ function ns:ReadableAuraExpiry(aura, now)
 	return duration, expirationTime
 end
 
--- RALT-01 (Phase 57.5): reminders with alternatives overlap -- the five blessing reminders' watch
--- lists share the same IDs -- so ns:RefreshAuraStates reads each watched ID once per call through
+-- RALT-01 (Phase 57.5): reminders with alternatives overlap -- the blessing reminders' watch lists
+-- share the same IDs -- so ns:RefreshAuraStates reads each watched ID once per call through
 -- this memo. [id] = the aura table or false, and [id] = readable (true/false). Wiped at the start
 -- of every call, never rebuilt, and valid only within one call. Still ns:ReadPlayerAura
 -- underneath, so an unreadable aura is never absent (DTRK-06).

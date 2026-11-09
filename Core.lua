@@ -1120,7 +1120,8 @@ ns.endKeysBySpell = {}
 
 -- RALT-01 (Phase 57.5): [spellID] = { reminderKey, ... }, every loaded reminder that lists spellID
 -- (or a rank or override of it) as an alternative ("Also satisfied by"). One-to-many, because the
--- five paladin blessings each list the other four. The outer table and inner arrays are fresh per
+-- Forever blessing reminders share one list (each other, their ranks and the Greater Blessings,
+-- Phase 80). The outer table and inner arrays are fresh per
 -- rebuild in ns:RebuildDetailedRuleIndex and never mutated afterwards. The cast path reads it with
 -- one lookup.
 ns.alternativeKeysBySpell = {}
