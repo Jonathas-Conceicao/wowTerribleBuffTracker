@@ -99,11 +99,11 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 
 ### Review doc
 
-- [ ] **DOC-06**: `docs/REMINDERS.md` lists every built-in reminder, Forever and retail, existing and
+- [x] **DOC-06**: `docs/REMINDERS.md` lists every built-in reminder, Forever and retail, existing and
   new: class, spell, ID, duration, group and alternatives, client, and verified-in-game status, each
   with a Wowhead link (`/forever/` for Forever, the retail path for retail). It also lists the
   candidates left out, each with a reason. It is not shipped (`.pkgmeta` ignores it).
-- [ ] **DOC-07**: Every ID in `docs/REMINDERS.md` matches a row or alternative in `Providers.lua`,
+- [x] **DOC-07**: Every ID in `docs/REMINDERS.md` matches a row or alternative in `Providers.lua`,
   and the reverse, checked at the end of the milestone; the reminder table's comment points at the
   doc so a later row change updates it too.
 
@@ -160,8 +160,8 @@ Rows the user has not tested in game keep "(unverified in game)" in their traili
 | MREM-15 | Phase 82 | Complete |
 | MREM-16 | Phase 82 | Complete |
 | MREM-17 | — | Dropped (user, 2026-11-09) |
-| DOC-06 | Phase 83 | Pending |
-| DOC-07 | Phase 83 | Pending |
+| DOC-06 | Phase 83 | Complete |
+| DOC-07 | Phase 83 | Complete |
 | CLEAN-01 | Phase 84 | Pending |
 | VER-15 | Phase 85 | Pending |
 

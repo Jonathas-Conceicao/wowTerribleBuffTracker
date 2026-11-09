@@ -388,7 +388,7 @@ not tested keep "(unverified in game)" in their trailing comment.
   3. Every ID in the doc matches a row or alternative in `Providers.lua` and every row or alternative ID in `Providers.lua` appears in the doc, with zero mismatches; the reminder table's comment points at the doc
   4. The packaged zip contains no `docs/` (`.pkgmeta` ignores it)
 **Plans**: 1 plan
-- [ ] 83-01-PLAN.md — doc-to-code check script with --selftest, docs/REMINDERS.md built from the current reminder table, pointer comment, .pkgmeta and CLAUDE.md lines
+- [x] 83-01-PLAN.md — doc-to-code check script with --selftest, docs/REMINDERS.md built from the current reminder table, pointer comment, .pkgmeta and CLAUDE.md lines
 **Notes**: Scope rule above applies; no code behaviour changes here, only the pointer comment. Salvation, Light and Revoker stay out of this doc (MREM-06); they live in the internal note in `Providers.lua`. Lifted from research §5, §7, §8 and §11-§12.
 
 ### Phase 84: Cleanup
@@ -479,7 +479,7 @@ not tested keep "(unverified in game)" in their trailing comment.
 | 80. Forever Group Block, Group Buffs and Rank Coverage | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
 | 81. Mage Armors and Familiar Scrolls | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
 | 82. Other Class Rows | v0.5.6 | 1/1 | Complete (code trace; in game in 85) | 2026-11-09 |
-| 83. Reminder Review Doc | v0.5.6 | 0/TBD | Not started | - |
+| 83. Reminder Review Doc | v0.5.6 | 1/1 | Plan executed; awaiting phase verification | - |
 | 84. Cleanup | v0.5.6 | 0/TBD | Not started | - |
 | 85. Forever Testing Pass | v0.5.6 | — | Not started | - |
 

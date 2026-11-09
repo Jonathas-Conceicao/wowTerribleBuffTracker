@@ -4,12 +4,12 @@ milestone: v0.5.6
 milestone_name: "More Forever Reminders"
 status: executing
 last_updated: "2026-11-09"
-last_activity: 2026-11-09 — Phase 81 plan 01 executed (mage armors, familiar scrolls, item click)
+last_activity: 2026-11-09 — Phase 83 plan 01 executed (docs/REMINDERS.md and reminders-doc-check.js)
 progress:
   total_phases: 6
-  completed_phases: 0
-  total_plans: 2
-  completed_plans: 2
+  completed_phases: 3
+  total_plans: 4
+  completed_plans: 4
   percent: 0
 ---
 
@@ -24,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 82 — Other Class Rows (plan executed; awaiting phase verification)
-Plan: 82-01 complete (1/1) — commits f2d9416, eed9197; gate `82-check-rows.js` passes
+Phase: 83 — Reminder Review Doc (plan executed; awaiting phase verification)
+Plan: 83-01 complete (1/1) — commits 06f984c, 0455dc0, 87a1bd5; `node scripts/reminders-doc-check.js` passes (132 Forever IDs, 15 retail IDs, 39 rows), `--selftest` 27/27
 Status: Executing (roadmap: Phases 80-85, 22/22 requirements mapped)
-Last activity: 2026-11-09 — 82-01 executed: thirteen Forever rows (warlock, shaman, priest, paladin, hunter, mage; Demonic Sacrifice last) and seven Forever-block group calls (MREM-08..16)
+Last activity: 2026-11-09 — 83-01 executed: docs/REMINDERS.md (every built-in reminder, Forever and retail, Wowhead links, Not included table), scripts/reminders-doc-check.js (DOC-07), pointer comment in Providers.lua, `docs` ignored by .pkgmeta
 
-Progress: [░░░░░░░░░░] 0% (0/6 phases)
+Progress: [█████░░░░░] 50% (3/6 phases)
 
 - Branch: `milestone/v0.5.6-more-forever-reminders`, cut from `main` (`21c018d`) on 2026-11-09.
 - Phases start at **80** (v0.5.4 ended at Phase 79; v0.5.5 used no phase; numbering never restarts).
