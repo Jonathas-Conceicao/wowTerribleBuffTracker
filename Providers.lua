@@ -1093,8 +1093,8 @@ local MetaSkillLustProvider = CreateFromMixins(SpellProviderBaseMixin, MetaSkill
 -- minutes; 0 = no timer (aura only).
 --
 -- In-game verification (user, 2026-09-29): the original Mage, Paladin and Warlock rows were tested
--- in game (57.4-HUMAN-UAT); rows added later (v0.5.6 included) say "(unverified in game)". The other classes are being tested now, and their rows keep
--- "(unverified in game)" in their trailing comment until reported. Righteous Fury (25780, added
+-- in game (57.4-HUMAN-UAT). Every other row, the v0.5.6 rows included, keeps "(unverified in
+-- game)" in its trailing comment until reported. Righteous Fury (25780, added
 -- in Phase 57.5) assumes its aura ID equals its spell ID; the user verifies it.
 --
 -- Blessing of Sanctuary (20914) was removed on 2026-09-29 (Phase 57.5, RALT-03): it no longer
