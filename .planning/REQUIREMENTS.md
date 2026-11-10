@@ -88,14 +88,14 @@ requirements name. Rows and groups are data through `MetaReminderRow` / `MetaRem
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SBAG-01 | — | Pending |
-| SBAG-02 | — | Pending |
-| SBAG-03 | — | Pending |
-| SBAG-04 | — | Pending |
-| PAURA-01 | — | Pending |
-| PAURA-02 | — | Pending |
-| PAURA-03 | — | Pending |
-| PAURA-04 | — | Pending |
-| DOC-08 | — | Pending |
-| CLEAN-02 | — | Pending |
-| VER-16 | — | Pending |
+| SBAG-01 | Phase 86 | Pending |
+| SBAG-02 | Phase 86 | Pending |
+| SBAG-03 | Phase 86 | Pending |
+| SBAG-04 | Phase 86 | Pending |
+| PAURA-01 | Phase 87 | Pending |
+| PAURA-02 | Phase 87 | Pending |
+| PAURA-03 | Phase 87 | Pending |
+| PAURA-04 | Phase 87 | Pending |
+| DOC-08 | Phase 87 | Pending |
+| CLEAN-02 | Phase 88 | Pending |
+| VER-16 | Phase 89 | Pending |

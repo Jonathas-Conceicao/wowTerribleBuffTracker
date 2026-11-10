@@ -4,9 +4,9 @@ milestone: v0.5.7
 milestone_name: "Sleeping bag and some more"
 status: planning
 last_updated: "2026-11-10"
-last_activity: 2026-11-10 — Milestone v0.5.7 started
+last_activity: 2026-11-10 — Roadmap created (Phases 86-89)
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 86 — Sleeping Bag Reminder (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-11-10 — Milestone v0.5.7 started
+Status: Roadmap created; ready to plan Phase 86
+Last activity: 2026-11-10 — requirements (11) and roadmap (Phases 86-89) defined
 
 Progress: [░░░░░░░░░░] 0%
 

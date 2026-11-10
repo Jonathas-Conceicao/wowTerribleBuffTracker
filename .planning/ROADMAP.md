@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [ ] **v0.5.7 Sleeping bag and some more** — Phases 86-89 (in progress, started 2026-11-10)
 - [x] **v0.5.6 More Forever Reminders** — Phases 80-85 (shipped 2026-11-09) — [archive](milestones/v0.5.6-ROADMAP.md)
 - [x] **v0.5.5 Fresh-login buff time fix** — no phases, done outside GSD (shipped 2026-10-27, `6f976e8`) — see `MILESTONES.md`
 - [x] **v0.5.4 Buff countdown display fix** — Phase 79 (shipped 2026-10-24) — [archive](milestones/v0.5.4-ROADMAP.md)
@@ -18,6 +19,17 @@
 - [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
+
+### v0.5.7 Sleeping bag and some more (Phases 86-89) — IN PROGRESS
+
+Started 2026-11-10 on `milestone/v0.5.7-sleeping-bag-and-more`. Research inline (see
+`PROJECT.md` Current Milestone). Each feature phase updates `docs/REMINDERS.md` for its own rows, so
+`node scripts/reminders-doc-check.js` passes after every phase.
+
+- [ ] **Phase 86: Sleeping Bag Reminder** — Forever Well-Rested reminder: offered while the bag is in the bags, loaded on every character, click uses the bag
+- [ ] **Phase 87: Paladin Aura Reminders** — one reminder per aura on Forever and on retail, each client grouped so any aura hides all
+- [ ] **Phase 88: Cleanup** — the milestone's own unused code and duplication, touched hot paths, stylua, release scripts
+- [ ] **Phase 89: Testing Pass** — the user checks the new reminders in game; testing pass, no plans; the last phase of the milestone
 
 <details>
 <summary>✅ v0.5.6 More Forever Reminders (Phases 80-85) — SHIPPED 2026-11-09</summary>
@@ -324,6 +336,58 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 *Every phase through v0.5.6 (Phases 1-85) is archived under `.planning/milestones/`. The most recent
 is [`v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md), which carries the full detail for Phases 80-85.*
 
+**Scope rule for every v0.5.7 phase (user, carried from v0.5.6).** Nothing may work differently from
+today except the sleeping bag's item-based Suggested offer, its always-loaded rule and its item
+click. Rows and groups are data through `MetaReminderRow` / `MetaReminderGroup`. Forever IDs and
+links are WoW Forever's own (`wowhead.com/forever/`); a Forever row and a retail row never share an
+ID, and every new row carries its client tag. New rows keep "(unverified in game)" in their trailing
+comment until the user checks them.
+
+### Phase 86: Sleeping Bag Reminder
+**Goal**: A Forever player is reminded to rest in the Cozy Sleeping Bag, and a click puts the bag down
+**Depends on**: Phase 85
+**Requirements**: SBAG-01, SBAG-02, SBAG-03, SBAG-04
+**Success Criteria** (what must be TRUE):
+  1. On Forever, a Well-Rested reminder keyed on 429959 (120 min) exists; on retail it is not registered
+  2. Suggested lists it only while item 211527 is in the bags; every other row's offer is unchanged
+  3. Once placed it loads on every Forever character, with or without the bag, and shows while 429959 is missing; the user's Never load setting still hides it
+  4. Out of combat, a click uses the bag when it is in the bags and does nothing (no Lua error) when it is not; the overlay follows the bag arriving or leaving through the existing bag-change re-mark
+  5. `docs/REMINDERS.md` lists the row with its `/forever/` spell and item links, and the doc check passes
+**Plans**: TBD
+**Notes**: Reuse the familiar's `useItems` click path (CLICK-07). The new pieces are an item-count offer and a load rule that does not ask a known spell; both apply to this row only.
+
+### Phase 87: Paladin Aura Reminders
+**Goal**: A paladin can place a reminder for the aura they run, on either client, and any aura up hides them all
+**Depends on**: Phase 86
+**Requirements**: PAURA-01, PAURA-02, PAURA-03, PAURA-04, DOC-08
+**Success Criteria** (what must be TRUE):
+  1. On Forever, rows exist for Devotion 10293 (existing), Retribution 10301, Concentration 19746, Shadow Resistance 19896, Frost Resistance 19898 and Fire Resistance 19900, permanent, each offered only to a paladin who knows a rank
+  2. On Forever, any aura of any rank up hides every aura reminder (one group in the Forever block, replacing the Devotion-only group)
+  3. On retail, rows exist for Devotion 465 (existing), Concentration 317920 and Crusader 32223, tagged retail, grouped so any one hides all three
+  4. No ID is shared between a Forever and a retail aura row, and the keys `metaReminder:10293` and `metaReminder:465` are unchanged
+  5. `docs/REMINDERS.md` lists every aura row in its client table, sorted by class; the doc check and `--selftest` pass; Sanctity Aura and retail Retribution Aura are recorded in `research/REMINDERS-NOT-INCLUDED.md`
+**Plans**: TBD
+
+### Phase 88: Cleanup
+**Goal**: The milestone's own code is clean and the release scripts still work
+**Depends on**: Phase 87
+**Requirements**: CLEAN-02
+**Success Criteria** (what must be TRUE):
+  1. No unused code or duplication the milestone introduced remains
+  2. The load refresh and the bag-change re-mark add no per-frame work and no allocation in a hot path
+  3. `stylua .` leaves no diff, line endings are intact (`git ls-files --eol`), and the release scripts are unchanged or checked
+**Plans**: TBD
+
+### Phase 89: Testing Pass
+**Goal**: The user confirms the new reminders in game
+**Depends on**: Phase 88
+**Requirements**: VER-16
+**Success Criteria** (what must be TRUE):
+  1. On Forever: the Well-Rested offer with and without the bag, the click using the bag, and the reminder on a character without the bag
+  2. On a paladin: the aura reminders on whichever client the user can reach
+  3. Rows not checked keep "(unverified in game)"
+**Plans**: None (testing pass by the user)
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -389,6 +453,10 @@ is [`v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md), which carries the full d
 | 83. Reminder Review Doc | v0.5.6 | 1/1 | Complete | 2026-11-09 |
 | 84. Cleanup | v0.5.6 | 1/1 | Complete | 2026-11-09 |
 | 85. Forever Testing Pass | v0.5.6 | — | Complete (mage verified in game; rest ships on feedback) | 2026-11-09 |
+| 86. Sleeping Bag Reminder | v0.5.7 | 0/? | Not started | - |
+| 87. Paladin Aura Reminders | v0.5.7 | 0/? | Not started | - |
+| 88. Cleanup | v0.5.7 | 0/? | Not started | - |
+| 89. Testing Pass | v0.5.7 | — | Not started | - |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*
