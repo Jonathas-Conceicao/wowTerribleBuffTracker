@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.7 — Sleeping bag and some more
+
+### New Features
+- Well-Rested reminder (Forever): suggested while the Cozy Sleeping
+  Bag is in your bags; clicking it uses the bag
+- Paladin: one reminder per aura on Forever and retail; any aura up
+  hides them all
+- Hunter: one reminder per aspect on Forever; any aspect up hides
+  them all
+
 ## v0.5.6 — More Forever Reminders
 
 More built-in reminders for WoW Forever, and group buffs or another
