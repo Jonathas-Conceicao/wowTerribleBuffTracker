@@ -8,11 +8,41 @@ A WoW addon for manually tracking buff and cooldown timers, running on both **Mi
 
 Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
 
-## Next Milestone
+## Current Milestone: v0.5.7 Sleeping bag and some more
 
-Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 86. Open
-candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27, 999.28, 999.29), plus
-community feedback on the untested v0.5.6 Forever rows.
+**Goal:** A Forever reminder for the Cozy Sleeping Bag's Well-Rested buff, and one reminder per
+paladin aura on both clients, grouped so any aura up hides them all.
+
+**A patch (user, 2026-11-10):** no major feature. Phases start at **86**. Branch
+`milestone/v0.5.7-sleeping-bag-and-more`, cut from `main` (`ed54e01`). Research done inline (user
+decision): item and spell looked up on Wowhead's `/forever/` pages; Forever aura ranks from
+`research/FOREVER-REMINDERS.md`; retail auras are the three the shipped retail Devotion row already
+lists.
+
+**Target features (user, 2026-11-10):**
+
+- **Sleeping bag reminder (Forever only).** Buff Well-Rested
+  ([429959](https://www.wowhead.com/forever/spell=429959), 2 h, stacks up to 3), from the Cozy
+  Sleeping Bag ([211527](https://www.wowhead.com/forever/item=211527), 1 h cooldown). Using the item
+  unfurls the bag; the buff comes after resting in it for a minute, so the reminder hides on the
+  aura, not on the click.
+  - Suggested lists it only while the bag is in the character's bags.
+  - Once placed it loads on every character (reminders are account-wide): a character without the
+    bag still sees it when the buff is missing (user decision).
+  - A click uses the bag when it is in the bags; without it, the click does nothing and raises no
+    error, as the familiar scroll click does.
+- **One reminder per paladin aura, on each client, never mixing IDs.** Grouped like the blessings:
+  any aura up hides every aura reminder (user decision; today's behaviour, more tiles to choose).
+  - Forever (top ranks): Devotion 10293 (existing row), Retribution 10301, Concentration 19746,
+    Shadow Resistance 19896, Frost Resistance 19898, Fire Resistance 19900. Sanctity Aura stays out.
+  - Retail: Devotion 465 (existing row), Concentration 317920, Crusader 32223. Retribution Aura
+    (183435) is still documented on retail but no longer in the class toolkit, so it stays out.
+- `docs/REMINDERS.md` and its check script cover the new rows; the usual cleanup phase, then the
+  user's in-game pass.
+
+**Scope rule (carried from v0.5.6):** nothing works differently from today except what is listed
+above. New rows are data through `MetaReminderRow` / `MetaReminderGroup`; the only new behaviour is
+the sleeping bag's item-based Suggested offer and its always-loaded rule.
 
 <details>
 <summary>v0.5.6 More Forever Reminders — SHIPPED 2026-11-09</summary>
@@ -484,8 +514,8 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 
 ### Active
 
-None until the next milestone. Earlier milestones' requirements are archived under
-`.planning/milestones/`.
+v0.5.7 Sleeping bag and some more — see `.planning/REQUIREMENTS.md`. Earlier milestones'
+requirements are archived under `.planning/milestones/`.
 
 Still open in the backlog:
 
@@ -622,4 +652,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-09 after v0.5.6 More Forever Reminders milestone*
+*Last updated: 2026-11-10, at v0.5.7 Sleeping bag and some more kickoff*
