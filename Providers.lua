@@ -1220,8 +1220,15 @@ MetaReminderRow(408510, 10) -- Shaman: Water Shield (MREM-09; Restoration talent
 MetaReminderRow(10952, 10) -- Priest: Inner Fire (MREM-10) (unverified in game)
 MetaReminderRow(19312, 10) -- Priest: Shadowguard (MREM-14; Troll; the known-spell rule offers it only to a priest who knows it) (unverified in game)
 MetaReminderRow(10958, 10) -- Priest: Shadow Protection (MREM-16; situational) (unverified in game)
--- Paladin aura (Phase 82, MREM-11): one "any aura" row; every aura rank is listed in the Forever block.
-MetaReminderRow(10293, 0) -- Paladin: Devotion Aura, any paladin aura satisfies it (MREM-11; permanent; keyed on 10293, never the retail Devotion row's ID, which is only an alternative here) (unverified in game)
+-- Paladin auras (Phase 82 MREM-11, Phase 87 PAURA-01): one row per aura, keyed on its top rank,
+-- permanent; the Forever block groups them with every rank, so any aura up hides them all (PAURA-02).
+-- None of these IDs is a retail row ID (PAURA-04).
+MetaReminderRow(10293, 0) -- Paladin: Devotion Aura (MREM-11; permanent; keyed on 10293, never the retail Devotion row's ID 465, which is Forever rank 1 and only an alternative here) (unverified in game)
+MetaReminderRow(10301, 0) -- Paladin: Retribution Aura (PAURA-01; permanent) (unverified in game)
+MetaReminderRow(19746, 0) -- Paladin: Concentration Aura (PAURA-01; permanent; one rank) (unverified in game)
+MetaReminderRow(19896, 0) -- Paladin: Shadow Resistance Aura (PAURA-01; permanent) (unverified in game)
+MetaReminderRow(19898, 0) -- Paladin: Frost Resistance Aura (PAURA-01; permanent) (unverified in game)
+MetaReminderRow(19900, 0) -- Paladin: Fire Resistance Aura (PAURA-01; permanent) (unverified in game)
 -- Hunter aspect (Phase 82, MREM-12): one "any aspect" row; the aspects are listed in the Forever block.
 MetaReminderRow(25296, 0) -- Hunter: Aspect of the Hawk, any aspect satisfies it (MREM-12; permanent; Viper and Falcon never count) (unverified in game)
 -- Mage situational pair (Phase 82, MREM-15): Amplify Magic and Dampen Magic; grouped in the Forever block.
@@ -1247,9 +1254,12 @@ MetaReminderRow(192106, 60, nil, nil, nil, { client = "retail" }) -- Shaman: Lig
 MetaReminderRow(364342, 60, nil, nil, nil, { client = "retail", auraID = 381748 }) -- Evoker: Blessing of the Bronze (aura 381748)
 MetaReminderRow(369459, 60, nil, nil, nil, { client = "retail", allyCast = true }) -- Evoker: Source of Magic (cast on your target)
 MetaReminderRow(465, 0, nil, nil, nil, { client = "retail" }) -- Paladin: Devotion Aura (permanent: no duration, shown once the aura is gone, no lead window)
+MetaReminderRow(317920, 0, nil, nil, nil, { client = "retail" }) -- Paladin: Concentration Aura (PAURA-03; permanent) (unverified in game)
+MetaReminderRow(32223, 0, nil, nil, nil, { client = "retail" }) -- Paladin: Crusader Aura (PAURA-03; permanent) (unverified in game)
 
--- Per the user decision, Concentration Aura 317920 or Crusader Aura 32223 satisfies Devotion Aura;
--- they are alternatives only (not rows), so only 465 receives the list, and Devotion stays the cast spell.
+-- Retail paladin auras (PAURA-03): Devotion, Concentration and Crusader are rows, so any one up
+-- hides all three. Retribution Aura 183435 is not a row: documented but no longer in the class
+-- toolkit (user, 2026-11-10). Declared after the three rows, which it needs.
 MetaReminderGroup(465, 317920, 32223)
 
 -- The Forever group block (RALT-04, Phase 80): every Forever group call lives in this one block.
@@ -1315,9 +1325,10 @@ if ns.CLIENT_IS_FOREVER then
 	MetaReminderGroup(10432, 408510)
 	-- Shadow Protection (MREM-16, RALT-07): ranks 1-2 and Prayer of Shadow Protection, one-way
 	MetaReminderGroup(10958, 976, 10957, 27683)
-	-- Paladin auras (MREM-11, RALT-07): any aura satisfies the Devotion Aura row, one-way. Devotion
-	-- ranks (465 is rank 1 here and the retail row's ID, which is why it is only in this block),
-	-- Retribution ranks, Concentration, Shadow/Frost/Fire Resistance ranks. Sanctity Aura is not listed.
+	-- Paladin auras (MREM-11, PAURA-02, RALT-07): the six aura rows (10293, 10301, 19746, 19896,
+	-- 19898, 19900) and every lower rank; any one up hides every aura reminder. Devotion ranks (465
+	-- is rank 1 here and the retail row's ID, which is why it is only in this block), Retribution
+	-- ranks, Concentration, Shadow/Frost/Fire Resistance ranks. Sanctity Aura is not listed.
 	MetaReminderGroup(
 		10293,
 		465,

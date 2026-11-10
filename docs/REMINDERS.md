@@ -34,7 +34,12 @@ WoW Forever reminders. Every link points at Wowhead's `/forever/` pages.
 | Paladin | [Blessing of Might](https://www.wowhead.com/forever/spell=25291) | 25291 | 60 min | Blessings group, below |
 | Paladin | [Blessing of Wisdom](https://www.wowhead.com/forever/spell=25290) | 25290 | 60 min | Blessings group, below |
 | Paladin | [Righteous Fury](https://www.wowhead.com/forever/spell=25780) | 25780 | 30 min | none |
-| Paladin | [Devotion Aura](https://www.wowhead.com/forever/spell=10293) (stands for any paladin aura) | 10293 | permanent | Paladin auras group, below |
+| Paladin | [Devotion Aura](https://www.wowhead.com/forever/spell=10293) | 10293 | permanent | Paladin auras group, below |
+| Paladin | [Retribution Aura](https://www.wowhead.com/forever/spell=10301) | 10301 | permanent | Paladin auras group, below |
+| Paladin | [Concentration Aura](https://www.wowhead.com/forever/spell=19746) | 19746 | permanent | Paladin auras group, below |
+| Paladin | [Shadow Resistance Aura](https://www.wowhead.com/forever/spell=19896) | 19896 | permanent | Paladin auras group, below |
+| Paladin | [Frost Resistance Aura](https://www.wowhead.com/forever/spell=19898) | 19898 | permanent | Paladin auras group, below |
+| Paladin | [Fire Resistance Aura](https://www.wowhead.com/forever/spell=19900) | 19900 | permanent | Paladin auras group, below |
 | Priest | [Power Word: Fortitude](https://www.wowhead.com/forever/spell=10938) | 10938 | 60 min | ranks [1243](https://www.wowhead.com/forever/spell=1243), [1244](https://www.wowhead.com/forever/spell=1244), [1245](https://www.wowhead.com/forever/spell=1245), [2791](https://www.wowhead.com/forever/spell=2791), [10937](https://www.wowhead.com/forever/spell=10937); Prayer of Fortitude [21562](https://www.wowhead.com/forever/spell=21562), [21564](https://www.wowhead.com/forever/spell=21564) |
 | Priest | [Divine Spirit](https://www.wowhead.com/forever/spell=27841) (Discipline talent) | 27841 | 60 min | ranks [14752](https://www.wowhead.com/forever/spell=14752), [14818](https://www.wowhead.com/forever/spell=14818), [14819](https://www.wowhead.com/forever/spell=14819); Prayer of Spirit [27681](https://www.wowhead.com/forever/spell=27681) |
 | Priest | [Inner Fire](https://www.wowhead.com/forever/spell=10952) | 10952 | 10 min | none |
@@ -65,7 +70,8 @@ Greater Kings [25898](https://www.wowhead.com/forever/spell=25898); Greater Migh
 [25782](https://www.wowhead.com/forever/spell=25782), [25916](https://www.wowhead.com/forever/spell=25916); Greater Wisdom
 [25894](https://www.wowhead.com/forever/spell=25894), [25918](https://www.wowhead.com/forever/spell=25918).
 
-**Paladin auras group** (Paladin; any one up hides the Devotion Aura reminder): Devotion Aura ranks
+**Paladin auras group** (Paladin; any one up hides every aura reminder): Devotion Aura
+[10293](https://www.wowhead.com/forever/spell=10293) and ranks
 [465](https://www.wowhead.com/forever/spell=465), [10290](https://www.wowhead.com/forever/spell=10290), [643](https://www.wowhead.com/forever/spell=643), [10291](https://www.wowhead.com/forever/spell=10291), [1032](https://www.wowhead.com/forever/spell=1032), [10292](https://www.wowhead.com/forever/spell=10292);
 Retribution Aura ranks
 [7294](https://www.wowhead.com/forever/spell=7294), [10298](https://www.wowhead.com/forever/spell=10298), [10299](https://www.wowhead.com/forever/spell=10299), [10300](https://www.wowhead.com/forever/spell=10300), [10301](https://www.wowhead.com/forever/spell=10301);
@@ -88,8 +94,15 @@ Midnight retail reminders. Every link points at Wowhead's retail pages.
 | Evoker | [Source of Magic](https://www.wowhead.com/spell=369459) (cast on your target) | 369459 | 60 min | none |
 | Mage | [Arcane Intellect](https://www.wowhead.com/spell=1459) | 1459 | 60 min | none |
 | Mage | [Arcane Familiar](https://www.wowhead.com/spell=210126) (offered once the talent is known; a click casts Arcane Intellect, which grants it) | 210126 | 60 min | none |
-| Paladin | [Devotion Aura](https://www.wowhead.com/spell=465) | 465 | permanent | Concentration Aura [317920](https://www.wowhead.com/spell=317920), Crusader Aura [32223](https://www.wowhead.com/spell=32223) |
+| Paladin | [Devotion Aura](https://www.wowhead.com/spell=465) | 465 | permanent | Paladin auras group, below |
+| Paladin | [Concentration Aura](https://www.wowhead.com/spell=317920) | 317920 | permanent | Paladin auras group, below |
+| Paladin | [Crusader Aura](https://www.wowhead.com/spell=32223) | 32223 | permanent | Paladin auras group, below |
 | Priest | [Power Word: Fortitude](https://www.wowhead.com/spell=21562) | 21562 | 60 min | none |
 | Shaman | [Skyfury](https://www.wowhead.com/spell=462854) | 462854 | 60 min | none |
 | Shaman | [Lightning Shield](https://www.wowhead.com/spell=192106) | 192106 | 60 min | none |
 | Warrior | [Battle Shout](https://www.wowhead.com/spell=6673) | 6673 | 60 min | none |
+
+**Paladin auras group** (Paladin; any one up hides every aura reminder): Devotion Aura
+[465](https://www.wowhead.com/spell=465), Concentration Aura
+[317920](https://www.wowhead.com/spell=317920), Crusader Aura
+[32223](https://www.wowhead.com/spell=32223).

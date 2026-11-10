@@ -31,6 +31,7 @@ mostly for Forever. IDs and reasoning are in `FOREVER-REMINDERS.md`.
 | Paladin | Sanctity Aura | Not on the Forever paladin list; added only if a Forever paladin sees it. |
 | Paladin | Blessing of Sanctuary | No longer exists on Forever. |
 | Hunter | Aspect of the Viper, Aspect of the Falcon | Not on the Forever hunter list, so they do not count toward the aspect row either. |
+| Paladin (retail) | Retribution Aura (183435) | Still documented on retail but no longer in the Midnight class toolkit (user, 2026-11-10). Not a row and not in the retail aura group. |
 
 ## In-game verification status
 
@@ -41,3 +42,7 @@ Kept in the `(unverified in game)` trailing comments in `Providers.lua`, not in 
 - Unverified: every other v0.5.6 row. Shipped on community feedback (user decision 2026-11-09).
   Known risks: Water Shield's reused ID 408510; Battle Shout 3 min, Demonic Sacrifice 2 h and
   Divine Spirit 60 min durations; whether Amplify and Dampen Magic stack.
+- Unverified (v0.5.7, until Phase 89): the Well-Rested reminder (buff 429959, the sleeping bag
+  offer and click); the Forever aura rows 10301, 19746, 19896, 19898, 19900 and the now-mutual
+  aura group; the retail Concentration 317920 and Crusader 32223 rows and the now-mutual retail
+  aura group.
