@@ -353,7 +353,8 @@ comment until the user checks them.
   3. Once placed it loads on every Forever character, with or without the bag, and shows while 429959 is missing; the user's Never load setting still hides it
   4. Out of combat, a click uses the bag when it is in the bags and does nothing (no Lua error) when it is not; the overlay follows the bag arriving or leaving through the existing bag-change re-mark
   5. `docs/REMINDERS.md` lists the row with its `/forever/` spell and item links, and the doc check passes
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 86-01-PLAN.md — Well-Rested row with an item-gated offer (`offerItem`), a load rule that asks no known spell, the familiar's item click reused, and the doc row
 **Notes**: Reuse the familiar's `useItems` click path (CLICK-07). The new pieces are an item-count offer and a load rule that does not ask a known spell; both apply to this row only.
 
 ### Phase 87: Paladin Aura Reminders
