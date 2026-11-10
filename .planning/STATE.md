@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.5.6
-milestone_name: "More Forever Reminders"
+milestone: v0.5.7
+milestone_name: "Sleeping bag and some more"
 status: complete
-last_updated: "2026-11-09"
-last_activity: 2026-11-09 — v0.5.6 archived (audit passed) and squash-merged to main; release by the user
+last_updated: "2026-11-10"
+last_activity: 2026-11-10 — v0.5.7 archived (audit passed) and squash-merged to main; release by the user
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 5
-  completed_plans: 5
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 4
+  completed_plans: 4
   percent: 100
 ---
 
@@ -17,24 +17,27 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-09)
+See: .planning/PROJECT.md (updated 2026-11-10)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** v0.5.6 shipped and archived 2026-11-09, squash-merged to `main`. Next: the user runs `release.bat 0.5.6` from `main`; then `/gsd-new-milestone` (phases continue at 86).
+**Current focus:** v0.5.7 shipped and archived 2026-11-10, squash-merged to `main`. Next: the user writes the CHANGELOG entry and runs `release.bat 0.5.7` from `main`; then `/gsd-new-milestone` (phases continue at 90).
 
 ## Current Position
 
-Phase: 85 — Forever Testing Pass (complete)
-Plan: none; see `.planning/milestones/v0.5.6-phases/85-forever-testing-pass/85-SUMMARY.md`
-Status: Milestone audit PASSED (`.planning/v0.5.6-MILESTONE-AUDIT.md`). Mage armors and familiar
-verified in game; the other new rows ship on community feedback.
-Last activity: 2026-11-09 — milestone archived and squash-merged
+Phase: 89 — Testing Pass (complete)
+Plan: none; see `.planning/milestones/v0.5.7-phases/89-testing-pass/89-SUMMARY.md`
+Status: Milestone audit PASSED (`.planning/v0.5.7-MILESTONE-AUDIT.md`). The sleeping bag verified
+in game; the paladin aura and hunter aspect rows ship on community feedback.
+Last activity: 2026-11-10 — milestone archived and squash-merged
 
-Progress: [██████████] 100% (6/6 phases)
+Progress: [██████████] 100% (5/5 phases)
 
-- Branch: `milestone/v0.5.6-more-forever-reminders`, cut from `main` (`21c018d`) on 2026-11-09.
-- Phases start at **80** (v0.5.4 ended at Phase 79; v0.5.5 used no phase; numbering never restarts).
+- Branch: `milestone/v0.5.7-sleeping-bag-and-more`, cut from `main` (`ed54e01`) on 2026-11-10.
+- Phases started at **86**; the next milestone starts at **90** (numbering never restarts).
+- v0.5.7's phase directories are archived at `.planning/milestones/v0.5.7-phases/`.
 - Forever IDs and `wowhead.com/forever/` links only — never Classic's (user, 2026-11-09).
+- Paladin aura IDs: Forever and retail rows never share an ID (user, 2026-11-10); every row is
+  tagged with its client.
 - v0.5.6's phase directories are archived at `.planning/milestones/v0.5.6-phases/`; open questions
   on the untested rows are in `.planning/research/REMINDERS-NOT-INCLUDED.md`.
 - v0.5.4's phase directory is archived at `.planning/milestones/v0.5.4-phases/`. v0.5.3's phase directories are archived at `.planning/milestones/v0.5.3-phases/`; its review notes
@@ -46,7 +49,13 @@ Progress: [██████████] 100% (6/6 phases)
 
 ## Last Milestone at a Glance
 
-v0.5.6 More Forever Reminders: more Forever class-buff reminders with exclusive groups, group buffs
+v0.5.7 Sleeping bag and some more: a Forever Well-Rested reminder offered while the Cozy Sleeping
+Bag is in the bags, loaded on every character, whose click uses the bag (verified in game); one
+reminder per paladin aura on Forever and retail and one per Forever hunter aspect, each grouped so
+any one up hides the rest. 13 of 13 requirements. Full record: `.planning/MILESTONES.md` (v0.5.7
+entry), `.planning/milestones/v0.5.7-ROADMAP.md`, `.planning/v0.5.7-MILESTONE-AUDIT.md`.
+
+**Before:** v0.5.6 More Forever Reminders: more Forever class-buff reminders with exclusive groups, group buffs
 and other players' ranks counting as the buff, a familiar reminder whose click uses the best scroll
 in the bags, and `docs/REMINDERS.md` kept in step by `scripts/reminders-doc-check.js`. 21 of 21
 requirements (MREM-17 dropped). Full record: `.planning/MILESTONES.md` (v0.5.6 entry),

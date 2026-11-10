@@ -3,8 +3,9 @@
 -- One pooled SecureActionButtonTemplate button per clickable reminder icon.
 -- A click casts on the player, except the ally-cast rows (ns:ReminderCastUnit), which leave the
 -- unit unset so the game's default targeting applies.
--- One reminder, the familiar scroll, uses an item instead of casting: its overlay's type1 is
--- "item" with the first usable scroll in the bags (CLICK-07).
+-- Two reminders use an item instead of casting: the familiar scroll (the first usable scroll in
+-- the bags) and the sleeping bag (the Cozy Sleeping Bag when it is in the bags); their overlay's
+-- type1 is "item" (CLICK-07).
 -- Invariants:
 --   1. An overlay is never anchored to a TBT frame (only to UIParent, in screen
 --      coordinates), so TBT's display tree never becomes protected.
@@ -53,23 +54,17 @@ end
 -- CLICK-07: picks the first usable entry of an ordered { itemID, minLevel } list (highest tier
 -- first, never sorted) and returns its "item:<id>" attribute value, the string MetaReminderRow
 -- built at row load (pair field 3), so it allocates nothing; or nil. Called only from
--- Flush, so out of combat; guarded like the pot scan against a missing API and secret values.
--- The level is tested before the count, so a scroll the player is too low for falls through.
+-- Flush, so out of combat; the count read is ns:ItemInBags (Providers.lua), guarded against a
+-- missing API and secret values. The level is tested before the count, so a scroll the player is
+-- too low for falls through.
 local function PickUseItem(useItems)
-	if not (C_Item and C_Item.GetItemCount) then
-		return nil
-	end
 	local level = UnitLevel("player")
 	if issecretvalue(level) or type(level) ~= "number" then
 		return nil
 	end
 	for i = 1, #useItems do
-		local minLevel = useItems[i][2]
-		if level >= minLevel then
-			local ok, count = pcall(C_Item.GetItemCount, useItems[i][1])
-			if ok and not issecretvalue(count) and type(count) == "number" and count > 0 then
-				return useItems[i][3]
-			end
+		if level >= useItems[i][2] and ns:ItemInBags(useItems[i][1]) then
+			return useItems[i][3]
 		end
 	end
 	return nil

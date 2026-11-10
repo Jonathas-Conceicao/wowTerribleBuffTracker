@@ -1094,8 +1094,9 @@ local MetaSkillLustProvider = CreateFromMixins(SpellProviderBaseMixin, MetaSkill
 --
 -- In-game verification (internal notes only; the public doc carries no verified column): the
 -- original Mage, Paladin and Warlock rows were tested in game on 2026-09-29 (57.4-HUMAN-UAT), and
--- Ice Armor, Mage Armor and the familiar scroll on 2026-11-09 (Phase 85). Every other row keeps
--- "(unverified in game)" in its trailing comment; the v0.5.6 rows ship on community feedback.
+-- Ice Armor, Mage Armor and the familiar scroll on 2026-11-09 (Phase 85), and Well-Rested with the
+-- sleeping bag on 2026-11-10 (Phase 89). Every other row keeps "(unverified in game)" in its
+-- trailing comment; the v0.5.6 and v0.5.7 rows ship on community feedback.
 -- Righteous Fury (25780, added in Phase 57.5) assumes its aura ID equals its spell ID.
 --
 -- Shadowform (15473) was dropped on 2026-11-09 (Phase 85): it is a form like a druid's, not a buff
@@ -1139,6 +1140,9 @@ local metaReminderDefsBySpellID = {}
 -- that a click on the reminder picks from (the first one in the bags the player's level allows,
 -- CLICK-07); nil for every other row. Each pair's third field, the "item:<id>" click attribute,
 -- is filled in here at load, so ReminderClick.lua's PickUseItem builds no string per flush.
+-- offerItem is nil or an item ID: when set, the Suggested offer asks whether that item is in the
+-- bags instead of whether knownID is known (SBAG-02), and the load rule loads the row without
+-- asking a known spell (SBAG-03). Only the Well-Rested row (the Cozy Sleeping Bag) sets it.
 -- This is the ONE point where a row is kept off a client: an unregistered row is neither offered
 -- nor loaded (an already-placed entry for it is an orphan via ns:IsOrphanMetaReminder). Existing
 -- Forever rows need no argument because nil means forever.
@@ -1158,6 +1162,7 @@ local function MetaReminderRow(spellID, minutes, knownID, petBook, castID, opts)
 		auraID = opts and opts.auraID or nil,
 		allyCast = opts ~= nil and opts.allyCast == true,
 		useItems = useItems,
+		offerItem = opts and opts.offerItem or nil,
 		spellID = spellID,
 		duration = minutes > 0 and minutes * 60 or nil,
 		knownID = knownID or spellID,
@@ -1216,15 +1221,31 @@ MetaReminderRow(408510, 10) -- Shaman: Water Shield (MREM-09; Restoration talent
 MetaReminderRow(10952, 10) -- Priest: Inner Fire (MREM-10) (unverified in game)
 MetaReminderRow(19312, 10) -- Priest: Shadowguard (MREM-14; Troll; the known-spell rule offers it only to a priest who knows it) (unverified in game)
 MetaReminderRow(10958, 10) -- Priest: Shadow Protection (MREM-16; situational) (unverified in game)
--- Paladin aura (Phase 82, MREM-11): one "any aura" row; every aura rank is listed in the Forever block.
-MetaReminderRow(10293, 0) -- Paladin: Devotion Aura, any paladin aura satisfies it (MREM-11; permanent; keyed on 10293, never the retail Devotion row's ID, which is only an alternative here) (unverified in game)
--- Hunter aspect (Phase 82, MREM-12): one "any aspect" row; the aspects are listed in the Forever block.
-MetaReminderRow(25296, 0) -- Hunter: Aspect of the Hawk, any aspect satisfies it (MREM-12; permanent; Viper and Falcon never count) (unverified in game)
+-- Paladin auras (Phase 82 MREM-11, Phase 87 PAURA-01): one row per aura, keyed on its top rank,
+-- permanent; the Forever block groups them with every rank, so any aura up hides them all (PAURA-02).
+-- None of these IDs is a retail row ID (PAURA-04).
+MetaReminderRow(10293, 0) -- Paladin: Devotion Aura (MREM-11; permanent; keyed on 10293, never the retail Devotion row's ID 465, which is Forever rank 1 and only an alternative here) (unverified in game)
+MetaReminderRow(10301, 0) -- Paladin: Retribution Aura (PAURA-01; permanent) (unverified in game)
+MetaReminderRow(19746, 0) -- Paladin: Concentration Aura (PAURA-01; permanent; one rank) (unverified in game)
+MetaReminderRow(19896, 0) -- Paladin: Shadow Resistance Aura (PAURA-01; permanent) (unverified in game)
+MetaReminderRow(19898, 0) -- Paladin: Frost Resistance Aura (PAURA-01; permanent) (unverified in game)
+MetaReminderRow(19900, 0) -- Paladin: Fire Resistance Aura (PAURA-01; permanent) (unverified in game)
+-- Hunter aspects (Phase 82 MREM-12, Phase 87.1 HASP-01): one row per aspect, keyed on its top rank,
+-- permanent, each offered to a hunter who knows a rank of it; the Forever block groups them with
+-- every rank, so any aspect up hides them all (HASP-02). Viper and Falcon never count.
+MetaReminderRow(25296, 0) -- Hunter: Aspect of the Hawk (MREM-12; permanent) (unverified in game)
+MetaReminderRow(13163, 0) -- Hunter: Aspect of the Monkey (HASP-01; permanent; one rank) (unverified in game)
+MetaReminderRow(5118, 0) -- Hunter: Aspect of the Cheetah (HASP-01; permanent; one rank) (unverified in game)
+MetaReminderRow(13159, 0) -- Hunter: Aspect of the Pack (HASP-01; permanent; one rank) (unverified in game)
+MetaReminderRow(20190, 0) -- Hunter: Aspect of the Wild (HASP-01; permanent; rank 2, rank 1 is 20043) (unverified in game)
+MetaReminderRow(13161, 0) -- Hunter: Aspect of the Beast (HASP-01; permanent; Forever ranks 1299445-1299447 are in the group and the name family) (unverified in game)
 -- Mage situational pair (Phase 82, MREM-15): Amplify Magic and Dampen Magic; grouped in the Forever block.
 MetaReminderRow(10170, 10) -- Mage: Amplify Magic (MREM-15; situational) (unverified in game)
 MetaReminderRow(10174, 10) -- Mage: Dampen Magic (MREM-15; situational) (unverified in game)
 -- Demonic Sacrifice (Phase 82, MREM-13): last, the only row with a separate aura ID.
 MetaReminderRow(18788, 120, nil, nil, nil, { auraID = 18789 }) -- Warlock: Demonic Sacrifice (MREM-13; the cast 18788 carries no buff, the row watches aura 18789; a click casts 18788) (unverified in game)
+-- Well-Rested (Phase 86, SBAG-01..04): the Cozy Sleeping Bag, offered while it is in the bags.
+MetaReminderRow(429959, 120, nil, nil, false, { offerItem = 211527, useItems = { { 211527, 1 } } }) -- General: Well-Rested (the Cozy Sleeping Bag 211527; offered while the bag is in the bags and loaded on every character, SBAG-02/03; no cast spell, a click uses the bag, CLICK-07; the bag only unfurls, the buff arrives after a minute of rest and stacks to 3, so the aura, not the click, hides the reminder)
 
 -- The retail rows (user data 2026-09-30, MREM-04/MREM-05).
 -- Arcane Familiar trade-off: a cast of 1459 starts only the Arcane Intellect row (the cast index
@@ -1241,9 +1262,12 @@ MetaReminderRow(192106, 60, nil, nil, nil, { client = "retail" }) -- Shaman: Lig
 MetaReminderRow(364342, 60, nil, nil, nil, { client = "retail", auraID = 381748 }) -- Evoker: Blessing of the Bronze (aura 381748)
 MetaReminderRow(369459, 60, nil, nil, nil, { client = "retail", allyCast = true }) -- Evoker: Source of Magic (cast on your target)
 MetaReminderRow(465, 0, nil, nil, nil, { client = "retail" }) -- Paladin: Devotion Aura (permanent: no duration, shown once the aura is gone, no lead window)
+MetaReminderRow(317920, 0, nil, nil, nil, { client = "retail" }) -- Paladin: Concentration Aura (PAURA-03; permanent) (unverified in game)
+MetaReminderRow(32223, 0, nil, nil, nil, { client = "retail" }) -- Paladin: Crusader Aura (PAURA-03; permanent) (unverified in game)
 
--- Per the user decision, Concentration Aura 317920 or Crusader Aura 32223 satisfies Devotion Aura;
--- they are alternatives only (not rows), so only 465 receives the list, and Devotion stays the cast spell.
+-- Retail paladin auras (PAURA-03): Devotion, Concentration and Crusader are rows, so any one up
+-- hides all three. Retribution Aura 183435 is not a row: documented but no longer in the class
+-- toolkit (user, 2026-11-10). Declared after the three rows, which it needs.
 MetaReminderGroup(465, 317920, 32223)
 
 -- The Forever group block (RALT-04, Phase 80): every Forever group call lives in this one block.
@@ -1309,9 +1333,10 @@ if ns.CLIENT_IS_FOREVER then
 	MetaReminderGroup(10432, 408510)
 	-- Shadow Protection (MREM-16, RALT-07): ranks 1-2 and Prayer of Shadow Protection, one-way
 	MetaReminderGroup(10958, 976, 10957, 27683)
-	-- Paladin auras (MREM-11, RALT-07): any aura satisfies the Devotion Aura row, one-way. Devotion
-	-- ranks (465 is rank 1 here and the retail row's ID, which is why it is only in this block),
-	-- Retribution ranks, Concentration, Shadow/Frost/Fire Resistance ranks. Sanctity Aura is not listed.
+	-- Paladin auras (MREM-11, PAURA-02, RALT-07): the six aura rows (10293, 10301, 19746, 19896,
+	-- 19898, 19900) and every lower rank; any one up hides every aura reminder. Devotion ranks (465
+	-- is rank 1 here and the retail row's ID, which is why it is only in this block), Retribution
+	-- ranks, Concentration, Shadow/Frost/Fire Resistance ranks. Sanctity Aura is not listed.
 	MetaReminderGroup(
 		10293,
 		465,
@@ -1336,9 +1361,29 @@ if ns.CLIENT_IS_FOREVER then
 		19899,
 		19900
 	)
-	-- Hunter aspects (MREM-12): any aspect satisfies the Aspect of the Hawk row, one-way: Monkey,
-	-- Cheetah, Pack, Wild, Beast. Viper and Falcon are deliberately not listed.
-	MetaReminderGroup(25296, 13163, 5118, 13159, 20043, 20190, 13161)
+	-- Hunter aspects (MREM-12, HASP-02): the six aspect rows (Hawk 25296, Monkey 13163, Cheetah
+	-- 5118, Pack 13159, Wild 20190, Beast 13161) and every lower or Forever-added rank: Hawk 13165,
+	-- 14318, 14319, 14320, 14321, 14322; Wild 20043; Beast 1299445, 1299446, 1299447. Any aspect up
+	-- hides every aspect reminder ("Only one Aspect can be active at a time"). Viper and Falcon are
+	-- deliberately not listed (not on the Forever hunter list).
+	MetaReminderGroup(
+		25296,
+		13163,
+		5118,
+		13159,
+		20190,
+		13161,
+		13165,
+		14318,
+		14319,
+		14320,
+		14321,
+		14322,
+		20043,
+		1299445,
+		1299446,
+		1299447
+	)
 	-- Amplify Magic and Dampen Magic with every rank (MREM-15, RALT-07): any one up hides both
 	MetaReminderGroup(10170, 10174, 1008, 8455, 10169, 604, 8450, 8451, 10173)
 	-- Demonic Sacrifice, last (MREM-13): the other three sacrifice buffs, one-way; the row watches aura 18789
@@ -1355,6 +1400,12 @@ end
 function ns:MetaReminderKnownID(spellID)
 	local def = metaReminderDefsBySpellID[spellID]
 	return def and def.knownID or spellID
+end
+
+-- The item a row's Suggested offer asks for and whose load rule asks no known spell (SBAG-02/03), or nil; one map read.
+function ns:MetaReminderOfferItem(spellID)
+	local def = metaReminderDefsBySpellID[spellID]
+	return def and def.offerItem or nil
 end
 
 -- True only for a row whose rank family also reads the pet spellbook (Blood Pact).
@@ -1396,7 +1447,7 @@ end
 -- The ordered { itemID, minLevel } list a click on a reminder picks an item from (CLICK-07), or
 -- nil; each pair's third field is its "item:<id>" click attribute, built once by MetaReminderRow,
 -- the only place a useItems list is built. Only a built-in row carries one (the familiar
--- scrolls). Called by ReminderClick.lua's Flush; one map read, no allocation.
+-- scrolls and the sleeping bag). Called by ReminderClick.lua's Flush; one map read, no allocation.
 function ns:ReminderUseItems(entry)
 	if entry.trackerType ~= ns.KIND.META_REMINDER then
 		return nil
@@ -1475,12 +1526,35 @@ end
 -- (shared with the cast rules through ns:CastRuleFamily) until the next SPELLS_CHANGED. The table
 -- holds only the rows tagged for this client (MREM-04/05), so the offer needs no flavour gate of its own. Fails closed: a row never read readably is not
 -- offered; any known rank offers the row. Rebuilt into a module-level array, never a fresh table.
+-- A row with offerItem (Well-Rested) is offered while that item is in the bags instead of when a
+-- spell is known (SBAG-02). No memo applies: this list is rebuilt on every ns:RefreshTBTSections
+-- (every CDM open, every drag), and a BAG_UPDATE while the CDM is open already redraws through
+-- ns:MarkItemCatalogueDirty; ns:IsSuggestedKeyResolvable's memo covers only ns.SUGGESTED_KEYS. So
+-- the offer follows the bag arriving or leaving with no new event hook.
 local metaReminderSuggestionKeys = {}
+
+-- Whether the bags hold at least one of the item: the one guarded count read shared by the
+-- Suggested offer (SBAG-02) and ReminderClick.lua's PickUseItem (CLICK-07). A missing API, a failed
+-- call or a secret or non-number count all mean no. Never called per frame; no allocation.
+function ns:ItemInBags(itemID)
+	if not (C_Item and C_Item.GetItemCount) then
+		return false
+	end
+	local ok, count = pcall(C_Item.GetItemCount, itemID)
+	return ok and not issecretvalue(count) and type(count) == "number" and count > 0
+end
 
 function ns:MetaReminderSuggestionKeys()
 	wipe(metaReminderSuggestionKeys)
 	for _, def in ipairs(META_REMINDER_DEFS) do
-		if ns:ResolveSpellKnown(def.knownID, false) == true then
+		-- SBAG-02: an item-offered row asks the bags; every other row asks the known spell.
+		local offered
+		if def.offerItem then
+			offered = ns:ItemInBags(def.offerItem)
+		else
+			offered = ns:ResolveSpellKnown(def.knownID, false) == true
+		end
+		if offered then
 			metaReminderSuggestionKeys[#metaReminderSuggestionKeys + 1] = def.key
 		end
 	end

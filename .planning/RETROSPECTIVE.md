@@ -2,6 +2,34 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v0.5.7 — Sleeping bag and some more
+
+**Shipped:** 2026-11-10 (archived and squash-merged; changelog and tag by the user)
+**Phases:** 5 (86, 87, 87.1, 88, 89) | **Plans:** 4 | **Commits:** 16 before the close | **Span:** 1 day
+
+### What Was Built
+
+- A Forever Well-Rested reminder offered while the sleeping bag is in the bags, loaded everywhere,
+  whose click uses the bag.
+- One reminder per paladin aura on Forever and retail, and one per hunter aspect on Forever, each
+  grouped so any one up hides the rest.
+
+### What Worked
+
+- **Data-only rows again.** Only the sleeping bag needed new behaviour (`offerItem`); the auras and
+  aspects were rows and one group call each, so an inserted phase (87.1) took one commit.
+- **Reusing the familiar's item click** kept the bag click to a guarded count check.
+
+### What Was Inefficient
+
+- **The aspect group note was dense prose.** It listed short names ("Monkey; Cheetah; Pack") after a
+  long Hawk rank list, and the user read it as Hawk and Monkey only. Fixed at review as a list.
+
+### Key Lessons
+
+- A group note listing several spells reads best as one line per spell with its full name; the doc
+  check accepts a list as long as the paragraph has no blank line.
+
 ## Milestone: v0.5.6 — More Forever Reminders
 
 **Shipped:** 2026-11-09 (archived and squash-merged; changelog and tag by the user)

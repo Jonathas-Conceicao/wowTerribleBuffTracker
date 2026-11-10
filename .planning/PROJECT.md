@@ -10,9 +10,55 @@ Players can see countdown timers for buffs/cooldowns that the game no longer sur
 
 ## Next Milestone
 
-Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 86. Open
+Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 90. Open
 candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27, 999.28, 999.29), plus
-community feedback on the untested v0.5.6 Forever rows.
+community feedback on the untested v0.5.6 and v0.5.7 Forever and retail rows.
+
+<details>
+<summary>v0.5.7 Sleeping bag and some more — SHIPPED 2026-11-10</summary>
+
+5 phases (86, 87, 87.1, 88, 89), 4 plans, 13/13 requirements. A Forever Well-Rested reminder
+offered while the Cozy Sleeping Bag is in the bags, loaded on every character, whose click uses the
+bag; one reminder per paladin aura on Forever and retail; one per hunter aspect on Forever
+(added mid-milestone). The sleeping bag verified in game; the aura and aspect rows ship on
+community feedback. Archives: [`milestones/v0.5.7-ROADMAP.md`](milestones/v0.5.7-ROADMAP.md) and
+[`milestones/v0.5.7-REQUIREMENTS.md`](milestones/v0.5.7-REQUIREMENTS.md). Kickoff notes follow.
+
+**Goal:** A Forever reminder for the Cozy Sleeping Bag's Well-Rested buff, and one reminder per
+paladin aura on both clients, grouped so any aura up hides them all.
+
+**A patch (user, 2026-11-10):** no major feature. Phases start at **86**. Branch
+`milestone/v0.5.7-sleeping-bag-and-more`, cut from `main` (`ed54e01`). Research done inline (user
+decision): item and spell looked up on Wowhead's `/forever/` pages; Forever aura ranks from
+`research/FOREVER-REMINDERS.md`; retail auras are the three the shipped retail Devotion row already
+lists.
+
+**Target features (user, 2026-11-10):**
+
+- **Sleeping bag reminder (Forever only).** Buff Well-Rested
+  ([429959](https://www.wowhead.com/forever/spell=429959), 2 h, stacks up to 3), from the Cozy
+  Sleeping Bag ([211527](https://www.wowhead.com/forever/item=211527), 1 h cooldown). Using the item
+  unfurls the bag; the buff comes after resting in it for a minute, so the reminder hides on the
+  aura, not on the click.
+  - Suggested lists it only while the bag is in the character's bags.
+  - Once placed it loads on every character (reminders are account-wide): a character without the
+    bag still sees it when the buff is missing (user decision).
+  - A click uses the bag when it is in the bags; without it, the click does nothing and raises no
+    error, as the familiar scroll click does.
+- **One reminder per paladin aura, on each client, never mixing IDs.** Grouped like the blessings:
+  any aura up hides every aura reminder (user decision; today's behaviour, more tiles to choose).
+  - Forever (top ranks): Devotion 10293 (existing row), Retribution 10301, Concentration 19746,
+    Shadow Resistance 19896, Frost Resistance 19898, Fire Resistance 19900. Sanctity Aura stays out.
+  - Retail: Devotion 465 (existing row), Concentration 317920, Crusader 32223. Retribution Aura
+    (183435) is still documented on retail but no longer in the class toolkit, so it stays out.
+- `docs/REMINDERS.md` and its check script cover the new rows; the usual cleanup phase, then the
+  user's in-game pass.
+
+**Scope rule (carried from v0.5.6):** nothing works differently from today except what is listed
+above. New rows are data through `MetaReminderRow` / `MetaReminderGroup`; the only new behaviour is
+the sleeping bag's item-based Suggested offer and its always-loaded rule.
+
+</details>
 
 <details>
 <summary>v0.5.6 More Forever Reminders — SHIPPED 2026-11-09</summary>
@@ -481,6 +527,9 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 - More Forever class-buff reminders with exclusive groups (mage, warlock and shaman armors/shields, priest buffs, any paladin aura, any hunter aspect, Amplify/Dampen Magic, Demonic Sacrifice); group buffs and other players' ranks satisfy the single-target reminder; Salvation and Light retired — v0.5.6 Phases 80-82 (RALT-04..07, MREM-06..16, MREM-18)
 - The familiar reminder's click uses the best usable scroll in the bags — v0.5.6 Phase 81 (CLICK-07), verified in game
 - `docs/REMINDERS.md`, kept in step with `Providers.lua` by `scripts/reminders-doc-check.js` — v0.5.6 Phase 83 (DOC-06, DOC-07)
+- Forever Well-Rested reminder: offered while the Cozy Sleeping Bag is in the bags (`offerItem`), loaded on every Forever character once placed, a click uses the bag and does nothing without it — v0.5.7 Phase 86 (SBAG-01..04), verified in game
+- One reminder per paladin aura on Forever (six) and retail (three), each client one group, no shared IDs — v0.5.7 Phase 87 (PAURA-01..04, DOC-08)
+- One reminder per Forever hunter aspect, any aspect at any rank hides all — v0.5.7 Phase 87.1 (HASP-01, HASP-02)
 
 ### Active
 
@@ -504,7 +553,9 @@ Still open in the backlog:
 
 **v0.5.5 Fresh-login buff time fix (outside GSD, 2026-10-27)** — a buff already up at a fresh login (a flask with 40m left) showed its whole duration ("1h", or "2h" when stacked) until renewed, and following the aura through an engineering extension did not help. Found with a state dump that ran automatically 5s after login: the timer was right (2041s left), but the icon's countdown frame held a start 4,293,145s ahead. `GetTime()` counts from the client's launch, so a buff applied before it has a negative start once synced to the aura, and `SetCooldown` stores the start as unsigned milliseconds (a wrap to ~49.7 days). A `/reload` keeps `GetTime()` counting, which is why only a fresh login showed it. This was also the real cause of v0.5.4's "2h"; v0.5.4's rounding explanation was wrong. Fix: `SetTimerSweep` in `Display.lua` uses `SetCooldownFromExpirationTime`, with a clamp-at-zero fallback where the method is missing.
 
-**v0.5.6 More Forever Reminders shipped 2026-11-09** — 6 phases (80-85), 5 plans, 21/21 requirements (MREM-17 dropped). Mage armors and the familiar click verified in game on Forever; the other new rows ship on community feedback. Squash-merged to `main`; CHANGELOG, release and tag by the user. See [`milestones/v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md).
+**v0.5.7 Sleeping bag and some more shipped 2026-11-10** — 5 phases (86, 87, 87.1, 88, 89), 4 plans, 13/13 requirements. The sleeping bag reminder verified in game on Forever; the paladin aura and hunter aspect rows ship on community feedback. Squash-merged to `main`; CHANGELOG, release and tag by the user. See [`milestones/v0.5.7-ROADMAP.md`](milestones/v0.5.7-ROADMAP.md).
+
+**Earlier —** **v0.5.6 More Forever Reminders shipped 2026-11-09** — 6 phases (80-85), 5 plans, 21/21 requirements (MREM-17 dropped). Mage armors and the familiar click verified in game on Forever; the other new rows ship on community feedback. Squash-merged to `main`; CHANGELOG, release and tag by the user. See [`milestones/v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md).
 
 **Earlier —** **v0.5.4 Buff countdown display fix shipped 2026-10-24** — 1 phase (79), 1 plan, 4/4 requirements, verified in game on Midnight retail; squash-merged to `main`, CHANGELOG and tag by the user. See [`milestones/v0.5.4-ROADMAP.md`](milestones/v0.5.4-ROADMAP.md).
 
@@ -601,6 +652,8 @@ client-side bug — see Context.
 | A read never rewrites a value the user typed | Asked to "auto-correct" a buff whose live duration differed, a first build overwrote the saved Duration. A live aura can be longer than one use (two flasks stacked = 2h), and the setting is the user's | Decided 2026-10-22 by the user (Phase 78). Live data drives only the running timer (`SyncProcToAura`); `ns.db` is never written from an aura read |
 | Group buffs satisfy their single-target class-buff reminder | Reverses the 2026-09-29 exclusion: a raid buff (Arcane Brilliance, Prayer of Fortitude, Gift of the Wild, a Greater Blessing) on the player means the single-target buff is not needed | Decided 2026-11-09 by the user (v0.5.6 kickoff). Through the existing alternatives lists; user input still never reaches a built-in's alternatives. ✓ Shipped v0.5.6 |
 | Untested built-in reminder rows ship and are fixed on community feedback | The user can test only a mage on Forever; holding every other class's rows for in-game checks would block the release indefinitely | Decided 2026-11-09 by the user (Phase 85). Rows keep "(unverified in game)" in their `Providers.lua` comment; the public doc has no verified column |
+| A reminder from an item is offered by item count, not by known spell, and loads on every character | Reminders are account-wide: a character without the Cozy Sleeping Bag still wants the Well-Rested reminder it placed elsewhere, and a click without the bag must do nothing | Decided 2026-11-10 by the user (v0.5.7 kickoff). `offerItem` on the row; the user's Never load setting still applies. ✓ Shipped v0.5.7, verified in game |
+| Paladin auras and hunter aspects: one reminder each, grouped | The player picks which aura or aspect tiles to place; any one up means the class buff is handled, as with the blessings | Decided 2026-11-10 by the user (v0.5.7). Forever and retail aura rows never share an ID. ✓ Shipped v0.5.7 (untested in game) |
 | Forms and stances are not reminders | Shadowform, like a druid form or a warrior stance, is toggled on purpose, so a "missing" icon is noise | Decided 2026-11-09 by the user (Phase 85); Shadowform dropped |
 | A cooldown's buff has no "End when the aura is lost" opt-out | A buff that never lands readably (wrong Aura ID, ally-targeted) ending the timer is for the user to fix in the Aura ID box | Decided 2026-10-22 (Phase 74 review WR-02); also covers the read-sync shortening a timer (v0.5.3 audit warning 2). ✓ Shipped v0.5.3 |
 
@@ -622,4 +675,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-09 after v0.5.6 More Forever Reminders milestone*
+*Last updated: 2026-11-10 after the v0.5.7 Sleeping bag and some more milestone*

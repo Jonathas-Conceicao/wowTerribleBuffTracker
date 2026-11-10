@@ -1,5 +1,21 @@
 # Milestones
 
+## v0.5.7 Sleeping bag and some more (Shipped: 2026-11-10)
+
+**Scope:** A Forever Well-Rested reminder whose click uses the Cozy Sleeping Bag, one reminder per paladin aura on Forever and retail, and (added mid-milestone by the user) one reminder per Forever hunter aspect. A patch: no major feature.
+**Phases:** 5 (86, 87, 87.1 inserted, 88, 89), 4 plans; Phase 89 was the user's in-game pass.
+**Timeline:** 1 day (2026-11-10), 16 commits before the close. Outside `.planning/`: 4 files, +153 / -35.
+**Verified on:** WoW Forever, by the user: the Well-Rested reminder with the sleeping bag. The paladin aura rows (both clients) and the hunter aspect rows ship untested on community feedback (user decision).
+**Requirements:** 13 / 13 closed (HASP-01/02 added mid-milestone).
+**Known deferred items at close:** the untested aura and aspect rows keep "(unverified in game)"; Viper and Falcon are left out of the aspect group on research only. Tracked in `research/REMINDERS-NOT-INCLUDED.md`. See `milestones/v0.5.7-ROADMAP.md`.
+
+### Key accomplishments
+
+- **Sleeping bag reminder (Forever).** Well-Rested (429959, 2 h) is offered in Suggested only while the Cozy Sleeping Bag (211527) is in the bags (`offerItem`, an item-count check), loads on every Forever character once placed, and a click uses the bag; without the bag the click does nothing, with no error. The aura, not the click, hides it.
+- **Paladin auras on both clients.** Six Forever aura rows (top ranks) and three retail rows (Devotion, Concentration, Crusader), each client one group so any aura hides all. No ID shared across clients; the Devotion rows keep their keys. Retail Retribution Aura left out (not in the Midnight toolkit).
+- **Hunter aspects (Forever).** Hawk, Monkey, Cheetah, Pack, Wild and Beast each get a reminder offered by known rank and cast on click; one 16-ID group so any aspect at any rank hides all.
+- **Cleanup.** One guarded bag-count read, `ns:ItemInBags`, shared by the offer and the item click.
+
 ## v0.5.6 More Forever Reminders (Shipped: 2026-11-09)
 
 **Scope:** More built-in Forever class-buff reminders, with buffs that cannot be up together grouped so any one present hides every member's reminder, and group buffs counting as their single-target buff. A human-review doc of every built-in reminder. Named v0.5.6, a patch, because no major feature ships (user decision).

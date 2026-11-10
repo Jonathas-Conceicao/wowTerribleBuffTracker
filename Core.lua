@@ -697,6 +697,16 @@ function ns:TrackerLoadReason(key)
 	if ns:TrackerLoad(key, entry) == ns.LOAD.NEVER then
 		return LOAD_REASON_NEVER
 	end
+	-- SBAG-03: an item-offered row asks no known spell, so it has no "does not know" line and
+	-- ns:SpellLabel is never called for it.
+	if
+		entry
+		and entry.trackerType == ns.KIND.META_REMINDER
+		and ns.MetaReminderOfferItem
+		and ns:MetaReminderOfferItem(entry.spellID)
+	then
+		return nil
+	end
 	-- Review IN-02: a metaReminder whose row loads on another spell (Blood Pact on Summon Imp)
 	-- names that spell, since "this spell" would point at the buff the tile shows. Hover-time only,
 	-- so the concatenation is not on any hot path.
@@ -1336,6 +1346,15 @@ function ns:RebuildTrackerLoad()
 		elseif rule == ns.LOAD.NEVER then
 			loaded = false
 		elseif type(entry.spellID) ~= "number" then
+			loaded = true
+		elseif
+			entry.trackerType == ns.KIND.META_REMINDER
+			and ns.MetaReminderOfferItem
+			and ns:MetaReminderOfferItem(entry.spellID)
+		then
+			-- SBAG-03: an item-offered row (Well-Rested) asks no known spell, so When known loads it on
+			-- every character, with or without the item; Never and Always were decided above and an
+			-- orphan is never loaded.
 			loaded = true
 		else
 			-- Phase 57.4: a metaReminder asks its table row's known spell, which is the buff itself
@@ -2194,8 +2213,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 		-- event that fires on every gear change.
 		if event == "BAG_UPDATE_DELAYED" then
 			ns:ReconcileTrackedItemCounts()
-			-- CLICK-07: a bag change can change which familiar scroll a reminder click uses; the flush is
-			-- coalesced and deferred in combat. Review 81 WR-01: only while a shown reminder uses an item.
+			-- CLICK-07: a bag change can change which familiar scroll, or whether the sleeping bag, a
+			-- reminder click uses; the flush is coalesced and deferred in combat. Review 81 WR-01: only
+			-- while a shown reminder uses an item.
 			if ns.reminderItemClickActive then
 				ns:MarkReminderClicksDirty()
 			end

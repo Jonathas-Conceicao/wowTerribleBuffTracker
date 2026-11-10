@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [x] **v0.5.7 Sleeping bag and some more** — Phases 86-89 (shipped 2026-11-10) — [archive](milestones/v0.5.7-ROADMAP.md)
 - [x] **v0.5.6 More Forever Reminders** — Phases 80-85 (shipped 2026-11-09) — [archive](milestones/v0.5.6-ROADMAP.md)
 - [x] **v0.5.5 Fresh-login buff time fix** — no phases, done outside GSD (shipped 2026-10-27, `6f976e8`) — see `MILESTONES.md`
 - [x] **v0.5.4 Buff countdown display fix** — Phase 79 (shipped 2026-10-24) — [archive](milestones/v0.5.4-ROADMAP.md)
@@ -18,6 +19,20 @@
 - [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
+
+<details>
+<summary>✅ v0.5.7 Sleeping bag and some more (Phases 86-89) — SHIPPED 2026-11-10</summary>
+
+Full detail archived at [`milestones/v0.5.7-ROADMAP.md`](milestones/v0.5.7-ROADMAP.md); requirements
+at [`milestones/v0.5.7-REQUIREMENTS.md`](milestones/v0.5.7-REQUIREMENTS.md).
+
+- [x] Phase 86: Sleeping Bag Reminder — Forever Well-Rested reminder offered while the bag is in the bags, loaded on every character, click uses the bag
+- [x] Phase 87: Paladin Aura Reminders — one reminder per aura on Forever and on retail, each client grouped so any aura hides all
+- [x] Phase 87.1: Hunter Aspect Reminders (INSERTED) — one reminder per Forever aspect, any aspect hides all
+- [x] Phase 88: Cleanup — one guarded bag-count read shared by the offer and the click
+- [x] Phase 89: Testing Pass — the sleeping bag verified in game; the paladin and hunter rows ship untested
+
+</details>
 
 <details>
 <summary>✅ v0.5.6 More Forever Reminders (Phases 80-85) — SHIPPED 2026-11-09</summary>
@@ -321,8 +336,8 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 
 ## Phase Details
 
-*Every phase through v0.5.6 (Phases 1-85) is archived under `.planning/milestones/`. The most recent
-is [`v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md), which carries the full detail for Phases 80-85.*
+*Every phase through v0.5.7 (Phases 1-89) is archived under `.planning/milestones/`. The most recent
+is [`v0.5.7-ROADMAP.md`](milestones/v0.5.7-ROADMAP.md), which carries the full detail for Phases 86-89.*
 
 ## Progress
 
@@ -389,6 +404,11 @@ is [`v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md), which carries the full d
 | 83. Reminder Review Doc | v0.5.6 | 1/1 | Complete | 2026-11-09 |
 | 84. Cleanup | v0.5.6 | 1/1 | Complete | 2026-11-09 |
 | 85. Forever Testing Pass | v0.5.6 | — | Complete (mage verified in game; rest ships on feedback) | 2026-11-09 |
+| 86. Sleeping Bag Reminder | v0.5.7 | 1/1 | Complete | 2026-11-10 |
+| 87. Paladin Aura Reminders | v0.5.7 | 1/1 | Complete | 2026-11-10 |
+| 87.1. Hunter Aspect Reminders | v0.5.7 | 1/1 | Complete | 2026-11-10 |
+| 88. Cleanup | v0.5.7 | 1/1 | Complete | 2026-11-10 |
+| 89. Testing Pass | v0.5.7 | — | Complete (testing pass) | 2026-11-10 |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*
