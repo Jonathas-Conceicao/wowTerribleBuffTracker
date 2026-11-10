@@ -1505,10 +1505,10 @@ end
 -- the offer follows the bag arriving or leaving with no new event hook.
 local metaReminderSuggestionKeys = {}
 
--- SBAG-02: whether the bags hold the item. Render-time only, with the same guards as
--- ReminderClick.lua's PickUseItem: a missing API, a failed call or a secret or non-number count
--- all mean not offered.
-local function OfferItemInBags(itemID)
+-- Whether the bags hold at least one of the item: the one guarded count read shared by the
+-- Suggested offer (SBAG-02) and ReminderClick.lua's PickUseItem (CLICK-07). A missing API, a failed
+-- call or a secret or non-number count all mean no. Never called per frame; no allocation.
+function ns:ItemInBags(itemID)
 	if not (C_Item and C_Item.GetItemCount) then
 		return false
 	end
@@ -1522,7 +1522,7 @@ function ns:MetaReminderSuggestionKeys()
 		-- SBAG-02: an item-offered row asks the bags; every other row asks the known spell.
 		local offered
 		if def.offerItem then
-			offered = OfferItemInBags(def.offerItem)
+			offered = ns:ItemInBags(def.offerItem)
 		else
 			offered = ns:ResolveSpellKnown(def.knownID, false) == true
 		end
