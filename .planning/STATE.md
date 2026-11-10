@@ -4,13 +4,13 @@ milestone: v0.5.7
 milestone_name: "Sleeping bag and some more"
 status: executing
 last_updated: "2026-11-10"
-last_activity: 2026-11-10 — Phase 86 complete (Well-Rested reminder)
+last_activity: 2026-11-10 — Phases 86-88 complete; Phase 89 (in-game testing) waits on the user
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 25
+  completed_phases: 3
+  total_plans: 3
+  completed_plans: 3
+  percent: 75
 ---
 
 # Project State
@@ -24,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 
 ## Current Position
 
-Phase: 87 — Paladin Aura Reminders (not started)
-Plan: —
-Status: Phase 86 complete (verification passed); Phase 87 next
-Last activity: 2026-11-10 — Phase 86: Well-Rested reminder (SBAG-01..04), in-game checks deferred to Phase 89
+Phase: 89 — Testing Pass (waiting on the user's in-game check)
+Plan: — (testing pass, no plans)
+Status: Phases 86-88 complete; Phase 89 in progress
+Last activity: 2026-11-10 — Phase 87 paladin auras (PAURA-01..04, DOC-08), Phase 88 cleanup (CLEAN-02)
 
-Progress: [██▌░░░░░░░] 25%
+Progress: [███████▌░░] 75%
 
 - Branch: `milestone/v0.5.7-sleeping-bag-and-more`, cut from `main` (`ed54e01`) on 2026-11-10.
 - Phases start at **86** (v0.5.6 ended at Phase 85; numbering never restarts).

@@ -33,7 +33,7 @@ requirements name. Rows and groups are data through `MetaReminderRow` / `MetaRem
 
 ### Paladin auras (both clients, IDs never mixed)
 
-- [ ] **PAURA-01**: On Forever, one reminder per paladin aura, each keyed on its top rank: Devotion
+- [x] **PAURA-01**: On Forever, one reminder per paladin aura, each keyed on its top rank: Devotion
   [10293](https://www.wowhead.com/forever/spell=10293) (existing row), Retribution
   [10301](https://www.wowhead.com/forever/spell=10301), Concentration
   [19746](https://www.wowhead.com/forever/spell=19746), Shadow Resistance
@@ -41,28 +41,28 @@ requirements name. Rows and groups are data through `MetaReminderRow` / `MetaRem
   [19898](https://www.wowhead.com/forever/spell=19898), Fire Resistance
   [19900](https://www.wowhead.com/forever/spell=19900). Permanent (no timer). Each is offered only to a
   paladin who knows a rank of it.
-- [ ] **PAURA-02**: On Forever, any paladin aura up (any rank, cast by anyone) hides every Forever aura
+- [x] **PAURA-02**: On Forever, any paladin aura up (any rank, cast by anyone) hides every Forever aura
   reminder: one group in the Forever block with the six rows and every lower rank, replacing the
   current Devotion-only "any aura" group (user decision: grouped like the blessings).
-- [ ] **PAURA-03**: On retail, one reminder per aura: Devotion
+- [x] **PAURA-03**: On retail, one reminder per aura: Devotion
   [465](https://www.wowhead.com/spell=465) (existing row), Concentration
   [317920](https://www.wowhead.com/spell=317920), Crusader [32223](https://www.wowhead.com/spell=32223),
   tagged retail, permanent, grouped so any one up hides all three. Retribution Aura (183435) stays
   out: documented on retail but no longer in the class toolkit (user, 2026-11-10).
-- [ ] **PAURA-04**: No ID is shared between a Forever and a retail aura row, every new row carries its
+- [x] **PAURA-04**: No ID is shared between a Forever and a retail aura row, every new row carries its
   client tag, and the existing Devotion rows keep their keys (`metaReminder:10293`,
   `metaReminder:465`), so placed reminders are not orphaned.
 
 ### Review doc
 
-- [ ] **DOC-08**: `docs/REMINDERS.md` lists the Well-Rested reminder (with its item link) and every
+- [x] **DOC-08**: `docs/REMINDERS.md` lists the Well-Rested reminder (with its item link) and every
   aura row in the right client table, sorted by class; `node scripts/reminders-doc-check.js` and its
   `--selftest` pass. Excluded candidates (Sanctity Aura, retail Retribution Aura) go in
   `.planning/research/REMINDERS-NOT-INCLUDED.md`, not the doc.
 
 ### Cleanup and verification
 
-- [ ] **CLEAN-02**: Cleanup per CLAUDE.md: unused code and duplication this milestone introduced,
+- [x] **CLEAN-02**: Cleanup per CLAUDE.md: unused code and duplication this milestone introduced,
   hot paths it touches (the load refresh and the bag-change re-mark), `stylua .`, and the release
   scripts.
 - [ ] **VER-16**: The user checks in game what they can reach: on Forever, the Well-Rested offer
@@ -92,10 +92,10 @@ requirements name. Rows and groups are data through `MetaReminderRow` / `MetaRem
 | SBAG-02 | Phase 86 | Complete |
 | SBAG-03 | Phase 86 | Complete |
 | SBAG-04 | Phase 86 | Complete |
-| PAURA-01 | Phase 87 | Pending |
-| PAURA-02 | Phase 87 | Pending |
-| PAURA-03 | Phase 87 | Pending |
-| PAURA-04 | Phase 87 | Pending |
-| DOC-08 | Phase 87 | Pending |
-| CLEAN-02 | Phase 88 | Pending |
+| PAURA-01 | Phase 87 | Complete |
+| PAURA-02 | Phase 87 | Complete |
+| PAURA-03 | Phase 87 | Complete |
+| PAURA-04 | Phase 87 | Complete |
+| DOC-08 | Phase 87 | Complete |
+| CLEAN-02 | Phase 88 | Complete |
 | VER-16 | Phase 89 | Pending |

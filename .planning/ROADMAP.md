@@ -27,8 +27,8 @@ Started 2026-11-10 on `milestone/v0.5.7-sleeping-bag-and-more`. Research inline 
 `node scripts/reminders-doc-check.js` passes after every phase.
 
 - [x] **Phase 86: Sleeping Bag Reminder** (completed 2026-11-10) — Forever Well-Rested reminder: offered while the bag is in the bags, loaded on every character, click uses the bag
-- [ ] **Phase 87: Paladin Aura Reminders** — one reminder per aura on Forever and on retail, each client grouped so any aura hides all
-- [ ] **Phase 88: Cleanup** — the milestone's own unused code and duplication, touched hot paths, stylua, release scripts
+- [x] **Phase 87: Paladin Aura Reminders** (completed 2026-11-10) — one reminder per aura on Forever and on retail, each client grouped so any aura hides all
+- [x] **Phase 88: Cleanup** (completed 2026-11-10) — the milestone's own unused code and duplication, touched hot paths, stylua, release scripts
 - [ ] **Phase 89: Testing Pass** — the user checks the new reminders in game; testing pass, no plans; the last phase of the milestone
 
 <details>
@@ -455,8 +455,8 @@ comment until the user checks them.
 | 84. Cleanup | v0.5.6 | 1/1 | Complete | 2026-11-09 |
 | 85. Forever Testing Pass | v0.5.6 | — | Complete (mage verified in game; rest ships on feedback) | 2026-11-09 |
 | 86. Sleeping Bag Reminder | v0.5.7 | 1/1 | Complete | 2026-11-10 |
-| 87. Paladin Aura Reminders | v0.5.7 | 0/? | Not started | - |
-| 88. Cleanup | v0.5.7 | 0/? | Not started | - |
+| 87. Paladin Aura Reminders | v0.5.7 | 1/1 | Complete | 2026-11-10 |
+| 88. Cleanup | v0.5.7 | 1/1 | Complete | 2026-11-10 |
 | 89. Testing Pass | v0.5.7 | — | Not started | - |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
