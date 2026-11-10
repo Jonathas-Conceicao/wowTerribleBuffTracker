@@ -26,7 +26,7 @@ Started 2026-11-10 on `milestone/v0.5.7-sleeping-bag-and-more`. Research inline 
 `PROJECT.md` Current Milestone). Each feature phase updates `docs/REMINDERS.md` for its own rows, so
 `node scripts/reminders-doc-check.js` passes after every phase.
 
-- [ ] **Phase 86: Sleeping Bag Reminder** — Forever Well-Rested reminder: offered while the bag is in the bags, loaded on every character, click uses the bag
+- [x] **Phase 86: Sleeping Bag Reminder** (completed 2026-11-10) — Forever Well-Rested reminder: offered while the bag is in the bags, loaded on every character, click uses the bag
 - [ ] **Phase 87: Paladin Aura Reminders** — one reminder per aura on Forever and on retail, each client grouped so any aura hides all
 - [ ] **Phase 88: Cleanup** — the milestone's own unused code and duplication, touched hot paths, stylua, release scripts
 - [ ] **Phase 89: Testing Pass** — the user checks the new reminders in game; testing pass, no plans; the last phase of the milestone
@@ -354,7 +354,7 @@ comment until the user checks them.
   4. Out of combat, a click uses the bag when it is in the bags and does nothing (no Lua error) when it is not; the overlay follows the bag arriving or leaving through the existing bag-change re-mark
   5. `docs/REMINDERS.md` lists the row with its `/forever/` spell and item links, and the doc check passes
 **Plans**: 1 plan
-- [ ] 86-01-PLAN.md — Well-Rested row with an item-gated offer (`offerItem`), a load rule that asks no known spell, the familiar's item click reused, and the doc row
+- [x] 86-01-PLAN.md — Well-Rested row with an item-gated offer (`offerItem`), a load rule that asks no known spell, the familiar's item click reused, and the doc row
 **Notes**: Reuse the familiar's `useItems` click path (CLICK-07). The new pieces are an item-count offer and a load rule that does not ask a known spell; both apply to this row only.
 
 ### Phase 87: Paladin Aura Reminders
@@ -454,7 +454,7 @@ comment until the user checks them.
 | 83. Reminder Review Doc | v0.5.6 | 1/1 | Complete | 2026-11-09 |
 | 84. Cleanup | v0.5.6 | 1/1 | Complete | 2026-11-09 |
 | 85. Forever Testing Pass | v0.5.6 | — | Complete (mage verified in game; rest ships on feedback) | 2026-11-09 |
-| 86. Sleeping Bag Reminder | v0.5.7 | 0/? | Not started | - |
+| 86. Sleeping Bag Reminder | v0.5.7 | 1/1 | Complete | 2026-11-10 |
 | 87. Paladin Aura Reminders | v0.5.7 | 0/? | Not started | - |
 | 88. Cleanup | v0.5.7 | 0/? | Not started | - |
 | 89. Testing Pass | v0.5.7 | — | Not started | - |

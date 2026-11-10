@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.5.7
 milestone_name: "Sleeping bag and some more"
-status: planning
+status: executing
 last_updated: "2026-11-10"
-last_activity: 2026-11-10 — Roadmap created (Phases 86-89)
+last_activity: 2026-11-10 — Phase 86 complete (Well-Rested reminder)
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 25
 ---
 
 # Project State
@@ -24,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-11-10)
 
 ## Current Position
 
-Phase: 86 — Sleeping Bag Reminder (not started)
+Phase: 87 — Paladin Aura Reminders (not started)
 Plan: —
-Status: Roadmap created; ready to plan Phase 86
-Last activity: 2026-11-10 — requirements (11) and roadmap (Phases 86-89) defined
+Status: Phase 86 complete (verification passed); Phase 87 next
+Last activity: 2026-11-10 — Phase 86: Well-Rested reminder (SBAG-01..04), in-game checks deferred to Phase 89
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██▌░░░░░░░] 25%
 
 - Branch: `milestone/v0.5.7-sleeping-bag-and-more`, cut from `main` (`ed54e01`) on 2026-11-10.
 - Phases start at **86** (v0.5.6 ended at Phase 85; numbering never restarts).

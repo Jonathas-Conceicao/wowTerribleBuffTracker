@@ -15,18 +15,18 @@ requirements name. Rows and groups are data through `MetaReminderRow` / `MetaRem
 
 ### Sleeping bag (Forever only)
 
-- [ ] **SBAG-01**: On Forever, a Well-Rested reminder exists, keyed on the buff
+- [x] **SBAG-01**: On Forever, a Well-Rested reminder exists, keyed on the buff
   [429959](https://www.wowhead.com/forever/spell=429959), 120 min. Using the Cozy Sleeping Bag
   [211527](https://www.wowhead.com/forever/item=211527) unfurls the bag and the buff arrives only after
   a minute of rest, so the reminder hides when the aura appears, not on the click. It is not
   registered on retail.
-- [ ] **SBAG-02**: Suggested offers the Well-Rested reminder only while the Cozy Sleeping Bag is in
+- [x] **SBAG-02**: Suggested offers the Well-Rested reminder only while the Cozy Sleeping Bag is in
   the character's bags (an item-count check, not a known-spell check). Every other row's offer is
   unchanged.
-- [ ] **SBAG-03**: A placed Well-Rested reminder loads on every Forever character, with or without the
+- [x] **SBAG-03**: A placed Well-Rested reminder loads on every Forever character, with or without the
   bag (reminders are account-wide; user decision), and shows while the buff is missing. Every other
   row's load rule is unchanged, and the user's Load setting (Never) still applies.
-- [ ] **SBAG-04**: A click on the Well-Rested reminder, out of combat, uses the Cozy Sleeping Bag when
+- [x] **SBAG-04**: A click on the Well-Rested reminder, out of combat, uses the Cozy Sleeping Bag when
   it is in the bags. Without the bag, the click does nothing and raises no Lua error, the same as the
   familiar scroll click (CLICK-07). The overlay follows the bag arriving or leaving the bags, through
   the existing bag-change re-mark. The game's own "item not ready" message on cooldown is acceptable.
@@ -88,10 +88,10 @@ requirements name. Rows and groups are data through `MetaReminderRow` / `MetaRem
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SBAG-01 | Phase 86 | Pending |
-| SBAG-02 | Phase 86 | Pending |
-| SBAG-03 | Phase 86 | Pending |
-| SBAG-04 | Phase 86 | Pending |
+| SBAG-01 | Phase 86 | Complete |
+| SBAG-02 | Phase 86 | Complete |
+| SBAG-03 | Phase 86 | Complete |
+| SBAG-04 | Phase 86 | Complete |
 | PAURA-01 | Phase 87 | Pending |
 | PAURA-02 | Phase 87 | Pending |
 | PAURA-03 | Phase 87 | Pending |
