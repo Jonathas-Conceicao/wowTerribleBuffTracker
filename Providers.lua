@@ -1139,6 +1139,9 @@ local metaReminderDefsBySpellID = {}
 -- that a click on the reminder picks from (the first one in the bags the player's level allows,
 -- CLICK-07); nil for every other row. Each pair's third field, the "item:<id>" click attribute,
 -- is filled in here at load, so ReminderClick.lua's PickUseItem builds no string per flush.
+-- offerItem is nil or an item ID: when set, the Suggested offer asks whether that item is in the
+-- bags instead of whether knownID is known (SBAG-02), and the load rule loads the row without
+-- asking a known spell (SBAG-03). Only the Well-Rested row (the Cozy Sleeping Bag) sets it.
 -- This is the ONE point where a row is kept off a client: an unregistered row is neither offered
 -- nor loaded (an already-placed entry for it is an orphan via ns:IsOrphanMetaReminder). Existing
 -- Forever rows need no argument because nil means forever.
@@ -1158,6 +1161,7 @@ local function MetaReminderRow(spellID, minutes, knownID, petBook, castID, opts)
 		auraID = opts and opts.auraID or nil,
 		allyCast = opts ~= nil and opts.allyCast == true,
 		useItems = useItems,
+		offerItem = opts and opts.offerItem or nil,
 		spellID = spellID,
 		duration = minutes > 0 and minutes * 60 or nil,
 		knownID = knownID or spellID,
@@ -1225,6 +1229,8 @@ MetaReminderRow(10170, 10) -- Mage: Amplify Magic (MREM-15; situational) (unveri
 MetaReminderRow(10174, 10) -- Mage: Dampen Magic (MREM-15; situational) (unverified in game)
 -- Demonic Sacrifice (Phase 82, MREM-13): last, the only row with a separate aura ID.
 MetaReminderRow(18788, 120, nil, nil, nil, { auraID = 18789 }) -- Warlock: Demonic Sacrifice (MREM-13; the cast 18788 carries no buff, the row watches aura 18789; a click casts 18788) (unverified in game)
+-- Well-Rested (Phase 86, SBAG-01..04): the Cozy Sleeping Bag, offered while it is in the bags.
+MetaReminderRow(429959, 120, nil, nil, false, { offerItem = 211527, useItems = { { 211527, 1 } } }) -- General: Well-Rested (the Cozy Sleeping Bag 211527; offered while the bag is in the bags and loaded on every character, SBAG-02/03; no cast spell, a click uses the bag, CLICK-07; the bag only unfurls, the buff arrives after a minute of rest and stacks to 3, so the aura, not the click, hides the reminder) (unverified in game)
 
 -- The retail rows (user data 2026-09-30, MREM-04/MREM-05).
 -- Arcane Familiar trade-off: a cast of 1459 starts only the Arcane Intellect row (the cast index
@@ -1357,6 +1363,12 @@ function ns:MetaReminderKnownID(spellID)
 	return def and def.knownID or spellID
 end
 
+-- The item a row's Suggested offer asks for and whose load rule asks no known spell (SBAG-02/03), or nil; one map read.
+function ns:MetaReminderOfferItem(spellID)
+	local def = metaReminderDefsBySpellID[spellID]
+	return def and def.offerItem or nil
+end
+
 -- True only for a row whose rank family also reads the pet spellbook (Blood Pact).
 function ns:MetaReminderUsesPetBook(spellID)
 	local def = metaReminderDefsBySpellID[spellID]
@@ -1396,7 +1408,7 @@ end
 -- The ordered { itemID, minLevel } list a click on a reminder picks an item from (CLICK-07), or
 -- nil; each pair's third field is its "item:<id>" click attribute, built once by MetaReminderRow,
 -- the only place a useItems list is built. Only a built-in row carries one (the familiar
--- scrolls). Called by ReminderClick.lua's Flush; one map read, no allocation.
+-- scrolls and the sleeping bag). Called by ReminderClick.lua's Flush; one map read, no allocation.
 function ns:ReminderUseItems(entry)
 	if entry.trackerType ~= ns.KIND.META_REMINDER then
 		return nil
@@ -1475,12 +1487,35 @@ end
 -- (shared with the cast rules through ns:CastRuleFamily) until the next SPELLS_CHANGED. The table
 -- holds only the rows tagged for this client (MREM-04/05), so the offer needs no flavour gate of its own. Fails closed: a row never read readably is not
 -- offered; any known rank offers the row. Rebuilt into a module-level array, never a fresh table.
+-- A row with offerItem (Well-Rested) is offered while that item is in the bags instead of when a
+-- spell is known (SBAG-02). No memo applies: this list is rebuilt on every ns:RefreshTBTSections
+-- (every CDM open, every drag), and a BAG_UPDATE while the CDM is open already redraws through
+-- ns:MarkItemCatalogueDirty; ns:IsSuggestedKeyResolvable's memo covers only ns.SUGGESTED_KEYS. So
+-- the offer follows the bag arriving or leaving with no new event hook.
 local metaReminderSuggestionKeys = {}
+
+-- SBAG-02: whether the bags hold the item. Render-time only, with the same guards as
+-- ReminderClick.lua's PickUseItem: a missing API, a failed call or a secret or non-number count
+-- all mean not offered.
+local function OfferItemInBags(itemID)
+	if not (C_Item and C_Item.GetItemCount) then
+		return false
+	end
+	local ok, count = pcall(C_Item.GetItemCount, itemID)
+	return ok and not issecretvalue(count) and type(count) == "number" and count > 0
+end
 
 function ns:MetaReminderSuggestionKeys()
 	wipe(metaReminderSuggestionKeys)
 	for _, def in ipairs(META_REMINDER_DEFS) do
-		if ns:ResolveSpellKnown(def.knownID, false) == true then
+		-- SBAG-02: an item-offered row asks the bags; every other row asks the known spell.
+		local offered
+		if def.offerItem then
+			offered = OfferItemInBags(def.offerItem)
+		else
+			offered = ns:ResolveSpellKnown(def.knownID, false) == true
+		end
+		if offered then
 			metaReminderSuggestionKeys[#metaReminderSuggestionKeys + 1] = def.key
 		end
 	end
