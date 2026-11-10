@@ -3,8 +3,9 @@
 -- One pooled SecureActionButtonTemplate button per clickable reminder icon.
 -- A click casts on the player, except the ally-cast rows (ns:ReminderCastUnit), which leave the
 -- unit unset so the game's default targeting applies.
--- One reminder, the familiar scroll, uses an item instead of casting: its overlay's type1 is
--- "item" with the first usable scroll in the bags (CLICK-07).
+-- Two reminders use an item instead of casting: the familiar scroll (the first usable scroll in
+-- the bags) and the sleeping bag (the Cozy Sleeping Bag when it is in the bags); their overlay's
+-- type1 is "item" (CLICK-07).
 -- Invariants:
 --   1. An overlay is never anchored to a TBT frame (only to UIParent, in screen
 --      coordinates), so TBT's display tree never becomes protected.
