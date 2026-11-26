@@ -10,9 +10,57 @@ Players can see countdown timers for buffs/cooldowns that the game no longer sur
 
 ## Next Milestone
 
-Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 90. Open
-candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27, 999.28, 999.29), plus
-community feedback on the untested v0.5.6 and v0.5.7 Forever and retail rows.
+Not defined yet. Start it with `/gsd-new-milestone`; phase numbering continues at 94, and the
+roadmap ends with a Release Review phase (Milestone Close-out). Open candidates are in the ROADMAP
+Backlog (999.11, 999.15, 999.16, 999.19, 999.27, 999.28, 999.29), plus community feedback on the
+untested v0.5.6 and v0.5.7 Forever and retail rows.
+
+<details>
+<summary>v0.5.8 Headmaster's Charge reminder — SHIPPED 2026-11-26</summary>
+
+4 phases (90-93), 1 plan, 8/8 requirements. A Forever Headmaster's Charge reminder offered while
+the staff is equipped, loaded on every character, whose click uses the equipped staff (slot 16)
+and does nothing otherwise. Verified in game. The first milestone closed with a Release Review.
+Archives: [`milestones/v0.5.8-ROADMAP.md`](milestones/v0.5.8-ROADMAP.md) and
+[`milestones/v0.5.8-REQUIREMENTS.md`](milestones/v0.5.8-REQUIREMENTS.md). Kickoff notes follow.
+
+**Goal:** A Forever reminder for Headmaster's Charge's party Intellect buff, offered while the staff
+is equipped, whose click uses the equipped staff.
+
+**A patch (user, 2026-11-26):** no major feature. Phases start at **90**. Branch
+`milestone/v0.5.8-headmasters-charge`, cut from `main` (`821dd37`). The first milestone to close
+with a **Release Review** phase (see Milestone Close-out); the setup edits to `CLAUDE.md` and this
+file ride in the milestone branch (user decision). Research done before kickoff, inline: every Wowhead
+Forever BiS guide was swept for endgame gear whose Use grants a long buff; Headmaster's Charge is the
+only one that can be kept up (Mark of the Dragon Lord and Heart of the Scale stay out of scope).
+
+**Target features (user, 2026-11-26):**
+
+- **Headmaster's Charge reminder (Forever only).** Buff Headmaster's Charge
+  ([18264](https://www.wowhead.com/forever/spell=18264), +20 Intellect to party members within
+  30 yd, 15 min), from the staff Headmaster's Charge
+  ([13937](https://www.wowhead.com/forever/item=13937), main hand, 10 min cooldown, Darkmaster
+  Gandling, Scholomance). Forever's staff gives Intellect, not Classic's numbers.
+  - Suggested offers it only while the staff is equipped.
+  - Once placed it stays loaded on every character, staff or not, until the user removes it
+    (user decision, like Well-Rested).
+  - A click uses the main-hand slot (`/use 16`) only while the staff is equipped there; otherwise
+    the click does nothing and raises no error.
+- `docs/REMINDERS.md` covers the new row; the usual cleanup phase, the user's in-game pass on
+  Forever (a mage), then the Release Review.
+
+**Scope rule (carried from v0.5.6):** nothing works differently from today except what is listed
+above.
+
+</details>
+
+<details>
+<summary>Earlier "Next Milestone" note (2026-11-10)</summary>
+
+Open candidates are in the ROADMAP Backlog (999.11, 999.15, 999.16, 999.19, 999.27, 999.28, 999.29),
+plus community feedback on the untested v0.5.6 and v0.5.7 Forever and retail rows.
+
+</details>
 
 <details>
 <summary>v0.5.7 Sleeping bag and some more — SHIPPED 2026-11-10</summary>
@@ -530,6 +578,7 @@ Recorded so they are not lost now that v0.4.0 has absorbed the rest of the backl
 - Forever Well-Rested reminder: offered while the Cozy Sleeping Bag is in the bags (`offerItem`), loaded on every Forever character once placed, a click uses the bag and does nothing without it — v0.5.7 Phase 86 (SBAG-01..04), verified in game
 - One reminder per paladin aura on Forever (six) and retail (three), each client one group, no shared IDs — v0.5.7 Phase 87 (PAURA-01..04, DOC-08)
 - One reminder per Forever hunter aspect, any aspect at any rank hides all — v0.5.7 Phase 87.1 (HASP-01, HASP-02)
+- Forever Headmaster's Charge reminder: offered while the staff is equipped (`offerSlot`), loaded on every Forever character once placed, a click uses slot 16 only while the staff is there — v0.5.8 Phase 90 (HCHG-01..04, DOC-09), verified in game
 
 ### Active
 
@@ -553,7 +602,9 @@ Still open in the backlog:
 
 **v0.5.5 Fresh-login buff time fix (outside GSD, 2026-10-27)** — a buff already up at a fresh login (a flask with 40m left) showed its whole duration ("1h", or "2h" when stacked) until renewed, and following the aura through an engineering extension did not help. Found with a state dump that ran automatically 5s after login: the timer was right (2041s left), but the icon's countdown frame held a start 4,293,145s ahead. `GetTime()` counts from the client's launch, so a buff applied before it has a negative start once synced to the aura, and `SetCooldown` stores the start as unsigned milliseconds (a wrap to ~49.7 days). A `/reload` keeps `GetTime()` counting, which is why only a fresh login showed it. This was also the real cause of v0.5.4's "2h"; v0.5.4's rounding explanation was wrong. Fix: `SetTimerSweep` in `Display.lua` uses `SetCooldownFromExpirationTime`, with a clamp-at-zero fallback where the method is missing.
 
-**v0.5.7 Sleeping bag and some more shipped 2026-11-10** — 5 phases (86, 87, 87.1, 88, 89), 4 plans, 13/13 requirements. The sleeping bag reminder verified in game on Forever; the paladin aura and hunter aspect rows ship on community feedback. Squash-merged to `main`; CHANGELOG, release and tag by the user. See [`milestones/v0.5.7-ROADMAP.md`](milestones/v0.5.7-ROADMAP.md).
+**v0.5.8 Headmaster's Charge reminder shipped 2026-11-26** — 4 phases (90-93), 1 plan, 8/8 requirements, verified in game on Forever. The first Release Review: CHANGELOG drafted and reviewed by the user on the branch. Squash-merged to `main`; tagged and pushed with `release.bat 0.5.8` at the user's request. See [`milestones/v0.5.8-ROADMAP.md`](milestones/v0.5.8-ROADMAP.md).
+
+**Earlier —** **v0.5.7 Sleeping bag and some more shipped 2026-11-10** — 5 phases (86, 87, 87.1, 88, 89), 4 plans, 13/13 requirements. The sleeping bag reminder verified in game on Forever; the paladin aura and hunter aspect rows ship on community feedback. Squash-merged to `main`; CHANGELOG, release and tag by the user. See [`milestones/v0.5.7-ROADMAP.md`](milestones/v0.5.7-ROADMAP.md).
 
 **Earlier —** **v0.5.6 More Forever Reminders shipped 2026-11-09** — 6 phases (80-85), 5 plans, 21/21 requirements (MREM-17 dropped). Mage armors and the familiar click verified in game on Forever; the other new rows ship on community feedback. Squash-merged to `main`; CHANGELOG, release and tag by the user. See [`milestones/v0.5.6-ROADMAP.md`](milestones/v0.5.6-ROADMAP.md).
 
@@ -656,6 +707,48 @@ client-side bug — see Context.
 | Paladin auras and hunter aspects: one reminder each, grouped | The player picks which aura or aspect tiles to place; any one up means the class buff is handled, as with the blessings | Decided 2026-11-10 by the user (v0.5.7). Forever and retail aura rows never share an ID. ✓ Shipped v0.5.7 (untested in game) |
 | Forms and stances are not reminders | Shadowform, like a druid form or a warrior stance, is toggled on purpose, so a "missing" icon is noise | Decided 2026-11-09 by the user (Phase 85); Shadowform dropped |
 | A cooldown's buff has no "End when the aura is lost" opt-out | A buff that never lands readably (wrong Aura ID, ally-targeted) ending the timer is for the user to fix in the Aura ID box | Decided 2026-10-22 (Phase 74 review WR-02); also covers the read-sync shortening a timer (v0.5.3 audit warning 2). ✓ Shipped v0.5.3 |
+| README and CHANGELOG drafted by agents in a closing Release Review phase, reviewed by the user as its last step | Mirrors TerribleGroupFinder's setup. Before this the user wrote each CHANGELOG entry on `main` after the squash-merge and the README was refreshed ad hoc; now both land in the milestone's squash commit, already reviewed. The user stays the owner: they rewrite either file as they see fit | Decided 2026-11-26 by the user. See Milestone Close-out. ✓ First run v0.5.8 |
+| An equipped weapon's reminder is offered while equipped and its click uses the slot, never the item | `/use item:<id>` on an unequipped weapon equips it; `item = "16"` resolves to `UseInventoryItem(16)` (retail and Forever secure templates) | Decided 2026-11-26 by the user (v0.5.8 kickoff). `offerSlot` on the row; no overlay while the staff is elsewhere. ✓ Shipped v0.5.8, verified in game |
+
+## Milestone Close-out
+
+**Milestones are atomic.** What ships is the net difference from the previous release. A bug
+that is introduced and fixed inside the same milestone never existed as far as anything outside
+`.planning/` is concerned: it is not mentioned in `CHANGELOG.md`, `README.md`, `CLAUDE.md`, code
+or doc comments, or the squash-merge commit message on `main`. Only internal planning files
+(phase SUMMARY / REVIEW / UAT files, STATE.md) record it. A bug in an already *released* version
+that the milestone fixes is changelog material as usual.
+
+**Closing sequence.** The usual cleanup phase, then the human testing pass, then a **Release
+Review** phase as the last phase of the roadmap. `/gsd-new-milestone` adds it, and
+`/gsd-complete-milestone` does not start until it is complete. Its steps, in order:
+
+1. **Strip in-milestone bugs.** Remove every mention of a bug introduced and fixed inside the
+   milestone from code and doc comments, `README.md` and `CLAUDE.md`. No behaviour change. Run
+   `stylua .`.
+2. **README screenshots.** List any screenshot in `Assets/` whose screen the milestone changed,
+   for the user to re-take. Agents never generate or edit images.
+3. **README update.** Bring `README.md` in line with what the milestone ships: a new feature
+   gets its line, a removed one loses it. Smallest edit that is true; keep the user's voice.
+   `README.md` is also the text the user pastes into CurseForge and Wago.
+4. **Changelog draft.** Add the new `## vX.Y.Z — <Milestone name>` section at the top of
+   `CHANGELOG.md`, above the previous release, touching nothing below it. Write it from the
+   milestone's net changes against the previous tag, folding in anything landed between
+   milestones: an optional one-line summary, then `### New Features` / `### Improvements` /
+   `### Removed` / `### Fixes`, player-facing, short, wrapped near 70 columns like the
+   existing entries. Fixes lists only bugs that existed in a released version. The release
+   workflow publishes the first `## ` section as the release notes, so this section is what
+   players read.
+5. **User review (the phase's UAT, last step).** The user reviews and, as they see fit, rewrites
+   `README.md` and the drafted `CHANGELOG.md` section. Agents change these two files only as
+   the user directs; every edit the user makes is authoritative and is never "restored". The
+   user's confirmation closes the phase.
+
+Then `/gsd-complete-milestone`: archive, and squash-merge the milestone branch to `main`
+(the reviewed README and CHANGELOG ride in the squash commit). The user runs
+`./scripts/release.bat X.Y.Z` from `main`, which tags and pushes.
+
+During a milestone, agents do not add `CHANGELOG.md` entries; step 4 writes them once.
 
 ## Evolution
 
@@ -675,4 +768,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-10 after the v0.5.7 Sleeping bag and some more milestone*
+*Last updated: 2026-11-26 after the v0.5.8 Headmaster's Charge reminder milestone*

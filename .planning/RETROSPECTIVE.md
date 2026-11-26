@@ -2,6 +2,34 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v0.5.8 — Headmaster's Charge reminder
+
+**Shipped:** 2026-11-26 (archived, squash-merged and released; CHANGELOG reviewed by the user on the branch)
+**Phases:** 4 (90-93) | **Plans:** 1 | **Commits:** 19 before the close | **Span:** 1 day
+
+### What Was Built
+
+- A Forever Headmaster's Charge reminder offered while the staff is equipped, loaded everywhere,
+  whose click uses main-hand slot 16 only while the staff is there.
+- The first Release Review: the CHANGELOG section drafted on the branch and reviewed by the user.
+
+### What Worked
+
+- **Checking the secure path in both clients' source** before writing the click: `item = "16"`
+  resolves to `UseInventoryItem(16)`, while `item:13937` would equip an unequipped staff.
+- **Reusing v0.5.7's `offerItem` path**: only the slot offer and the slot click were new.
+
+### What Was Inefficient
+
+- **A plan gate grepped the whole file** for `item:13937` and hit the comment explaining why that
+  form is banned; code-only greps fixed it.
+- **The CHANGELOG draft wrapped under 70 columns**; the user rewrapped it to fill 70.
+
+### Key Lessons
+
+- CHANGELOG bullets fill up to 70 columns (a line may be exactly 70), two-space continuation.
+- A grep gate that forbids a pattern must skip comments, or the explanation of the ban trips it.
+
 ## Milestone: v0.5.7 — Sleeping bag and some more
 
 **Shipped:** 2026-11-10 (archived and squash-merged; changelog and tag by the user)

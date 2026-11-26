@@ -9,14 +9,14 @@
 //   --code <path> / --doc <path>                     -- read another file instead (for gates)
 //   any other argument, or --code / --doc with no value, exits 2 without checking anything.
 //
-// Code side: every MetaReminderRow first argument, auraID and useItems item ID, and every
+// Code side: every MetaReminderRow first argument, auraID, useItems and offerItem item ID, and every
 // MetaReminderGroup ID. Comments are stripped first, so an ID named in prose (the retired-blessings
 // note) is never counted. A row's client is its opts.client ("forever" when absent); a group
 // directly inside the `if ns.CLIENT_IS_FOREVER then ... end` block counts on Forever only, a group
 // at file top level counts on every client where one of its IDs is a row. Anything this cannot
 // classify fails rather than being guessed: a group in any other block (another if, a function, a
 // loop), an else / elseif branch on the Forever block, a row not at file top level, and a group,
-// auraID or useItems value that is not an integer literal. A second row for the same ID on an
+// auraID, useItems or offerItem value that is not an integer literal. A second row for the same ID on an
 // overlapping client fails, and so does a row named by two groups on one client (at runtime the
 // later group REPLACES the earlier one's alternatives).
 //
@@ -316,6 +316,7 @@ function parseCode(text) {
       client: 'forever',
       auraID: null,
       useItems: [],
+      offerItem: null,
       cls: null,
       line,
     };
@@ -337,6 +338,23 @@ function parseCode(text) {
           row.auraID = Number(am[1]);
         } else {
           problems.push(`row ${row.spellID} (line ${line}): auraID is not an integer literal`);
+        }
+      }
+      if (/\bofferItem\s*=/.test(optsBlank)) {
+        const om = optsBlank.match(/\bofferItem\s*=\s*(\d+)\s*(?=[,;}])/);
+        if (om) {
+          row.offerItem = Number(om[1]);
+        } else {
+          problems.push(`row ${row.spellID} (line ${line}): offerItem is not an integer literal`);
+        }
+      }
+      // offerSlot is an inventory slot, never an ID to link: it is validated, not collected. It
+      // only means something beside offerItem (the item that must be equipped in that slot).
+      if (/\bofferSlot\s*=/.test(optsBlank)) {
+        if (!/\bofferSlot\s*=\s*\d+\s*(?=[,;}])/.test(optsBlank)) {
+          problems.push(`row ${row.spellID} (line ${line}): offerSlot is not an integer literal`);
+        } else if (!/\bofferItem\s*=/.test(optsBlank)) {
+          problems.push(`row ${row.spellID} (line ${line}): offerSlot without offerItem`);
         }
       }
       if (/\buseItems\s*=/.test(optsBlank)) {
@@ -423,6 +441,9 @@ function codeSets(code) {
       }
       for (const item of r.useItems) {
         add(c, `item:${item}`, `useItems of ${r.spellID}`);
+      }
+      if (r.offerItem !== null) {
+        add(c, `item:${r.offerItem}`, `offerItem of ${r.spellID}`);
       }
     }
   }
@@ -1104,6 +1125,52 @@ function selftest() {
   runCase('non-literal useItems item ID -> a problem', expect => {
     const lua = edit(LUA_FIXTURE, '{ 277493, 25 }', '{ CAT_SCROLL, 25 }');
     expectSome(expect, check(lua, DOC_FIXTURE), 'CAT_SCROLL');
+  });
+
+  // DOC-09: an offerItem ID (Headmaster's Charge's staff) is collected; offerSlot never is.
+  runCase('offerItem ID is collected and must be linked', expect => {
+    const lua = edit(
+      LUA_FIXTURE,
+      'MetaReminderRow(10952, 10) -- Priest',
+      'MetaReminderRow(10952, 10, nil, nil, false, { offerItem = 13937, offerSlot = 16 }) -- Priest'
+    );
+    expectProblems(expect, check(lua, DOC_FIXTURE), 1, 'missing from docs (Forever): item:13937');
+    const doc = edit(
+      DOC_FIXTURE,
+      INNER_FIRE_LINE,
+      INNER_FIRE_LINE.replace(
+        `[Inner Fire](${W}forever/spell=10952)`,
+        `[Inner Fire](${W}forever/spell=10952), [staff](${W}forever/item=13937)`
+      )
+    );
+    expectProblems(expect, check(lua, doc), 0);
+  });
+
+  runCase('offerSlot non-literal -> a problem', expect => {
+    const lua = edit(
+      LUA_FIXTURE,
+      'MetaReminderRow(10952, 10) -- Priest',
+      'MetaReminderRow(10952, 10, nil, nil, false, { offerItem = 13937, offerSlot = MAIN_HAND }) -- Priest'
+    );
+    expectSome(expect, check(lua, DOC_FIXTURE), 'row 10952', 'offerSlot is not an integer literal');
+  });
+
+  runCase('offerSlot without offerItem -> a problem', expect => {
+    const lua = edit(
+      LUA_FIXTURE,
+      'MetaReminderRow(10952, 10) -- Priest',
+      'MetaReminderRow(10952, 10, nil, nil, false, { offerSlot = 16 }) -- Priest'
+    );
+    expectSome(expect, check(lua, DOC_FIXTURE), 'row 10952', 'offerSlot without offerItem');
+  });
+
+  runCase('offerItem non-literal -> a problem', expect => {
+    const lua = edit(
+      LUA_FIXTURE,
+      'MetaReminderRow(10952, 10) -- Priest',
+      'MetaReminderRow(10952, 10, nil, nil, false, { offerItem = STAFF }) -- Priest'
+    );
+    expectSome(expect, check(lua, DOC_FIXTURE), 'row 10952', 'offerItem is not an integer literal');
   });
 
   // WR-07: duplicate rows.

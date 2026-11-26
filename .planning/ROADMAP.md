@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- [x] **v0.5.8 Headmaster's Charge reminder** — Phases 90-93 (shipped 2026-11-26) — [archive](milestones/v0.5.8-ROADMAP.md)
 - [x] **v0.5.7 Sleeping bag and some more** — Phases 86-89 (shipped 2026-11-10) — [archive](milestones/v0.5.7-ROADMAP.md)
 - [x] **v0.5.6 More Forever Reminders** — Phases 80-85 (shipped 2026-11-09) — [archive](milestones/v0.5.6-ROADMAP.md)
 - [x] **v0.5.5 Fresh-login buff time fix** — no phases, done outside GSD (shipped 2026-10-27, `6f976e8`) — see `MILESTONES.md`
@@ -19,6 +20,19 @@
 - [x] **v0.2.4 SpellProvider Refactor** — Phases 17-24 (shipped 2026-04-22) — [archive](milestones/v0.2.4-ROADMAP.md)
 
 ## Phases
+
+<details>
+<summary>✅ v0.5.8 Headmaster's Charge reminder (Phases 90-93) — SHIPPED 2026-11-26</summary>
+
+Full detail archived at [`milestones/v0.5.8-ROADMAP.md`](milestones/v0.5.8-ROADMAP.md); requirements
+at [`milestones/v0.5.8-REQUIREMENTS.md`](milestones/v0.5.8-REQUIREMENTS.md).
+
+- [x] Phase 90: Headmaster's Charge Reminder — Forever reminder offered while the staff is equipped, loaded on every character once placed, click uses the equipped staff
+- [x] Phase 91: Cleanup — the doc check validates `offerSlot`
+- [x] Phase 92: Testing Pass — every check verified in game on Forever
+- [x] Phase 93: Release Review — CHANGELOG drafted and reviewed by the user; README unchanged
+
+</details>
 
 <details>
 <summary>✅ v0.5.7 Sleeping bag and some more (Phases 86-89) — SHIPPED 2026-11-10</summary>
@@ -336,8 +350,8 @@ code. Verifying code that is about to be rewritten gets the order backwards.
 
 ## Phase Details
 
-*Every phase through v0.5.7 (Phases 1-89) is archived under `.planning/milestones/`. The most recent
-is [`v0.5.7-ROADMAP.md`](milestones/v0.5.7-ROADMAP.md), which carries the full detail for Phases 86-89.*
+*Every phase through v0.5.8 (Phases 1-93) is archived under `.planning/milestones/`. The most recent
+is [`v0.5.8-ROADMAP.md`](milestones/v0.5.8-ROADMAP.md), which carries the full detail for Phases 90-93.*
 
 ## Progress
 
@@ -409,6 +423,10 @@ is [`v0.5.7-ROADMAP.md`](milestones/v0.5.7-ROADMAP.md), which carries the full d
 | 87.1. Hunter Aspect Reminders | v0.5.7 | 1/1 | Complete | 2026-11-10 |
 | 88. Cleanup | v0.5.7 | 1/1 | Complete | 2026-11-10 |
 | 89. Testing Pass | v0.5.7 | — | Complete (testing pass) | 2026-11-10 |
+| 90. Headmaster's Charge Reminder | v0.5.8 | 1/1 | Complete | 2026-11-26 |
+| 91. Cleanup | v0.5.8 | — | Complete (inline) | 2026-11-26 |
+| 92. Testing Pass | v0.5.8 | — | Complete (testing pass) | 2026-11-26 |
+| 93. Release Review | v0.5.8 | — | Complete (user review) | 2026-11-26 |
 
 *Phases 43 and 44 ran as in-game testing passes rather than plan-driven phases, so they have no
 plan count and no phase directory. Their record is the run sheets in `.planning/testing/`.*

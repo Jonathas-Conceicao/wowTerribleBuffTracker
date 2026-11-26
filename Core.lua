@@ -2219,6 +2219,20 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 			if ns.reminderItemClickActive then
 				ns:MarkReminderClicksDirty()
 			end
+		else
+			-- HCHG-02/D-04: an offer row asks this slot (Headmaster's Charge, slot 16; the set is empty
+			-- on retail). BAG_UPDATE alone neither orders after the slot update nor fires for a change
+			-- that touches no bag, so the Suggested redraw is marked here through the same flag-only,
+			-- CDM-open-only, coalesced path. HCHG-04/D-08: the overlay follows the staff, coalesced and
+			-- deferred in combat (a weapon swap in combat updates when combat ends). Any other slot
+			-- does exactly what it did before.
+			local slot = ...
+			if ns.IsMetaReminderOfferSlot and ns:IsMetaReminderOfferSlot(slot) then
+				ns:MarkItemCatalogueDirty()
+				if ns.reminderItemClickActive then
+					ns:MarkReminderClicksDirty()
+				end
+			end
 		end
 	end
 end)

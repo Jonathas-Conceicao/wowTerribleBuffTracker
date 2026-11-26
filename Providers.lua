@@ -1130,6 +1130,7 @@ local MetaSkillLustProvider = CreateFromMixins(SpellProviderBaseMixin, MetaSkill
 -- `node scripts/reminders-doc-check.js` proves the two agree (Phase 84 re-runs it).
 local META_REMINDER_DEFS = {}
 local metaReminderDefsBySpellID = {}
+local metaReminderOfferSlots = {}
 
 -- Load-time only: builds one row and indexes it. knownID is the spell the load rule and the
 -- Suggested offer ask (the buff itself unless named); petBook adds the pet spellbook to the
@@ -1142,7 +1143,11 @@ local metaReminderDefsBySpellID = {}
 -- is filled in here at load, so ReminderClick.lua's PickUseItem builds no string per flush.
 -- offerItem is nil or an item ID: when set, the Suggested offer asks whether that item is in the
 -- bags instead of whether knownID is known (SBAG-02), and the load rule loads the row without
--- asking a known spell (SBAG-03). Only the Well-Rested row (the Cozy Sleeping Bag) sets it.
+-- asking a known spell (SBAG-03). Two rows set it: Well-Rested (the Cozy Sleeping Bag) and
+-- Headmaster's Charge (the staff). offerSlot is nil or an inventory slot number; when set (with
+-- offerItem), the Suggested offer asks whether offerItem is equipped in that slot instead of in the
+-- bags (HCHG-02), and a click uses that slot, only while the item is equipped there (HCHG-04). Its
+-- click attribute string, def.slotAttr, is built here once at load. Only Headmaster's Charge sets it.
 -- This is the ONE point where a row is kept off a client: an unregistered row is neither offered
 -- nor loaded (an already-placed entry for it is an orphan via ns:IsOrphanMetaReminder). Existing
 -- Forever rows need no argument because nil means forever.
@@ -1158,11 +1163,14 @@ local function MetaReminderRow(spellID, minutes, knownID, petBook, castID, opts)
 			useItems[i][3] = "item:" .. useItems[i][1]
 		end
 	end
+	local offerSlot = opts and opts.offerSlot or nil
 	local def = {
 		auraID = opts and opts.auraID or nil,
 		allyCast = opts ~= nil and opts.allyCast == true,
 		useItems = useItems,
 		offerItem = opts and opts.offerItem or nil,
+		offerSlot = offerSlot,
+		slotAttr = offerSlot and tostring(offerSlot) or nil,
 		spellID = spellID,
 		duration = minutes > 0 and minutes * 60 or nil,
 		knownID = knownID or spellID,
@@ -1172,6 +1180,9 @@ local function MetaReminderRow(spellID, minutes, knownID, petBook, castID, opts)
 	}
 	META_REMINDER_DEFS[#META_REMINDER_DEFS + 1] = def
 	metaReminderDefsBySpellID[spellID] = def
+	if offerSlot then
+		metaReminderOfferSlots[offerSlot] = true
+	end
 end
 
 -- Load-time only (RALT-03, Phase 57.5): every listed row's def.alternatives becomes a fresh array
@@ -1246,6 +1257,8 @@ MetaReminderRow(10174, 10) -- Mage: Dampen Magic (MREM-15; situational) (unverif
 MetaReminderRow(18788, 120, nil, nil, nil, { auraID = 18789 }) -- Warlock: Demonic Sacrifice (MREM-13; the cast 18788 carries no buff, the row watches aura 18789; a click casts 18788) (unverified in game)
 -- Well-Rested (Phase 86, SBAG-01..04): the Cozy Sleeping Bag, offered while it is in the bags.
 MetaReminderRow(429959, 120, nil, nil, false, { offerItem = 211527, useItems = { { 211527, 1 } } }) -- General: Well-Rested (the Cozy Sleeping Bag 211527; offered while the bag is in the bags and loaded on every character, SBAG-02/03; no cast spell, a click uses the bag, CLICK-07; the bag only unfurls, the buff arrives after a minute of rest and stacks to 3, so the aura, not the click, hides the reminder)
+-- Headmaster's Charge (Phase 90, HCHG-01..04): the staff 13937, offered while it is equipped in the main hand.
+MetaReminderRow(18264, 15, nil, nil, false, { offerItem = 13937, offerSlot = 16 }) -- General: Headmaster's Charge (+20 Intellect party buff from the staff 13937, main hand, 10 min cooldown; offered while the staff is equipped, HCHG-02, and loaded on every character once placed, HCHG-03; no cast spell, a click uses main-hand slot 16 only while the staff is there, HCHG-04; anyone's staff applies 18264, so the aura hides it)
 
 -- The retail rows (user data 2026-09-30, MREM-04/MREM-05).
 -- Arcane Familiar trade-off: a cast of 1459 starts only the Arcane Intellect row (the cast index
@@ -1456,6 +1469,25 @@ function ns:ReminderUseItems(entry)
 	return def and def.useItems or nil
 end
 
+-- For a row with offerSlot (Headmaster's Charge), the slot click attribute built once at load
+-- (def.slotAttr) while offerItem is equipped in that slot, else nil; the second value is true so
+-- ReminderClick.lua's Flush counts it as an item reminder either way (HCHG-04). nil, false for every
+-- other entry, including a nil entry. One map read, plus one guarded call only for a slot row; no
+-- allocation. Never "item:<id>": for an unequipped staff that secure action would equip it.
+function ns:ReminderEquippedUse(entry)
+	if not entry or entry.trackerType ~= ns.KIND.META_REMINDER then
+		return nil, false
+	end
+	local def = metaReminderDefsBySpellID[entry.spellID]
+	if not (def and def.offerSlot) then
+		return nil, false
+	end
+	if ns:ItemEquippedInSlot(def.offerItem, def.offerSlot) then
+		return def.slotAttr, true
+	end
+	return nil, true
+end
+
 -- Whether a click on a reminder should force the player as the cast unit: nil for the ally-cast
 -- rows (Symbiotic Relationship, Source of Magic), "player" for everything else (Phase 63 self-cast).
 -- Called by ReminderClick.lua's flush; nil leaves the overlay's unit unset so the game's default
@@ -1531,6 +1563,10 @@ end
 -- (every CDM open, every drag), and a BAG_UPDATE while the CDM is open already redraws through
 -- ns:MarkItemCatalogueDirty; ns:IsSuggestedKeyResolvable's memo covers only ns.SUGGESTED_KEYS. So
 -- the offer follows the bag arriving or leaving with no new event hook.
+-- A row with offerSlot (Headmaster's Charge) is offered while the item is equipped in that slot
+-- (HCHG-02). Core's PLAYER_EQUIPMENT_CHANGED branch redraws through ns:MarkItemCatalogueDirty for
+-- that slot, because BAG_UPDATE is not ordered after the slot update and does not fire for a change
+-- that touches no bag.
 local metaReminderSuggestionKeys = {}
 
 -- Whether the bags hold at least one of the item: the one guarded count read shared by the
@@ -1544,12 +1580,36 @@ function ns:ItemInBags(itemID)
 	return ok and not issecretvalue(count) and type(count) == "number" and count > 0
 end
 
+-- Whether the item is equipped in the inventory slot: the one guarded equipped read shared by the
+-- Suggested offer (HCHG-02) and ReminderClick.lua's Flush through ns:ReminderEquippedUse (HCHG-04).
+-- A missing API, a failed call or a secret or non-number item ID all mean no. Never called per
+-- frame; no allocation.
+function ns:ItemEquippedInSlot(itemID, slot)
+	if not GetInventoryItemID then
+		return false
+	end
+	local ok, equipped = pcall(GetInventoryItemID, "player", slot)
+	return ok and not issecretvalue(equipped) and type(equipped) == "number" and equipped == itemID
+end
+
+-- Whether an offer row asks this inventory slot: one table read. Read by Core's
+-- PLAYER_EQUIPMENT_CHANGED branch; the set is empty on retail, so it is false for every slot there.
+function ns:IsMetaReminderOfferSlot(slot)
+	if issecretvalue(slot) or type(slot) ~= "number" then
+		return false
+	end
+	return metaReminderOfferSlots[slot] == true
+end
+
 function ns:MetaReminderSuggestionKeys()
 	wipe(metaReminderSuggestionKeys)
 	for _, def in ipairs(META_REMINDER_DEFS) do
-		-- SBAG-02: an item-offered row asks the bags; every other row asks the known spell.
+		-- SBAG-02/HCHG-02: an item-offered row asks the bags, or the equipped slot when it names one;
+		-- every other row asks the known spell.
 		local offered
-		if def.offerItem then
+		if def.offerSlot then
+			offered = ns:ItemEquippedInSlot(def.offerItem, def.offerSlot)
+		elseif def.offerItem then
 			offered = ns:ItemInBags(def.offerItem)
 		else
 			offered = ns:ResolveSpellKnown(def.knownID, false) == true

@@ -3,9 +3,10 @@
 -- One pooled SecureActionButtonTemplate button per clickable reminder icon.
 -- A click casts on the player, except the ally-cast rows (ns:ReminderCastUnit), which leave the
 -- unit unset so the game's default targeting applies.
--- Two reminders use an item instead of casting: the familiar scroll (the first usable scroll in
--- the bags) and the sleeping bag (the Cozy Sleeping Bag when it is in the bags); their overlay's
--- type1 is "item" (CLICK-07).
+-- Three reminders use an item instead of casting: the familiar scroll (the first usable scroll in
+-- the bags), the sleeping bag (the Cozy Sleeping Bag when it is in the bags) and Headmaster's
+-- Charge (main-hand slot "16", only while the staff is equipped there; never "item:13937", which
+-- would equip it); their overlay's type1 is "item" (CLICK-07, HCHG-04).
 -- Invariants:
 --   1. An overlay is never anchored to a TBT frame (only to UIParent, in screen
 --      coordinates), so TBT's display tree never becomes protected.
@@ -199,11 +200,14 @@ local function Flush()
 			end
 			local castName = castID and ResolveCastName(castID)
 			-- CLICK-07: an item reminder (the familiar scrolls) clicks the first usable scroll.
+			-- HCHG-04: an equipped-slot reminder (Headmaster's Charge) clicks its slot, only while the
+			-- item is equipped there; otherwise it gets no overlay and no skip.
 			local useItems = entry and ns:ReminderUseItems(entry)
-			if useItems then
+			local slotAttr, usesSlot = ns:ReminderEquippedUse(entry)
+			if useItems or usesSlot then
 				sawItemReminder = true
 			end
-			local itemAttr = useItems and PickUseItem(useItems)
+			local itemAttr = useItems and PickUseItem(useItems) or slotAttr
 			if castName or itemAttr then
 				local overlay = overlays[used + 1] or CreateOverlay()
 				if Place(overlay, icon, castName, itemAttr, ns:ReminderCastUnit(entry)) then
@@ -222,6 +226,8 @@ local function Flush()
 	end
 	-- Review 81 WR-01: Core's BAG_UPDATE_DELAYED branch re-marks only while a shown reminder uses an
 	-- item (the familiar), so a bag change costs every other character nothing, exactly as before.
+	-- Also true while a shown reminder uses an equipped slot (HCHG-04), so Core's
+	-- PLAYER_EQUIPMENT_CHANGED branch re-marks too.
 	ns.reminderItemClickActive = sawItemReminder
 	if skipped > 0 and not retrySpent and not retryScheduled then
 		retrySpent = true

@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.5.7
-milestone_name: "Sleeping bag and some more"
+milestone: v0.5.8
+milestone_name: "Headmaster's Charge reminder"
 status: complete
-last_updated: "2026-11-10"
-last_activity: 2026-11-10 — v0.5.7 archived (audit passed) and squash-merged to main; release by the user
+last_updated: "2026-11-26"
+last_activity: 2026-11-26 — v0.5.8 archived (audit passed), squash-merged to main, released as v0.5.8
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 4
-  completed_plans: 4
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 1
+  completed_plans: 1
   percent: 100
 ---
 
@@ -17,23 +17,28 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-10)
+See: .planning/PROJECT.md (updated 2026-11-26)
 
 **Core value:** Players can see countdown timers for buffs/cooldowns that the game no longer surfaces automatically.
-**Current focus:** v0.5.7 shipped and archived 2026-11-10, squash-merged to `main`. Next: the user writes the CHANGELOG entry and runs `release.bat 0.5.7` from `main`; then `/gsd-new-milestone` (phases continue at 90).
+**Current focus:** v0.5.8 shipped and archived 2026-11-26, squash-merged to `main` and released (`release.bat 0.5.8`, at the user's request). Next: `/gsd-new-milestone` (phases continue at 94).
 
 ## Current Position
 
-Phase: 89 — Testing Pass (complete)
-Plan: none; see `.planning/milestones/v0.5.7-phases/89-testing-pass/89-SUMMARY.md`
-Status: Milestone audit PASSED (`.planning/v0.5.7-MILESTONE-AUDIT.md`). The sleeping bag verified
-in game; the paladin aura and hunter aspect rows ship on community feedback.
-Last activity: 2026-11-10 — milestone archived and squash-merged
+Phase: 93 — Release Review (complete)
+Plan: none; see `.planning/milestones/v0.5.8-phases/93-release-review/93-SUMMARY.md`
+Status: Milestone audit PASSED (`.planning/v0.5.8-MILESTONE-AUDIT.md`). Every check verified in
+game on Forever.
+Last activity: 2026-11-26 — milestone archived, squash-merged and released
 
-Progress: [██████████] 100% (5/5 phases)
+Progress: [██████████] 100% (4/4 phases)
 
-- Branch: `milestone/v0.5.7-sleeping-bag-and-more`, cut from `main` (`ed54e01`) on 2026-11-10.
-- Phases started at **86**; the next milestone starts at **90** (numbering never restarts).
+- v0.5.8 (shipped 2026-11-26): branch `milestone/v0.5.8-headmasters-charge`, phases 90-93.
+- Phases started at **90**; the next milestone starts at **94** (numbering never restarts).
+- v0.5.8's phase directories are archived at `.planning/milestones/v0.5.8-phases/`.
+- Every milestone ends with a **Release Review** phase: README + CHANGELOG drafted by agents, the
+  user reviews them as the last step (PROJECT.md → Milestone Close-out). No CHANGELOG edits before
+  it. CHANGELOG bullets fill up to 70 columns.
+- v0.5.7 (shipped 2026-11-10): branch `milestone/v0.5.7-sleeping-bag-and-more`, phases 86-89.
 - v0.5.7's phase directories are archived at `.planning/milestones/v0.5.7-phases/`.
 - Forever IDs and `wowhead.com/forever/` links only — never Classic's (user, 2026-11-09).
 - Paladin aura IDs: Forever and retail rows never share an ID (user, 2026-11-10); every row is
@@ -49,7 +54,13 @@ Progress: [██████████] 100% (5/5 phases)
 
 ## Last Milestone at a Glance
 
-v0.5.7 Sleeping bag and some more: a Forever Well-Rested reminder offered while the Cozy Sleeping
+v0.5.8 Headmaster's Charge reminder: a Forever reminder for the staff's party Intellect buff,
+offered while the staff is equipped, loaded on every character, whose click uses main-hand slot 16
+only while the staff is there (verified in game). 8 of 8 requirements. Full record:
+`.planning/MILESTONES.md` (v0.5.8 entry), `.planning/milestones/v0.5.8-ROADMAP.md`,
+`.planning/v0.5.8-MILESTONE-AUDIT.md`.
+
+**Before:** v0.5.7 Sleeping bag and some more: a Forever Well-Rested reminder offered while the Cozy Sleeping
 Bag is in the bags, loaded on every character, whose click uses the bag (verified in game); one
 reminder per paladin aura on Forever and retail and one per Forever hunter aspect, each grouped so
 any one up hides the rest. 13 of 13 requirements. Full record: `.planning/MILESTONES.md` (v0.5.7

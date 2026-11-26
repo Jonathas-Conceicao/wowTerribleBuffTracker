@@ -1,5 +1,21 @@
 # Milestones
 
+## v0.5.8 Headmaster's Charge reminder (Shipped: 2026-11-26)
+
+**Scope:** A Forever reminder for Headmaster's Charge's party Intellect buff, offered while the staff is equipped, whose click uses the equipped staff. A patch. The first milestone closing with a Release Review (README and CHANGELOG drafted by agents, reviewed by the user).
+**Phases:** 4 (90-93), 1 plan; Phase 92 was the user's in-game pass, Phase 93 the Release Review.
+**Timeline:** 1 day (2026-11-26), 19 commits before the close. Outside `.planning/`: 7 files, +167 / -11.
+**Verified on:** WoW Forever, by the user: every check (offer, reminder, click with and without the staff).
+**Requirements:** 8 / 8 closed.
+**Known deferred items at close:** none. See `milestones/v0.5.8-ROADMAP.md`.
+
+### Key accomplishments
+
+- **Headmaster's Charge reminder (Forever).** Buff 18264 (15 min), offered in Suggested only while the staff (13937) is in the main hand (`offerSlot`, an equipped-item check); loaded on every Forever character once placed.
+- **Equipped-slot click.** A click uses slot `"16"` only while the staff is there, so it can never equip the staff from the bags; the overlay and offer follow PLAYER_EQUIPMENT_CHANGED for that slot. Checked against both retail and WoWUI `forever-beta` secure templates.
+- **Doc check.** `scripts/reminders-doc-check.js` collects `offerItem` IDs and validates `offerSlot`.
+- **Release Review setup.** CLAUDE.md and PROJECT.md (Milestone Close-out) adopt TerribleGroupFinder's setup: agents draft README and CHANGELOG, the user reviews them last.
+
 ## v0.5.7 Sleeping bag and some more (Shipped: 2026-11-10)
 
 **Scope:** A Forever Well-Rested reminder whose click uses the Cozy Sleeping Bag, one reminder per paladin aura on Forever and retail, and (added mid-milestone by the user) one reminder per Forever hunter aspect. A patch: no major feature.

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.8 — Headmaster's Charge reminder
+
+### New Features
+- Headmaster's Charge reminder (Forever): suggested while the staff is
+  equipped; clicking it uses the staff if it's equipped
+
 ## v0.5.7 — Sleeping bag and some more
 
 ### New Features
